@@ -835,23 +835,11 @@ class MainActivity : ComponentActivity() {
                         if (navBackStackEntry?.destination?.route?.startsWith("search/") == true) {
                             val searchQuery =
                                 withContext(Dispatchers.IO) {
-                                    if (navBackStackEntry
-                                            ?.arguments
-                                            ?.getString(
-                                                "query",
-                                            )!!
-                                            .contains(
-                                                "%",
-                                            )
-                                    ) {
-                                        navBackStackEntry?.arguments?.getString(
-                                            "query",
-                                        )!!
+                                    val rawQuery = navBackStackEntry?.arguments?.getString("query").orEmpty()
+                                    if (rawQuery.contains("%")) {
+                                        rawQuery
                                     } else {
-                                        URLDecoder.decode(
-                                            navBackStackEntry?.arguments?.getString("query")!!,
-                                            "UTF-8"
-                                        )
+                                        URLDecoder.decode(rawQuery, "UTF-8")
                                     }
                                 }
                             onQueryChange(

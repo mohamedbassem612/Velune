@@ -1115,7 +1115,7 @@ fun OnlinePlaylistScreen(
                                     songSelection =
                                         wrappedSongs
                                             .filter { it.isSelected }
-                                            .map { it.item.second.toMediaItem().metadata!! },
+                                            .mapNotNull { it.item.second.toMediaItem().metadata },
                                     onDismiss = menuState::dismiss,
                                     clearAction = { selection = false },
                                     currentItems = emptyList()

@@ -385,7 +385,7 @@ fun Queue(
         val mutableQueueWindows = remember { mutableStateListOf<Timeline.Window>() }
         val queueLength by remember {
             derivedStateOf {
-                queueWindows.sumOf { it.mediaItem.metadata!!.duration }
+                queueWindows.sumOf { it.mediaItem.metadata?.duration ?: 0 }
             }
         }
 
@@ -604,6 +604,7 @@ fun Queue(
                     items = mutableQueueWindows,
                     key = { _, item -> item.uid.hashCode() },
                 ) { index, window ->
+                    val windowMetadata = window.mediaItem.metadata ?: return@itemsIndexed
                     ReorderableItem(
                         state = reorderableState,
                         key = window.uid.hashCode(),
@@ -661,8 +662,8 @@ fun Queue(
                                 }
 
                                 MediaMetadataListItem(
-                                    mediaMetadata = window.mediaItem.metadata!!,
-                                    isSelected = selection && window.mediaItem.metadata!! in selectedSongs,
+                                    mediaMetadata = windowMetadata,
+                                    isSelected = selection && windowMetadata in selectedSongs,
                                     isActive = isActive,
                                     isPlaying = isPlaying && isActive,
                                     shouldLoadImage = shouldLoadImages,
@@ -671,7 +672,7 @@ fun Queue(
                                             onClick = {
                                                 menuState.show {
                                                     PlayerMenu(
-                                                        mediaMetadata = window.mediaItem.metadata!!,
+                                                        mediaMetadata = windowMetadata,
                                                         navController = navController,
                                                         playerBottomSheetState = playerBottomSheetState,
                                                         isQueueTrigger = true,
@@ -716,11 +717,11 @@ fun Queue(
                                         .combinedClickable(
                                             onClick = {
                                                 if (selection) {
-                                                    if (window.mediaItem.metadata!! in selectedSongs) {
-                                                        selectedSongs.remove(window.mediaItem.metadata!!)
+                                                    if (windowMetadata in selectedSongs) {
+                                                        selectedSongs.remove(windowMetadata)
                                                         selectedItems.remove(currentItem)
                                                     } else {
-                                                        selectedSongs.add(window.mediaItem.metadata!!)
+                                                        selectedSongs.add(windowMetadata)
                                                         selectedItems.add(currentItem)
                                                     }
                                                 } else {
@@ -764,7 +765,7 @@ fun Queue(
                                                     selection = true
                                                 }
                                                 selectedSongs.clear() // Clear all selections
-                                                selectedSongs.add(window.mediaItem.metadata!!) // Select current item
+                                                selectedSongs.add(windowMetadata) // Select current item
                                             },
                                         ),
                                 )
@@ -800,11 +801,12 @@ fun Queue(
                         items = automix,
                         key = { _, it -> it.mediaId },
                     ) { index, item ->
+                        val itemMetadata = item.metadata ?: return@itemsIndexed
                         Row(
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             MediaMetadataListItem(
-                                mediaMetadata = item.metadata!!,
+                                mediaMetadata = itemMetadata,
                                 trailingContent = {
                                     IconButton(
                                         onClick = {
@@ -841,7 +843,7 @@ fun Queue(
                                         onLongClick = {
                                             menuState.show {
                                                 PlayerMenu(
-                                                    mediaMetadata = item.metadata!!,
+                                                    mediaMetadata = itemMetadata,
                                                     navController = navController,
                                                     playerBottomSheetState = playerBottomSheetState,
                                                     isQueueTrigger = true,
@@ -905,10 +907,11 @@ fun Queue(
                                 selectedItems.clear()
                             } else {
                                 queueWindows
-                                    .filter { it.mediaItem.metadata!! !in selectedSongs }
-                                    .forEach {
-                                        selectedSongs.add(it.mediaItem.metadata!!)
-                                        selectedItems.add(it)
+                                    .mapNotNull { w -> w.mediaItem.metadata?.let { m -> w to m } }
+                                    .filter { (_, m) -> m !in selectedSongs }
+                                    .forEach { (w, m) ->
+                                        selectedSongs.add(m)
+                                        selectedItems.add(w)
                                     }
                             }
                         },

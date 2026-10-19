@@ -132,7 +132,7 @@ open class DiscordWebSocket(
     open fun Payload.handleDispatch() {
         when (this.t.toString()) {
             "READY" -> {
-                val ready = json.decodeFromJsonElement<Ready>(this.d!!)
+                val ready = json.decodeFromJsonElement<Ready>(this.d ?: return)
                 sessionId = ready.sessionId
                 resumeGatewayUrl = ready.resumeGatewayUrl + "/?v=10&encoding=json"
                 Logger.getLogger("Kizzy").log(INFO, "Gateway: resume_gateway_url updated to $resumeGatewayUrl")
@@ -162,7 +162,7 @@ open class DiscordWebSocket(
         } else {
             sendIdentify()
         }
-        heartbeatInterval = json.decodeFromJsonElement<Heartbeat>(this.d!!).heartbeatInterval
+        heartbeatInterval = json.decodeFromJsonElement<Heartbeat>(this.d ?: return).heartbeatInterval
         Logger.getLogger("Kizzy").log(INFO, "Gateway: Setting heartbeatInterval= $heartbeatInterval")
         startHeartbeatJob(heartbeatInterval)
     }

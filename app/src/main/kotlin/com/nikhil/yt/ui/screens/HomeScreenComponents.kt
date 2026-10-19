@@ -809,7 +809,7 @@ fun SimilarRecommendationsTitle(
         },
         onClick = {
             when (recommendation.title) {
-                is Song -> navController.navigate("album/${recommendation.title.album!!.id}")
+                is Song -> recommendation.title.album?.id?.let { navController.navigate("album/$it") }
                 is Album -> navController.navigate("album/${recommendation.title.id}")
                 is Artist -> navController.navigate("artist/${recommendation.title.id}")
                 is Playlist -> {}

@@ -258,7 +258,7 @@ fun AutoPlaylistScreen(
                 TextButton(
                     onClick = {
                         showRemoveDownloadDialog = false
-                        songs!!.forEach { song ->
+                        songs.orEmpty().forEach { song ->
                             DownloadService.sendRemoveDownload(
                                 context,
                                 ExoDownloadService::class.java,
@@ -480,7 +480,7 @@ fun AutoPlaylistScreen(
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
             if (songs != null) {
-                if (songs!!.isEmpty()) {
+                if (songs.orEmpty().isEmpty()) {
                     item {
                         EmptyPlaceholder(
                             icon = R.drawable.music_note,
@@ -511,7 +511,7 @@ fun AutoPlaylistScreen(
                                         )
                                 ) {
                                     AsyncImage(
-                                        model = songs!!.firstOrNull()?.song?.thumbnailUrl,
+                                        model = songs.orEmpty().firstOrNull()?.song?.thumbnailUrl,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
@@ -547,8 +547,8 @@ fun AutoPlaylistScreen(
                                         Text(
                                             text = pluralStringResource(
                                                 R.plurals.n_song,
-                                                songs!!.size,
-                                                songs!!.size
+                                                songs.orEmpty().size,
+                                                songs.orEmpty().size
                                             ),
                                             style = MaterialTheme.typography.labelMedium,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -584,7 +584,7 @@ fun AutoPlaylistScreen(
                                                     showRemoveDownloadDialog = true
                                                 }
                                                 Download.STATE_DOWNLOADING -> {
-                                                    songs!!.forEach { song ->
+                                                    songs.orEmpty().forEach { song ->
                                                         DownloadService.sendRemoveDownload(
                                                             context,
                                                             ExoDownloadService::class.java,
@@ -594,7 +594,7 @@ fun AutoPlaylistScreen(
                                                     }
                                                 }
                                                 else -> {
-                                                    songs!!.forEach { song ->
+                                                    songs.orEmpty().forEach { song ->
                                                         val downloadRequest =
                                                             DownloadRequest
                                                                 .Builder(
@@ -652,7 +652,7 @@ fun AutoPlaylistScreen(
                                             playerConnection.playQueue(
                                                 ListQueue(
                                                     title = playlist,
-                                                    items = songs!!.map { it.toMediaItem() },
+                                                    items = songs.orEmpty().map { it.toMediaItem() },
                                                 ),
                                             )
                                         },
@@ -674,7 +674,7 @@ fun AutoPlaylistScreen(
                                             playerConnection.playQueue(
                                                 ListQueue(
                                                     title = playlist,
-                                                    items = songs!!.shuffled().map { it.toMediaItem() },
+                                                    items = songs.orEmpty().shuffled().map { it.toMediaItem() },
                                                 ),
                                             )
                                         },
@@ -694,7 +694,7 @@ fun AutoPlaylistScreen(
                                     Surface(
                                         onClick = {
                                             playerConnection.addToQueue(
-                                                items = songs!!.map { it.toMediaItem() },
+                                                items = songs.orEmpty().map { it.toMediaItem() },
                                             )
                                         },
                                         shape = CircleShape,
@@ -784,8 +784,8 @@ fun AutoPlaylistScreen(
                                                 playerConnection.playQueue(
                                                     ListQueue(
                                                         title = playlist,
-                                                        items = songs!!.map { it.toMediaItem() },
-                                                        startIndex = songs!!.indexOfFirst { it.id == songWrapper.item.id }
+                                                        items = songs.orEmpty().map { it.toMediaItem() },
+                                                        startIndex = songs.orEmpty().indexOfFirst { it.id == songWrapper.item.id }
                                                     ),
                                                 )
                                             }

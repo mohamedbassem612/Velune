@@ -101,7 +101,7 @@ class TogetherOnlineApi(
                 }
             }
         }
-        throw lastException!!
+        throw lastException ?: IllegalStateException("Request failed")
     }
 
     private fun isRetryable(t: Throwable): Boolean {
