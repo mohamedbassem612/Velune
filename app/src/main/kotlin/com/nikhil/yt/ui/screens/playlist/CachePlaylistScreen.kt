@@ -112,6 +112,7 @@ import com.nikhil.yt.ui.menu.SelectionSongMenu
 import com.nikhil.yt.ui.menu.SongMenu
 import com.nikhil.yt.ui.theme.PlayerColorExtractor
 import com.nikhil.yt.ui.utils.ItemWrapper
+import com.nikhil.yt.ui.utils.rememberWrappedItems
 import com.nikhil.yt.ui.utils.backToMain
 import com.nikhil.yt.utils.rememberEnumPreference
 import com.nikhil.yt.utils.rememberPreference
@@ -143,7 +144,7 @@ fun CachePlaylistScreen(
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val (disableBlur) = rememberPreference(DisableBlurKey, false)
 
-    val wrappedSongs = remember(cachedSongs, sortType, sortDescending) {
+    val sortedCachedSongs = remember(cachedSongs, sortType, sortDescending) {
         val sortedSongs = when (sortType) {
             SongSortType.CREATE_DATE -> cachedSongs.sortedBy { it.song.dateDownload ?: LocalDateTime.MIN }
             SongSortType.NAME -> cachedSongs.sortedBy { it.song.title }
@@ -153,8 +154,9 @@ fun CachePlaylistScreen(
             SongSortType.PLAY_TIME -> cachedSongs.sortedBy { it.song.totalPlayTime }
         }.let { if (sortDescending) it.reversed() else it }
 
-        sortedSongs.map { song -> ItemWrapper(song) }
-    }.toMutableStateList()
+        sortedSongs
+    }
+    val wrappedSongs = rememberWrappedItems(sortedCachedSongs) { it.id }
 
     var selection by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }

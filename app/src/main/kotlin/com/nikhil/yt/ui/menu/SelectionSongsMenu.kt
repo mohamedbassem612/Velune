@@ -214,21 +214,16 @@ fun SelectionSongMenu(
                     NewAction(
                         icon = {
                             Icon(
-                                painter = painterResource(R.drawable.play),
+                                painter = painterResource(R.drawable.playlist_play),
                                 contentDescription = null,
                                 modifier = Modifier.size(28.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
-                        text = stringResource(R.string.play),
+                        text = stringResource(R.string.play_next),
                         onClick = {
                             onDismiss()
-                            playerConnection.playQueue(
-                                ListQueue(
-                                    title = "Selection",
-                                    items = songSelection.map { it.toMediaItem() },
-                                ),
-                            )
+                            playerConnection.playNext(songSelection.map { it.toMediaItem() })
                             clearAction()
                         }
                     ),
@@ -340,43 +335,6 @@ fun SelectionSongMenu(
                 },
                 modifier = Modifier.clickable {
                     showChoosePlaylistDialog = true
-                }
-            )
-        }
-        item {
-            ListItem(
-                headlineContent = {
-                    Text(
-                        text = stringResource(
-                            if (allInLibrary) R.string.remove_from_library else R.string.add_to_library
-                        )
-                    )
-                },
-                leadingContent = {
-                    Icon(
-                        painter = painterResource(
-                            if (allInLibrary) R.drawable.library_add_check else R.drawable.library_add
-                        ),
-                        contentDescription = null,
-                    )
-                },
-                modifier = Modifier.clickable {
-                    onDismiss()
-                    if (allInLibrary) {
-                        database.query {
-                            songSelection.forEach { song ->
-                                update(song.song.toggleLibrary())
-                            }
-                        }
-                    } else {
-                        database.transaction {
-                            songSelection.forEach { song ->
-                                insert(song.toMediaMetadata())
-                                inLibrary(song.id, LocalDateTime.now())
-                            }
-                        }
-                    }
-                    clearAction()
                 }
             )
         }

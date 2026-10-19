@@ -132,6 +132,7 @@ import com.nikhil.yt.ui.component.LocalMenuState
 import com.nikhil.yt.ui.component.MediaMetadataListItem
 import com.nikhil.yt.ui.menu.PlayerMenu
 import com.nikhil.yt.ui.menu.SelectionMediaMetadataMenu
+import com.nikhil.yt.ui.menu.QueueSelectionBar
 import com.nikhil.yt.ui.utils.ShowMediaInfo
 import com.nikhil.yt.utils.makeTimeString
 import com.nikhil.yt.utils.rememberEnumPreference
@@ -765,7 +766,9 @@ fun Queue(
                                                     selection = true
                                                 }
                                                 selectedSongs.clear() // Clear all selections
+                                                selectedItems.clear()
                                                 selectedSongs.add(windowMetadata) // Select current item
+                                                selectedItems.add(currentItem)
                                             },
                                         ),
                                 )
@@ -1011,6 +1014,49 @@ fun Queue(
                     modifier = Modifier.alpha(if (repeatMode == Player.REPEAT_MODE_OFF) 0.5f else 1f),
                 )
             }
+        }
+
+        AnimatedVisibility(
+            visible = selection,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+            modifier =
+            Modifier
+                .padding(
+                    bottom =
+                    ListItemHeight +
+                            WindowInsets.systemBars
+                                .asPaddingValues()
+                                .calculateBottomPadding(),
+                )
+                .align(Alignment.BottomCenter),
+        ) {
+            QueueSelectionBar(
+                songSelection = selectedSongs,
+                currentItems = selectedItems,
+                allSelected = selectedSongs.size == mutableQueueWindows.size,
+                canRemove = !togetherForcesLock,
+                onSelectAll = {
+                    if (selectedSongs.size == mutableQueueWindows.size) {
+                        selectedSongs.clear()
+                        selectedItems.clear()
+                    } else {
+                        selectedSongs.clear()
+                        selectedItems.clear()
+                        mutableQueueWindows.forEach { w ->
+                            w.mediaItem.metadata?.let { m ->
+                                selectedSongs.add(m)
+                                selectedItems.add(w)
+                            }
+                        }
+                    }
+                },
+                onFinish = {
+                    selection = false
+                    selectedSongs.clear()
+                    selectedItems.clear()
+                },
+            )
         }
 
         SnackbarHost(

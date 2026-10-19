@@ -74,6 +74,7 @@ import com.nikhil.yt.ui.component.SortHeader
 import com.nikhil.yt.ui.menu.SelectionSongMenu
 import com.nikhil.yt.ui.menu.SongMenu
 import com.nikhil.yt.ui.utils.ItemWrapper
+import com.nikhil.yt.ui.utils.rememberWrappedItems
 import com.nikhil.yt.utils.rememberEnumPreference
 import com.nikhil.yt.utils.rememberPreference
 import com.nikhil.yt.viewmodels.LibrarySongsViewModel
@@ -116,7 +117,7 @@ fun LibrarySongsScreen(
         }
     }
 
-    val wrappedSongs = songs.map { item -> ItemWrapper(item) }.toMutableList()
+    val wrappedSongs = rememberWrappedItems(songs) { it.id }
     var selection by remember {
         mutableStateOf(false)
     }

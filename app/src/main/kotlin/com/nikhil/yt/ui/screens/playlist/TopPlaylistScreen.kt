@@ -120,6 +120,7 @@ import com.nikhil.yt.ui.menu.SelectionSongMenu
 import com.nikhil.yt.ui.menu.SongMenu
 import com.nikhil.yt.ui.theme.PlayerColorExtractor
 import com.nikhil.yt.ui.utils.ItemWrapper
+import com.nikhil.yt.ui.utils.rememberWrappedItems
 import com.nikhil.yt.ui.utils.backToMain
 import com.nikhil.yt.utils.makeTimeString
 import com.nikhil.yt.utils.rememberPreference
@@ -148,9 +149,7 @@ fun TopPlaylistScreen(
         songs?.fastSumBy { it.song.duration } ?: 0
     }
 
-    val wrappedSongs = remember(songs) {
-        songs?.map { item -> ItemWrapper(item) }?.toMutableStateList() ?: mutableStateListOf()
-    }
+    val wrappedSongs = rememberWrappedItems(songs) { it.id }
 
     var isSearching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf(TextFieldValue()) }

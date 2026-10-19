@@ -164,6 +164,7 @@ import com.nikhil.yt.ui.menu.SongMenu
 import com.nikhil.yt.ui.screens.playlist.PlaylistSuggestionsSection
 import com.nikhil.yt.ui.theme.PlayerColorExtractor
 import com.nikhil.yt.ui.utils.ItemWrapper
+import com.nikhil.yt.ui.utils.rememberWrappedItems
 import com.nikhil.yt.ui.utils.backToMain
 import com.nikhil.yt.ui.utils.formatCompactCount
 import com.nikhil.yt.utils.makeTimeString
@@ -251,9 +252,7 @@ fun LocalPlaylistScreen(
 
     var selection by remember { mutableStateOf(false) }
 
-    val wrappedSongs = remember(filteredSongs) {
-        filteredSongs.map { item -> ItemWrapper(item) }
-    }.toMutableStateList()
+    val wrappedSongs = rememberWrappedItems(filteredSongs) { it.map.id }
 
     if (isSearching) {
         BackHandler {

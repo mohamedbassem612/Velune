@@ -123,6 +123,7 @@ import com.nikhil.yt.ui.menu.SongMenu
 import com.nikhil.yt.ui.menu.YouTubeAlbumMenu
 import com.nikhil.yt.ui.theme.PlayerColorExtractor
 import com.nikhil.yt.ui.utils.ItemWrapper
+import com.nikhil.yt.ui.utils.rememberWrappedItems
 import com.nikhil.yt.ui.utils.backToMain
 import com.nikhil.yt.utils.makeTimeString
 import com.nikhil.yt.utils.rememberPreference
@@ -199,14 +200,14 @@ fun AlbumScreen(
         }
     }
 
-    val wrappedSongs = remember(albumWithSongs, hideExplicit) {
-        val filteredSongs = if (hideExplicit) {
+    val albumSongsForSelection = remember(albumWithSongs, hideExplicit) {
+        if (hideExplicit) {
             albumWithSongs?.songs?.filter { !it.song.explicit } ?: emptyList()
         } else {
             albumWithSongs?.songs ?: emptyList()
         }
-        filteredSongs.map { item -> ItemWrapper(item) }.toMutableStateList()
     }
+    val wrappedSongs = rememberWrappedItems(albumSongsForSelection) { it.id }
 
     var selection by remember { mutableStateOf(false) }
 
