@@ -269,13 +269,14 @@ class HomeViewModel @Inject constructor(
     }
 
     fun toggleChip(chip: HomePage.Chip?) {
-        if (chip == null || chip == selectedChip.value && previousHomePage.value != null) {
+        if (chip == null || (chip == selectedChip.value && previousHomePage.value != null)) {
             homePage.value = previousHomePage.value
             previousHomePage.value = null
             selectedChip.value = null
             return
         }
 
+        val originalHomePage = previousHomePage.value ?: homePage.value
         if (selectedChip.value == null) {
             previousHomePage.value = homePage.value
         }
@@ -283,10 +284,16 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideo = context.dataStore.get(HideVideoKey, false)
-            val nextSections = YouTube.home(params = chip?.endpoint?.params).getOrNull() ?: return@launch
+            val nextSections = YouTube.home(params = chip.endpoint?.params).getOrNull()
+            if (nextSections == null) {
+                if (selectedChip.value == null) {
+                    previousHomePage.value = null
+                }
+                return@launch
+            }
 
             homePage.value = nextSections.copy(
-                chips = homePage.value?.chips,
+                chips = nextSections.chips ?: homePage.value?.chips ?: originalHomePage?.chips,
                 sections = nextSections.sections.map { section ->
                     section.copy(items = section.items.filterExplicit(hideExplicit).filterVideo(hideVideo))
                 }

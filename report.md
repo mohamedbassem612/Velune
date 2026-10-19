@@ -241,15 +241,30 @@ All changes are ready to commit. The repo includes:
 
 No breaking changes to public APIs or data structures.
 
-## 12. Next Steps (For Future Sessions)
+## 13. Mood / Category Chips Suggestions Bug Fix (October 20, 2026)
 
-1. **Merge and release**: Commit all changes, build signed APK, test on live device.
-2. **Download feature**: Implement saving to Music/Velune folder with duplicate detection.
-3. **Handle remaining !! safely**: Consider refactoring 86 remaining operators as needed.
-4. **Add logging to empty catch blocks**: Help diagnose future issues.
-5. **Pin NewPipeExtractor version**: Improve build reproducibility.
-6. **Move TestTTML.kt**: Clean up source structure.
+### Problem
+Tapping the mood / genre chips on the Home screen (e.g. *Relax*, *Sleep*, *Sad*, *Romance*, *Energy*) failed to bring up suggestions.
+
+### Root Cause
+1. **Silent InnerTube Crash (`YouTube.kt`)**: When querying filtered chips with `params`, YouTube often returns data directly in `response.contents.sectionListRenderer` rather than nesting under `singleColumnBrowseResultsRenderer.tabs[0]`. Because `singleColumnBrowseResultsRenderer` was null, `sectionListRender?.contents!!` threw a `NullPointerException`. Wrapped in `runCatching`, this silently failed and returned `null`, aborting `toggleChip()` without updating the state.
+2. **Missing UI Filtering (`HomeScreen.kt`)**: Even when suggestions were available, personal sections (*Quick Picks*, *Keep Listening*, *Account Playlists*, *Forgotten Favorites*, *Similar Recommendations*, *For You*, *Mood & Genres*) were not conditioned on `selectedChip == null`. They remained at the top of the feed, pushing the chip's suggestions below all personal content.
+3. **Chip Row Loss Risk (`HomeViewModel.kt`)**: When switching to filtered responses where YouTube omitted the chip header, the chips row could disappear or state transitions could become inconsistent on network failure.
+
+### Solution & Changes
+- **`innertube/src/main/kotlin/com/nikhil/yt/innertube/YouTube.kt`**:
+  - Added fallback resolution for `sectionListRenderer` from `response.contents?.sectionListRenderer` and `continuationContents`.
+  - Replaced `sectionListRender?.contents!!` with `sectionListRender?.contents.orEmpty()`.
+  - Safe-called `sectionListRender?.header?.chipCloudRenderer`.
+  - Also made `moodAndGenres()` null-safe by removing `contents!!`.
+- **`app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt`**:
+  - Added fallback for `chips` in `toggleChip()`: `nextSections.chips ?: homePage.value?.chips ?: originalHomePage?.chips`.
+  - Protected `previousHomePage` state from corruption if network query returns null.
+- **`app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt`**:
+  - Guarded personal home sections (*Quick Picks*, *Keep Listening*, *Account Playlists*, *Forgotten Favorites*, *Similar Recommendations*, *For You*, *Mood & Genres*) with `if (selectedChip == null)`.
+  - When a mood chip is active, its suggestions appear directly under the chips row.
+  - Tapping the chip again or pressing Back cleanly restores the standard home feed.
 
 ---
 
-**Session Summary**: Removed crash-prone null assertions, added selection UI for queuing and playlist management, and fixed the selection state bug that was resetting selections on data refresh. The queue and selection experience is now much more robust and user-friendly.
+**Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen.

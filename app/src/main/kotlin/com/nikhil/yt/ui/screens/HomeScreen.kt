@@ -311,6 +311,7 @@ fun HomeScreen(
                     }
                 }
 
+            if (selectedChip == null) {
                 quickPicks?.takeIf { it.isNotEmpty() }?.let { picks ->
             /*
                 item {
@@ -419,6 +420,7 @@ fun HomeScreen(
                 haptic = haptic,
                 scope = scope
             )
+            }
 
             homePage?.sections?.forEach { section ->
                 val isCommunity = section.title?.contains("community", ignoreCase = true) == true ||
@@ -470,40 +472,42 @@ fun HomeScreen(
                 }
             }
 
-            forYouSuggestions?.takeIf { it.isNotEmpty() }?.let { suggestions ->
-                item {
-                    ForYouSection(
-                        suggestions = suggestions,
-                        mediaMetadata = mediaMetadata,
-                        isPlaying = isPlaying,
-                        navController = navController,
-                        playerConnection = playerConnection,
-                        menuState = menuState,
-                        haptic = haptic,
-                        modifier = Modifier.animateItem()
-                    )
+            if (selectedChip == null) {
+                forYouSuggestions?.takeIf { it.isNotEmpty() }?.let { suggestions ->
+                    item {
+                        ForYouSection(
+                            suggestions = suggestions,
+                            mediaMetadata = mediaMetadata,
+                            isPlaying = isPlaying,
+                            navController = navController,
+                            playerConnection = playerConnection,
+                            menuState = menuState,
+                            haptic = haptic,
+                            modifier = Modifier.animateItem()
+                        )
+                    }
                 }
-            }
 
-            explorePage?.moodAndGenres?.let { genres ->
-                item {
-                    NavigationTitle(
-                        title = stringResource(R.string.mood_and_genres),
-                        onClick = { navController.navigate("mood_and_genres") },
-                        modifier = Modifier.animateItem()
-                    )
+                explorePage?.moodAndGenres?.let { genres ->
+                    item {
+                        NavigationTitle(
+                            title = stringResource(R.string.mood_and_genres),
+                            onClick = { navController.navigate("mood_and_genres") },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
+                    item {
+                        MoodAndGenresSection(
+                            moodAndGenres = genres,
+                            navController = navController
+                        )
+                    }
                 }
-                item {
-                    MoodAndGenresSection(
-                        moodAndGenres = genres,
-                        navController = navController
-                    )
-                }
-            }
 
-            if (isMoodAndGenresLoading) {
-                item {
-                    MoodAndGenresLoadingShimmer(modifier = Modifier.animateItem())
+                if (isMoodAndGenresLoading) {
+                    item {
+                        MoodAndGenresLoadingShimmer(modifier = Modifier.animateItem())
+                    }
                 }
             }
             }

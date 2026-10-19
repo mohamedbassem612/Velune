@@ -607,16 +607,22 @@ object YouTube {
         }
 
         val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_home", params = params, setLogin = true).body<BrowseResponse>()
-        val continuation = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
-            ?.tabRenderer?.content?.sectionListRenderer?.continuations?.getContinuation()
         val sectionListRender = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
             ?.tabRenderer?.content?.sectionListRenderer
-        val sections = sectionListRender?.contents!!
+            ?: response.contents?.sectionListRenderer
+
+        val continuation = sectionListRender?.continuations?.getContinuation()
+            ?: response.continuationContents?.sectionListContinuation?.continuations?.getContinuation()
+
+        val rawSections = sectionListRender?.contents
+            ?: response.continuationContents?.sectionListContinuation?.contents
+
+        val sections = rawSections.orEmpty()
             .mapNotNull { it.musicCarouselShelfRenderer }
             .mapNotNull {
                 HomePage.Section.fromMusicCarouselShelfRenderer(it)
             }.toMutableList()
-        val chips = sectionListRender.header?.chipCloudRenderer?.chips?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
+        val chips = sectionListRender?.header?.chipCloudRenderer?.chips?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
         HomePage(chips, sections, continuation)
     }
 
@@ -694,7 +700,9 @@ object YouTube {
 
     suspend fun moodAndGenres(): Result<List<MoodAndGenres>> = runCatching {
         val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_moods_and_genres").body<BrowseResponse>()
-        response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents!!
+        val sectionListRender = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer
+            ?: response.contents?.sectionListRenderer
+        sectionListRender?.contents.orEmpty()
             .mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
     }
 
