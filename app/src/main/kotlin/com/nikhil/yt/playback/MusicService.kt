@@ -193,6 +193,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -902,6 +903,7 @@ class MusicService :
             if (dataStore.get(PersistentQueueKey, true)) {
                 readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
                     ?.let { persistedQueue ->
+                    Timber.tag("MusicService").i("RESTORE queue items=${persistedQueue.items.size} index=${persistedQueue.mediaItemIndex} pos=${persistedQueue.position}")
                     val restoredQueue = persistedQueue.toQueue()
                     withContext(Dispatchers.Main) {
                         playQueue(
@@ -909,6 +911,7 @@ class MusicService :
                             playWhenReady = false,
                         )
                     }
+                    awaitRestoredItems()
                 }
                 readPersistentObject<PersistQueue>(PERSISTENT_AUTOMIX_FILE)
                     ?.let { persistedAutomix ->
@@ -4456,7 +4459,7 @@ class MusicService :
                         output.writeObject(payload)
                         output.flush()
                     }
-                    fos.fd.sync()
+                    runCatching { fos.fd.sync() }
                 }
 
                 if (persistentFile.exists() && !persistentFile.delete()) {
@@ -4470,6 +4473,19 @@ class MusicService :
                 reportException(it)
             }
         }
+    }
+
+    // playQueue loads items asynchronously, so the UI must not be told the restore is done
+    // until the player actually has items. Otherwise the mini player sees no current item and hides.
+    private suspend fun awaitRestoredItems(timeoutMs: Long = 5_000L) {
+        val finished = withTimeoutOrNull(timeoutMs) {
+            while (withContext(Dispatchers.Main) { player.mediaItemCount } == 0) {
+                delay(100)
+            }
+            true
+        }
+        val count = withContext(Dispatchers.Main) { player.mediaItemCount }
+        Timber.tag("MusicService").i("RESTORE wait finished=$finished playerItems=$count")
     }
 
     private suspend fun saveQueueToDisk() {
