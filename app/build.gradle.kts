@@ -98,7 +98,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            // Local test builds: without the release keystore, sign with the debug key so the
+            // release build can still be installed and its real speed measured.
+            signingConfig =
+                if (file("keystore/release.keystore").exists()) signingConfigs.getByName("release")
+                else signingConfigs.getByName("debug")
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -164,6 +168,7 @@ dependencies {
     implementation(libs.concurrent.futures)
 
     implementation(libs.activity)
+    implementation(libs.profileinstaller)
     implementation(libs.navigation)
     implementation(libs.hilt.navigation)
     implementation(libs.datastore)

@@ -106,7 +106,7 @@ class ForYouSuggestionEngine @Inject constructor(
         val allSongs = database.mostPlayedSongs(fromTimeStamp, limit = 100).first()
         val likedSongs = database.likedSongsByPlayTimeAsc().first()
         val skips = database.getAllSkips().first()
-        val recentEvents = database.events().first().take(20)
+        val recentEvents = database.recentEvents(20).first()
 
         val likedIds = likedSongs.map { it.id }.toSet()
         val recentIds = recentEvents.mapNotNull { it.song?.id }.toSet()

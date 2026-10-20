@@ -145,9 +145,12 @@ object CanvasArtworkPlaybackCache {
 
     private val mapSerializer = MapSerializer(String.serializer(), CanvasArtwork.serializer())
 
+    @Volatile private var loadedFromDisk = false
+
     fun init(context: Context) {
         cacheFile = File(context.filesDir, PERSIST_FILE)
-        loadFromDisk()
+        // Reading and parsing the JSON file used to block app startup on the main thread.
+        persistScope.launch { loadFromDisk() }
     }
 
     @Synchronized
@@ -205,27 +208,36 @@ object CanvasArtworkPlaybackCache {
 
     @Synchronized
     private fun loadFromDisk() {
-        val file = cacheFile ?: return
-        if (!file.exists()) return
+        val file = cacheFile
+        if (file == null || !file.exists()) {
+            loadedFromDisk = true
+            return
+        }
         try {
             val raw = file.readText()
             if (raw.isBlank()) return
             val restored = json.decodeFromString(mapSerializer, raw)
-            map.clear()
-            map.putAll(restored)
-            while (maxSize > 0 && map.size > maxSize) {
-                val it = map.entries.iterator()
-                if (it.hasNext()) {
-                    it.next()
-                    it.remove()
-                } else {
-                    break
+            synchronized(this@CanvasArtworkPlaybackCache) {
+                // Keep anything added while the file was loading; only add missing entries.
+                for ((key, value) in restored) {
+                    if (!map.containsKey(key)) map[key] = value
                 }
+                while (maxSize > 0 && map.size > maxSize) {
+                    val it = map.entries.iterator()
+                    if (it.hasNext()) {
+                        it.next()
+                        it.remove()
+                    } else {
+                        break
+                    }
+                }
+                Timber.d("Canvas cache restored: ${map.size} entries from disk")
             }
-            Timber.d("Canvas cache restored: ${map.size} entries from disk")
         } catch (e: Exception) {
             Timber.e(e, "Failed to restore canvas cache from disk")
             runCatching { file.delete() }
+        } finally {
+            loadedFromDisk = true
         }
     }
 
@@ -239,6 +251,8 @@ object CanvasArtworkPlaybackCache {
 
     private fun writeToDisk() {
         val file = cacheFile ?: return
+        // Never overwrite the saved file before the old content has been loaded.
+        if (!loadedFromDisk) return
         try {
             val snapshot: Map<String, CanvasArtwork>
             synchronized(this@CanvasArtworkPlaybackCache) {

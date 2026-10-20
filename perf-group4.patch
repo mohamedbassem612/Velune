@@ -1,0 +1,78 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 3532874..af2801e 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -98,7 +98,11 @@ android {
+                 getDefaultProguardFile("proguard-android-optimize.txt"),
+                 "proguard-rules.pro"
+             )
+-            signingConfig = signingConfigs.getByName("release")
++            // Local test builds: without the release keystore, sign with the debug key so the
++            // release build can still be installed and its real speed measured.
++            signingConfig =
++                if (file("keystore/release.keystore").exists()) signingConfigs.getByName("release")
++                else signingConfigs.getByName("debug")
+         }
+         debug {
+             applicationIdSuffix = ".debug"
+diff --git a/app/src/main/kotlin/com/nikhil/yt/App.kt b/app/src/main/kotlin/com/nikhil/yt/App.kt
+index eb0fdb0..35a71c9 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/App.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/App.kt
+@@ -112,6 +112,7 @@ class App : Application(), SingletonImageLoader.Factory {
+ 
+         initializeCriticalSync()
+         initializeDeferredAsync()
++        com.nikhil.yt.utils.StartupTrace.mark("App.onCreate end")
+     }
+ 
+     private fun initializeCriticalSync() {
+diff --git a/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt b/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt
+index acebbc4..e58d0b7 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt
+@@ -406,8 +406,9 @@ class MainActivity : ComponentActivity() {
+     @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
+     @OptIn(ExperimentalMaterial3Api::class)
+     override fun onCreate(savedInstanceState: Bundle?) {
++        com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate begin")
+         super.onCreate(savedInstanceState)
+-        com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate")
++        com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate after super (injection done)")
+         window.decorView.viewTreeObserver.addOnPreDrawListener(
+             object : android.view.ViewTreeObserver.OnPreDrawListener {
+                 override fun onPreDraw(): Boolean {
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+index 2e5f7c8..6c56e9e 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -510,6 +510,7 @@ class MusicService :
+ 
+     override fun onCreate() {
+         super.onCreate()
++        com.nikhil.yt.utils.StartupTrace.mark("MusicService.onCreate begin (injection done)")
+         ensureScopesActive()
+ 
+         try {
+@@ -901,16 +902,21 @@ class MusicService :
+             }
+ 
+         scope.launch(Dispatchers.IO) {
++            com.nikhil.yt.utils.StartupTrace.mark("queue restore: started")
+             if (dataStore.get(PersistentQueueKey, true)) {
+                 readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
+                     ?.let { persistedQueue ->
+                     Timber.tag("MusicService").i("RESTORE queue items=${persistedQueue.items.size} index=${persistedQueue.mediaItemIndex} pos=${persistedQueue.position}")
++                    com.nikhil.yt.utils.StartupTrace.mark("queue restore: file read (items=${persistedQueue.items.size})")
+                     val restoredQueue = persistedQueue.toQueue()
++                    com.nikhil.yt.utils.StartupTrace.mark("queue restore: converted to queue")
+                     withContext(Dispatchers.Main) {
++                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: reached main thread")
+                         playQueue(
+                             queue = restoredQueue,
+                             playWhenReady = false,
+                         )
++                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: playQueue returned")
+                     }
+                     awaitRestoredItems()
+                     // The UI only needs the queue items to decide whether to show the mini player.

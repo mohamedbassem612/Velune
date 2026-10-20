@@ -215,6 +215,7 @@ abstract class InternalDatabase : RoomDatabase() {
                 }
             }
 
+            com.nikhil.yt.utils.StartupTrace.mark("database opened")
             return MusicDatabase(delegate = db)
         }
     }

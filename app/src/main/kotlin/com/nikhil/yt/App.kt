@@ -37,7 +37,11 @@ import com.nikhil.yt.innertube.models.YouTubeLocale
 import com.nikhil.yt.kugou.KuGou
 import com.nikhil.yt.lastfm.LastFM
 import com.nikhil.yt.ui.player.CanvasArtworkPlaybackCache
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -57,6 +61,12 @@ import timber.log.Timber
 import java.net.Proxy
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface StartupEntryPoint {
+    fun database(): com.nikhil.yt.db.MusicDatabase
+}
 
 @HiltAndroidApp
 class App : Application(), SingletonImageLoader.Factory {
@@ -90,8 +100,19 @@ class App : Application(), SingletonImageLoader.Factory {
             Timber.plant(com.nikhil.yt.utils.GlobalLogTree())
         } catch (_: Exception) {}
 
+        com.nikhil.yt.utils.StartupTrace.mark("App.onCreate start")
+
+        // Open the database on a background thread right away. Before, it was first opened on the
+        // main thread while the first screen was loading, which delayed the app opening.
+        Thread({
+            runCatching {
+                EntryPointAccessors.fromApplication(this, StartupEntryPoint::class.java).database()
+            }.onFailure { Timber.e(it, "Database warm-up failed") }
+        }, "db-warmup").start()
+
         initializeCriticalSync()
         initializeDeferredAsync()
+        com.nikhil.yt.utils.StartupTrace.mark("App.onCreate end")
     }
 
     private fun initializeCriticalSync() {

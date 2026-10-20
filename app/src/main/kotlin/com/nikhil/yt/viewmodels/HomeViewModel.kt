@@ -38,6 +38,8 @@ import com.nikhil.yt.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -111,14 +113,6 @@ class HomeViewModel @Inject constructor(
                 launch { getQuickPicks() }
                 launch { forgottenFavorites.value = database.forgottenFavorites().first().shuffled().take(20) }
                 launch {
-                    try {
-                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                        val hideVideo = context.dataStore.get(HideVideoKey, false)
-                        forYouSuggestions.value = forYouEngine.getSuggestions(hideExplicit, hideVideo)
-                    } catch (_: Exception) {}
-                }
-                
-                launch {
                     val keepListeningSongs = database.mostPlayedSongs(fromTimeStamp, limit = 15, offset = 5)
                         .first().shuffled().take(10)
                     val keepListeningAlbums = database.mostPlayedAlbums(fromTimeStamp, limit = 8, offset = 2)
@@ -176,6 +170,16 @@ class HomeViewModel @Inject constructor(
                 .filter { it is Song || it is Album }
 
             viewModelScope.launch(Dispatchers.IO) {
+                // Extra suggestions are not needed to show the home feed, so they wait a moment.
+                // This leaves the network free for the main feed and for a song the user taps first.
+                kotlinx.coroutines.delay(1500)
+                launch {
+                    try {
+                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                        val hideVideo = context.dataStore.get(HideVideoKey, false)
+                        forYouSuggestions.value = forYouEngine.getSuggestions(hideExplicit, hideVideo)
+                    } catch (_: Exception) {}
+                }
                 loadSimilarRecommendations()
             }
 
@@ -195,39 +199,47 @@ class HomeViewModel @Inject constructor(
         val hideVideo = context.dataStore.get(HideVideoKey, false)
         val fromTimeStamp = System.currentTimeMillis() - 86400000 * 7 * 2
         
-        val artistRecommendations = database.mostPlayedArtists(fromTimeStamp, limit = 10).first()
+        val artistSeeds = database.mostPlayedArtists(fromTimeStamp, limit = 10).first()
             .filter { it.artist.isYouTubeArtist }
             .shuffled().take(3)
-            .mapNotNull {
-                val items = mutableListOf<YTItem>()
-                YouTube.artist(it.id).onSuccess { page ->
-                    items += page.sections.getOrNull(page.sections.size - 2)?.items.orEmpty()
-                    items += page.sections.lastOrNull()?.items.orEmpty()
-                }
-                SimilarRecommendation(
-                    title = it,
-                    items = items.filterExplicit(hideExplicit).filterVideo(hideVideo).shuffled().ifEmpty { return@mapNotNull null }
-                )
-            }
-
-        val songRecommendations = database.mostPlayedSongs(fromTimeStamp, limit = 10).first()
+        val songSeeds = database.mostPlayedSongs(fromTimeStamp, limit = 10).first()
             .filter { it.album != null }
             .shuffled().take(2)
-            .mapNotNull { song ->
-                val endpoint = YouTube.next(WatchEndpoint(videoId = song.id)).getOrNull()?.relatedEndpoint
-                    ?: return@mapNotNull null
-                val page = YouTube.related(endpoint).getOrNull() ?: return@mapNotNull null
-                SimilarRecommendation(
-                    title = song,
-                    items = (page.songs.shuffled().take(8) +
-                            page.albums.shuffled().take(4) +
-                            page.artists.shuffled().take(4) +
-                            page.playlists.shuffled().take(4))
-                        .filterExplicit(hideExplicit).filterVideo(hideVideo)
-                        .shuffled()
-                        .ifEmpty { return@mapNotNull null }
-                )
+
+        // All requests run at the same time instead of one after another.
+        val (artistRecommendations, songRecommendations) = kotlinx.coroutines.coroutineScope {
+            val artistJobs = artistSeeds.map { artist ->
+                async<SimilarRecommendation?> {
+                    val items = mutableListOf<YTItem>()
+                    YouTube.artist(artist.id).onSuccess { page ->
+                        items += page.sections.getOrNull(page.sections.size - 2)?.items.orEmpty()
+                        items += page.sections.lastOrNull()?.items.orEmpty()
+                    }
+                    SimilarRecommendation(
+                        title = artist,
+                        items = items.filterExplicit(hideExplicit).filterVideo(hideVideo).shuffled().ifEmpty { return@async null }
+                    )
+                }
             }
+            val songJobs = songSeeds.map { song ->
+                async<SimilarRecommendation?> {
+                    val endpoint = YouTube.next(WatchEndpoint(videoId = song.id)).getOrNull()?.relatedEndpoint
+                        ?: return@async null
+                    val page = YouTube.related(endpoint).getOrNull() ?: return@async null
+                    SimilarRecommendation(
+                        title = song,
+                        items = (page.songs.shuffled().take(8) +
+                                page.albums.shuffled().take(4) +
+                                page.artists.shuffled().take(4) +
+                                page.playlists.shuffled().take(4))
+                            .filterExplicit(hideExplicit).filterVideo(hideVideo)
+                            .shuffled()
+                            .ifEmpty { return@async null }
+                    )
+                }
+            }
+            artistJobs.awaitAll().filterNotNull() to songJobs.awaitAll().filterNotNull()
+        }
 
         similarRecommendations.value = (artistRecommendations + songRecommendations).shuffled()
         
@@ -236,7 +248,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun songLoad() {
-        val song = database.events().first().firstOrNull()?.song
+        val song = database.recentEvents(1).first().firstOrNull()?.song
         if (song != null) {
             if (database.hasRelatedSongs(song.id)) {
                 val relatedSongs = database.getRelatedSongs(song.id).first().shuffled().take(20)

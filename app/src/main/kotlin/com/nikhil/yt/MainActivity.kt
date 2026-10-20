@@ -406,7 +406,18 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate begin")
         super.onCreate(savedInstanceState)
+        com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate after super (injection done)")
+        window.decorView.viewTreeObserver.addOnPreDrawListener(
+            object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    window.decorView.viewTreeObserver.removeOnPreDrawListener(this)
+                    com.nikhil.yt.utils.StartupTrace.mark("MainActivity first frame")
+                    return true
+                }
+            }
+        )
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LTR
         WindowCompat.setDecorFitsSystemWindows(window, false)
 

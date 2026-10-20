@@ -96,6 +96,11 @@ object YTPlayerUtils {
     private val streamUrlCache = ConcurrentHashMap<String, CachedStreamUrl>()
     private val failedStreamClientsUntil = ConcurrentHashMap<String, Long>()
 
+    // Clients whose stream URLs already passed the probe recently. For these we skip the extra
+    // HTTP probe so playback starts faster. Any 403/429 or bot detection removes the client again.
+    private val validatedStreamClientsUntil = ConcurrentHashMap<String, Long>()
+    private const val VALIDATED_CLIENT_TTL_MS = 30 * 60 * 1000L
+
     fun invalidateCachedStreamUrls(videoId: String) {
         val prefix = "$videoId:"
         streamUrlCache.keys.removeIf { it.startsWith(prefix) }
@@ -107,6 +112,7 @@ object YTPlayerUtils {
         if (normalizedClientKey.isEmpty()) return
         failedStreamClientsUntil[normalizedClientKey] =
             System.currentTimeMillis() + FAILED_CLIENT_BACKOFF_MS
+        validatedStreamClientsUntil.remove(normalizedClientKey)
     }
 
     private fun isStreamClientTemporarilyBlocked(videoId: String, clientKey: String?): Boolean {
@@ -286,6 +292,7 @@ object YTPlayerUtils {
 
                     failedStreamClientsUntil[normalizeStreamClientKey(client.clientName)] =
                         System.currentTimeMillis() + FAILED_CLIENT_BACKOFF_MS
+                    validatedStreamClientsUntil.remove(normalizeStreamClientKey(client.clientName))
                 }
                 continue
             }
@@ -333,11 +340,18 @@ object YTPlayerUtils {
             Timber.tag(logTag).i("Format found: ${format.mimeType}, bitrate: ${format.bitrate}")
             Timber.tag(logTag).v("Stream expires in: $streamExpiresInSeconds seconds")
 
-            val valid = validateStatus(streamUrl, client.userAgent)
+            val clientKey = normalizeStreamClientKey(client.clientName)
+            val now = System.currentTimeMillis()
+            val recentlyValidated = (validatedStreamClientsUntil[clientKey] ?: 0L) > now
+            val valid = recentlyValidated || validateStatus(streamUrl, client.userAgent)
             if (valid) {
-                Timber.tag(logTag).i("Stream validated successfully with client: ${client.clientName}")
+                if (!recentlyValidated) {
+                    validatedStreamClientsUntil[clientKey] = now + VALIDATED_CLIENT_TTL_MS
+                }
+                Timber.tag(logTag).i("Stream validated successfully with client: ${client.clientName} (probeSkipped=$recentlyValidated)")
                 break
             }
+            validatedStreamClientsUntil.remove(clientKey)
 
             Timber.tag(logTag).w("Stream validation failed with client: ${client.clientName}, trying next fallback")
             format = null

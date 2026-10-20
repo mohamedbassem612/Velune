@@ -510,6 +510,7 @@ class MusicService :
 
     override fun onCreate() {
         super.onCreate()
+        com.nikhil.yt.utils.StartupTrace.mark("MusicService.onCreate begin (injection done)")
         ensureScopesActive()
 
         try {
@@ -556,6 +557,7 @@ class MusicService :
                     setOffloadEnabled(false)
                 }
 
+        com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupAudioFocusRequest()
 
@@ -900,18 +902,30 @@ class MusicService :
             }
 
         scope.launch(Dispatchers.IO) {
+            com.nikhil.yt.utils.StartupTrace.mark("queue restore: started")
             if (dataStore.get(PersistentQueueKey, true)) {
                 readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
                     ?.let { persistedQueue ->
                     Timber.tag("MusicService").i("RESTORE queue items=${persistedQueue.items.size} index=${persistedQueue.mediaItemIndex} pos=${persistedQueue.position}")
+                    com.nikhil.yt.utils.StartupTrace.mark("queue restore: file read (items=${persistedQueue.items.size})")
                     val restoredQueue = persistedQueue.toQueue()
+                    com.nikhil.yt.utils.StartupTrace.mark("queue restore: converted to queue")
                     withContext(Dispatchers.Main) {
+                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: reached main thread")
                         playQueue(
                             queue = restoredQueue,
                             playWhenReady = false,
                         )
+                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: playQueue returned")
                     }
                     awaitRestoredItems()
+                    // The UI only needs the queue items to decide whether to show the mini player.
+                    // Tell it now instead of waiting for the automix / player state restore below,
+                    // which includes a fixed 1 second delay.
+                    withContext(Dispatchers.Main) {
+                        queueRestoreCompleted.value = true
+                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: items ready")
+                    }
                 }
                 readPersistentObject<PersistQueue>(PERSISTENT_AUTOMIX_FILE)
                     ?.let { persistedAutomix ->
@@ -4480,7 +4494,7 @@ class MusicService :
     private suspend fun awaitRestoredItems(timeoutMs: Long = 5_000L) {
         val finished = withTimeoutOrNull(timeoutMs) {
             while (withContext(Dispatchers.Main) { player.mediaItemCount } == 0) {
-                delay(100)
+                delay(25)
             }
             true
         }
