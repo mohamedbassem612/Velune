@@ -1669,6 +1669,24 @@ class MusicService :
         playNext(listOf(item))
     }
 
+    fun playImmediateAutomix(
+        item: MediaItem,
+        position: Int,
+    ) {
+        automixItems.value =
+            automixItems.value.toMutableList().apply {
+                removeAt(position)
+            }
+        suppressAutoPlayback = false
+        player.addMediaItems(
+            if (player.mediaItemCount == 0) 0 else player.currentMediaItemIndex + 1,
+            listOf(item)
+        )
+        player.seekToNextMediaItem()
+        player.prepare()
+        player.play()
+    }
+
     fun clearAutomix() {
         automixJob?.cancel()
         automixJob = null

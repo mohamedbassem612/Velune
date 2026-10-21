@@ -14,7 +14,6 @@ import androidx.lifecycle.viewModelScope
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.innertube.models.PlaylistItem
 import com.nikhil.yt.innertube.models.SongItem
-import com.nikhil.yt.innertube.utils.completed
 import com.nikhil.yt.db.MusicDatabase
 import com.nikhil.yt.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -121,7 +120,6 @@ class OnlinePlaylistViewModel @Inject constructor(
 
             YouTube
                 .playlist(playlistId)
-                .completed()
                 .onSuccess { playlistPage ->
                     playlist.value = playlistPage.playlist
                     playlistSongs.value = playlistPage.songs.distinctBy { it.id }
@@ -137,6 +135,29 @@ class OnlinePlaylistViewModel @Inject constructor(
             } else {
                 _isRefreshing.value = false
             }
+
+            loadRemainingSongs()
+        }
+    }
+
+    // First page is shown immediately; the rest is fetched in the background.
+    private suspend fun loadRemainingSongs() {
+        if (_isLoadingMore.value) return
+        _isLoadingMore.value = true
+        try {
+            val seen = mutableSetOf<String>()
+            var requests = 0
+            while (requests < 50) {
+                val token = continuation ?: break
+                if (!seen.add(token)) break
+                requests++
+                val page = YouTube.playlistContinuation(token).getOrNull() ?: break
+                playlistSongs.value = (playlistSongs.value + page.songs).distinctBy { it.id }
+                continuation = page.continuation
+                prefetchViewCounts(page.songs.map { it.id })
+            }
+        } finally {
+            _isLoadingMore.value = false
         }
     }
 

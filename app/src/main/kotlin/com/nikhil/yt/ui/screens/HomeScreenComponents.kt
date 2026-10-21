@@ -610,10 +610,7 @@ private fun YouTubeGridItemWrapper(
             onClick = {
                 when (item) {
                     is SongItem -> playerConnection.playQueue(
-                        YouTubeQueue(
-                            item.endpoint ?: WatchEndpoint(videoId = item.id),
-                            item.toMediaMetadata()
-                        )
+                        YouTubeQueue.radio(item.toMediaMetadata())
                     )
                     is AlbumItem -> navController.navigate("album/${item.id}")
                     is ArtistItem -> navController.navigate("artist/${item.id}")

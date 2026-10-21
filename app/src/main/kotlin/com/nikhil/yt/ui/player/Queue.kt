@@ -842,7 +842,12 @@ fun Queue(
                                 Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
-                                        onClick = {},
+                                        onClick = {
+                                            playerConnection.service.playImmediateAutomix(
+                                                item,
+                                                index,
+                                            )
+                                        },
                                         onLongClick = {
                                             menuState.show {
                                                 PlayerMenu(
