@@ -1,12 +1,15 @@
 # Velune Project - Code Improvement Report
 
-Date: October 19, 2026. Session: Comprehensive null-safety and selection UI improvements.
+Date: October 19-21, 2026. Sessions: (1) Comprehensive null-safety and selection UI improvements, (2) Mood chips fix, (3) App startup performance pass, (4) Song stream start speed fix, (5) Hardcoded tokens and token logging fix.
 
 ## 1. Overview
 
 This session focused on two main areas:
 1. **Null-safety (!!operators)**: Removed 53 non-null assertions that could crash the app, preventing crashes when data from the network or database is missing.
 2. **Selection UI**: Added a floating selection bar in the queue, improved the selection experience in playlists and Liked songs, and fixed a critical selection bug that reset selections on data refresh.
+3. **Startup performance (section 14)**: Four patches (perf-group1 to perf-group4) that made the app open fast. Measured on the release build: first frame at about 357ms and queue ready at about 831ms from process start.
+4. **Song stream start speed (section 15)**: Two patches (stream-start and stream-start-2) that cut the time from tapping a song to having a playable URL from 2.2-5.6 seconds down to about 0.45 seconds.
+5. **Security: hardcoded tokens and token logging (section 16)**: Removed two server tokens that were written directly in `MusicService.kt` and removed the Discord token from the logs (patch tokens-fix).
 
 ## 2. Null Safety Improvements
 
@@ -206,10 +209,10 @@ After building, test the following:
 ## 9. Known Limitations & Future Work
 
 ### Not Changed
-- **DiscordLoginScreen Log**: Token is still logged at line 88 (security issue, but out of scope).
+- **DiscordLoginScreen Log**: Fixed in section 16 (the token is no longer logged).
 - **46 empty catch blocks**: Silently swallow errors; should add logging.
 - **113 other !! operators**: Safe by context, not refactored to keep diff minimal.
-- **runBlocking on main thread**: Found in DataStore, MusicService; can block UI.
+- **runBlocking**: Still present in MusicService, DownloadUtil, DataStore and the Kizzy Discord gateway. Details and a plan are in `runblocking-report.md`.
 - **NewPipeExtractor master-SNAPSHOT**: Builds not reproducible; should pin version.
 - **Encryption claims in README**: Not actually implemented; should update docs or implement.
 - **TestTTML.kt**: Test file in main source set; should move to test folder.
@@ -265,6 +268,132 @@ Tapping the mood / genre chips on the Home screen (e.g. *Relax*, *Sleep*, *Sad*,
   - When a mood chip is active, its suggestions appear directly under the chips row.
   - Tapping the chip again or pressing Back cleanly restores the standard home feed.
 
+## 14. App Startup Performance (October 20-21, 2026)
+
+### Goal
+Make the app open faster, use less RAM and avoid heavy work on the main thread, without changing behavior.
+
+### How it was tested
+All measurements were done on the **release** build (arm64) on the phone. The debug build is much slower and gives misleading numbers, so it must not be used to judge speed. A small helper (`StartupTrace`) logs how many milliseconds passed since the process started, for each startup step (Logcat tag `StartupTrace`).
+
+### Patch perf-group1: Stream probe, logging and database queries
+- **`YTPlayerUtils.kt`**: Added `validatedStreamClientsUntil`. After a client's stream URL passes the validation probe once, the probe is skipped for 30 minutes for that client. Any 403/429 or bot detection removes the client from the validated list again.
+- **`GlobalLog.kt`**: Replaced "copy the whole 500-entry list for every log line" with a ring buffer. Adding a line is now cheap, and the list shown in the UI is rebuilt at most every 250ms.
+- **`DatabaseDao.kt`**: Added `recentEvents(limit)` (SQL `LIMIT`).
+- **`ForYouSuggestionEngine.kt`, `HomeViewModel.kt`**: Replaced `database.events().first().take(20)` and `events().first().firstOrNull()` (which loaded the whole play history table) with `recentEvents(20)` and `recentEvents(1)`.
+- Result: song playback started noticeably faster (confirmed on the phone).
+
+### Patch perf-group2: Home screen work and baseline profile
+- **`HomeViewModel.kt`**: The "For You" suggestions now wait 1.5 seconds so the network is free for the main feed and for a song the user taps first. The similar-recommendation requests (per artist and per song) now run at the same time instead of one after another.
+- **`Thumbnail.kt` (Canvas artwork cache)**: Loading the cache file from disk moved off the main thread. Entries added while loading are kept, and the file is never overwritten before it was loaded.
+- **`baseline-prof.txt` + `profileinstaller` dependency**: Added a hand-written baseline profile so Android pre-compiles the app code and it warms up faster.
+- **`libs.versions.toml`, `app/build.gradle.kts`**: Added the `profileinstaller` library.
+- Result: small difference by itself. Cold start was still slow, so the startup path was traced next.
+
+### Patch perf-group3: Startup tracing and database warm-up
+- **`StartupTrace.kt`** (new): Logs time since process start for each step.
+- **`App.kt`**: The Room database is now opened on a background thread (`db-warmup`) right when the app process starts. Before, it was first opened on the main thread while the first screen loaded.
+- **`MainActivity.kt`, `MusicService.kt`, `MusicDatabase.kt`**: Added trace marks (first frame, database opened, player built, queue restore).
+- **`MusicService.kt` queue restore**: The UI is told "queue items are ready" as soon as the items are loaded, instead of waiting for the automix and player state restore (which included a fixed 1 second delay). The small polling delay was reduced from 100ms to 25ms.
+
+### Patch perf-group4: Finer tracing and local release signing
+- **`app/build.gradle.kts`**: If `keystore/release.keystore` does not exist, the release build is signed with the debug key. This allows installing and testing the real release speed locally.
+- **`App.kt`, `MainActivity.kt`, `MusicService.kt`**: More trace marks inside the queue restore (file read, converted to queue, main thread reached, playQueue returned).
+
+### Measured result (release build)
+| Step | Time since process start |
+|------|--------------------------|
+| MainActivity first frame | about 357ms |
+| Queue ready | about 831ms |
+
+App open speed is now acceptable.
+
+## 15. Song Stream Start Speed (October 21, 2026)
+
+### Problem
+Tapping a song took about 5-8 seconds before playback started, even with fast internet.
+
+### Finding (what it was NOT)
+The app does **not** download the whole song before playing. ExoPlayer reads the song in 512 KB chunks (`CHUNK_LENGTH`) and starts playing from the first chunk. The delay happened **before** any audio byte was requested.
+
+### Root Cause (from timing logs)
+Inside `createDataSourceFactory()` in `MusicService.kt`, a blocking call (`runBlocking`) waits for `YTPlayerUtils.playerResponseForPlayback()` before ExoPlayer gets the URL. That function tried the stream clients one after another (the list has about 17 clients). Each failed client cost one network request of 150-300ms. In the logs about 15 clients failed on every song, and `VISIONOS` was the one that finally worked. This alone added up to 2.2-5.6 seconds. On the very first song there was also about 1.6 seconds of one-time URL decryption work.
+
+### Patch stream-start (measurement, warm-up, prefetch)
+- **`YTPlayerUtils.kt`**: Added a `timed(...)` helper and `StreamTiming` logs (Logcat tag `StreamTiming`) for each step: signature timestamp, metadata call, fallback client calls, URL finding, validation, and the total resolver time (`RESOLVER TOTAL`). Uses `android.util.Log.i`, which stays in release builds.
+- **`NewPipe.kt`**: Added `NewPipeUtils.warmUp()`. It prepares the YouTube JS player (signature timestamp and throttling parameter code) ahead of time. Failures are ignored.
+- **`MusicService.kt`**: `warmUp()` is started in the background when the service starts, so the first song does not pay for the JS player download.
+- **`MusicService.kt`**: Added `prefetchNextStream()`, called from `onMediaItemTransition`. It resolves the next song's stream URL in the background (format info and URL cache included), skips songs that are already downloaded, and avoids duplicate work with `prefetchInFlight`. Skipping to the next song or auto-advancing starts almost instantly.
+
+### Patch stream-start-2 (remember the working client)
+- **`YTPlayerUtils.kt`**: The client that worked last is saved (`lastWorkingClient`, also stored in SharedPreferences `stream_client_prefs`, so it survives app restarts) and tried **first** on the next song. If it fails, the normal order is used and the new winner is saved.
+- Extra logs: `WINNER client=... after N tries`, and `SKIP <client> ...` with the reason (status, no expire time, or no usable audio formats).
+
+### Measured result (release build)
+| Case | Resolver time |
+|------|---------------|
+| Before (first song) | 5631ms |
+| Before (second song) | 2264ms |
+| After (normal song) | 436-450ms |
+| After (first song after cold start, includes warm-up running in parallel) | 1252ms |
+| Next song (prefetched) | URL already cached, no wait |
+
+In all tested songs the winner was `VISIONOS` on the first try.
+
+### Notes
+- The repeated `url served from cache (no resolve)` log lines are normal. They are the 512 KB chunk requests while the song plays, not repeated downloads.
+- The first song after a fresh install still walks through the client list once, because no winner is saved yet.
+- The stream URL work is still done inside `runBlocking` in the data source (see limitations in section 9).
+
+### Possible next step (not done)
+Run the metadata request (about 250ms) and the winning client's request (about 180ms) at the same time instead of one after another. Expected saving: about 200ms. Not done because the gain is small compared to the risk.
+
+## 16. Hardcoded Tokens and Token Logging (October 21, 2026)
+
+### Problem
+1. **Two hardcoded server tokens in `MusicService.kt`**: The Together (listen together) feature authenticates to the app server (`velune-server.onrender.com`) with a bearer token. The token was written directly in the code in two places: when hosting an online session and when joining one (two different values). The repository is public, so these values were visible to anyone, including in the git history.
+2. **Discord token written to the logs**: `MusicService.kt` logged `Presence manager started with token=...` with the real Discord user token, and `DiscordLoginScreen.kt` logged `Token: ...` when the token was captured from the login WebView. The in-app log screen (GlobalLog) shows these lines, so the token could leak through a shared log.
+
+### Solution (patch tokens-fix)
+- **`MusicService.kt`**: Both places now read the token from `BuildConfig.TOGETHER_BEARER_TOKEN` (trimmed, blank means missing). This is the setup the project already had: `app/build.gradle.kts` reads `TOGETHER_BEARER_TOKEN` from `local.properties` (which is in `.gitignore`) or from an environment variable. If the token is missing, the existing "token missing" error is shown instead of silently using a wrong value.
+- **`MusicService.kt`**: The Discord presence log line no longer prints the token.
+- **`DiscordLoginScreen.kt`**: The log line no longer prints the token.
+
+### What must be done by the project owner
+1. Add the token to `local.properties` (not committed):
+   `TOGETHER_BEARER_TOKEN=<the token the server expects>`
+2. **Rotate the server token.** The old values (`VeluneAdminToken`, `velune_server_token`) are in the public git history, so they must be treated as leaked. Create a new token on the server and put the new one in `local.properties`.
+3. The two old values were different. The code now uses one token for both hosting and joining. If the server really needs two different tokens, tell the developer so a second BuildConfig field can be added.
+4. If the Discord token was ever shared inside a log or a screenshot, log out and log in again to get a new one.
+
+### Important limit
+Any value placed inside an APK (BuildConfig included) can be extracted by someone who unpacks the app. This change keeps the token out of the public repository, which was the real exposure, but it is not a full protection. A stronger design is for the server to limit abuse (rate limits, per-session keys) instead of trusting one shared token inside the app.
+
+### Modified Files
+- `app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt`
+- `app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/DiscordLoginScreen.kt`
+
+## 17. Updated Statistics (Performance and Security Sessions)
+
+| Category | Value |
+|----------|-------|
+| Performance patches applied | 6 (perf-group1 to 4, stream-start, stream-start-2) |
+| Security patch | 1 (tokens-fix): 2 hardcoded tokens removed, 2 token log lines removed |
+| App open (first frame, release) | about 357ms |
+| Queue ready (release) | about 831ms |
+| Stream resolve time per song | 2.2-5.6s down to about 0.45s |
+| New files | 1 (StartupTrace.kt) |
+| Main files touched | YTPlayerUtils.kt, MusicService.kt, NewPipe.kt, HomeViewModel.kt, App.kt, MainActivity.kt, GlobalLog.kt, DatabaseDao.kt |
+
+## 18. Still To Do
+
+- Rotate the Together server token (the old values are in public git history) and add the new one to `local.properties`.
+- `runBlocking` usage: see the separate handoff file `runblocking-report.md`.
+- README encryption claim.
+- Pin the NewPipeExtractor version (currently `master-SNAPSHOT`).
+- Remove the RESTORE logs, `StartupTrace` and `StreamTiming` logs when no longer needed, and delete `.bak` files.
+- Download feature (Music/Velune, original format, MediaStore, duplicate check by videoId).
+
 ---
 
-**Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen.
+**Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

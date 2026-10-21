@@ -1028,7 +1028,7 @@ class MusicService :
                     isPausedProvider = { !player.isPlaying },
                     intervalProvider = { getPresenceIntervalMillis(this@MusicService) }
                 )
-                Timber.tag("MusicService").d("Presence manager started with token=$key")
+                Timber.tag("MusicService").d("Presence manager started")
                 lastPresenceToken = key
             } catch (ex: Exception) {
                 Timber.tag("MusicService").e(ex, "Failed to start presence manager")
@@ -2131,7 +2131,7 @@ class MusicService :
                 return@launch
             }
 
-            val togetherToken = "VeluneAdminToken"
+            val togetherToken = com.nikhil.yt.BuildConfig.TOGETHER_BEARER_TOKEN.trim().takeIf { it.isNotBlank() }
             if (togetherToken == null) {
                 scope.launch(SilentHandler) {
                     togetherSessionState.value =
@@ -2466,7 +2466,7 @@ class MusicService :
                 return@launch
             }
 
-            val togetherToken ="velune_server_token"
+            val togetherToken = com.nikhil.yt.BuildConfig.TOGETHER_BEARER_TOKEN.trim().takeIf { it.isNotBlank() }
             if (togetherToken == null) {
                 scope.launch(SilentHandler) {
                     togetherSessionState.value =
