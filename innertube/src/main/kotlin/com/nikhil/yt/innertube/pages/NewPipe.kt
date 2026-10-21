@@ -90,6 +90,21 @@ object NewPipeUtils {
         NewPipe.init(NewPipeDownloaderImpl(YouTube.proxy))
     }
 
+    /**
+     * Downloads and prepares the YouTube JS player ahead of time so the first song does not
+     * pay for it. Safe to call from a background thread; failures are ignored.
+     */
+    fun warmUp() {
+        val warmVideoId = "dQw4w9WgXcQ"
+        runCatching { YoutubeJavaScriptPlayerManager.getSignatureTimestamp(warmVideoId) }
+        runCatching {
+            YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(
+                warmVideoId,
+                "https://rr1---sn-warmup.googlevideo.com/videoplayback?n=abcdefghijklmnop",
+            )
+        }
+    }
+
     fun getSignatureTimestamp(videoId: String): Result<Int> = runCatching {
         YoutubeJavaScriptPlayerManager.getSignatureTimestamp(videoId)
     }

@@ -558,6 +558,7 @@ class MusicService :
                 }
 
         com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
+        ioScope.launch { runCatching { YTPlayerUtils.warmUp() } }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupAudioFocusRequest()
 
@@ -3384,6 +3385,7 @@ class MusicService :
     )
 
     crossfadeAudio?.onMediaItemTransition(mediaItem, reason)
+    prefetchNextStream()
 
     val currentIndex = player.currentMediaItemIndex
     val queue = player.mediaItems.mapNotNull { it.metadata }
@@ -4116,11 +4118,13 @@ class MusicService :
             }
 
             playbackUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
+                android.util.Log.i("StreamTiming", "$mediaId url served from cache (no resolve)")
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
                 val length = if (dataSpec.length >= 0) minOf(dataSpec.length, CHUNK_LENGTH) else CHUNK_LENGTH
                 return@Factory dataSpec.withUri(it.first.toUri()).subrange(dataSpec.uriPositionOffset, length)
             }
 
+            val resolveStartMs = android.os.SystemClock.elapsedRealtime()
             val playbackData = runBlocking(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
                     mediaId,
@@ -4128,6 +4132,11 @@ class MusicService :
                     connectivityManager = connectivityManager,
                     preferredStreamClient = preferredStreamClient,
                     avoidCodecs = avoidStreamCodecs,
+                )
+            }.also {
+                android.util.Log.i(
+                    "StreamTiming",
+                    "$mediaId RESOLVER TOTAL ${android.os.SystemClock.elapsedRealtime() - resolveStartMs}ms (ok=${it.isSuccess})"
                 )
             }.getOrElse { throwable ->
                 when (throwable) {
@@ -4194,6 +4203,62 @@ class MusicService :
                     streamUrl to System.currentTimeMillis() + (nonNullPlayback.streamExpiresInSeconds * 1000L)
                 val length = if (dataSpec.length >= 0) minOf(dataSpec.length, CHUNK_LENGTH) else CHUNK_LENGTH
                 return@Factory dataSpec.withUri(streamUrl.toUri()).subrange(dataSpec.uriPositionOffset, length)
+            }
+        }
+    }
+
+    private val prefetchInFlight = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Resolves the stream URL of the next song in the background so skipping or auto-advancing
+     * starts instantly instead of waiting for the URL work. Must be called on the main thread.
+     */
+    private fun prefetchNextStream() {
+        val nextIndex = player.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET || nextIndex !in 0 until player.mediaItemCount) return
+        val nextId = player.getMediaItemAt(nextIndex).mediaId.trim().takeIf { it.isNotBlank() } ?: return
+        if (nextId == player.currentMediaItem?.mediaId) return
+        if (playbackUrlCache[nextId]?.second?.let { it > System.currentTimeMillis() } == true) return
+        if (!prefetchInFlight.add(nextId)) return
+
+        ioScope.launch {
+            try {
+                if (runCatching { downloadCache.getCachedSpans(nextId).isNotEmpty() }.getOrDefault(false)) return@launch
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val data = YTPlayerUtils.playerResponseForPlayback(
+                    nextId,
+                    audioQuality = audioQuality,
+                    connectivityManager = connectivityManager,
+                    preferredStreamClient = preferredStreamClient,
+                    avoidCodecs = avoidStreamCodecs,
+                ).getOrNull() ?: return@launch
+                val format = data.format
+                database.query {
+                    upsert(
+                        FormatEntity(
+                            id = nextId,
+                            itag = format.itag,
+                            mimeType = format.mimeType.split(";")[0],
+                            codecs = format.mimeType.split("codecs=").getOrElse(1) { "" }.removeSurrounding("\""),
+                            bitrate = format.bitrate,
+                            sampleRate = format.audioSampleRate,
+                            contentLength = format.contentLength ?: C.LENGTH_UNSET.toLong(),
+                            loudnessDb = data.audioConfig?.loudnessDb,
+                            perceptualLoudnessDb = data.audioConfig?.perceptualLoudnessDb,
+                            playbackUrl = data.playbackTracking?.videostatsPlaybackUrl?.baseUrl
+                        )
+                    )
+                }
+                playbackUrlCache[nextId] =
+                    data.streamUrl to System.currentTimeMillis() + (data.streamExpiresInSeconds * 1000L)
+                android.util.Log.i(
+                    "StreamTiming",
+                    "$nextId PREFETCH done in ${android.os.SystemClock.elapsedRealtime() - t0}ms"
+                )
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            } finally {
+                prefetchInFlight.remove(nextId)
             }
         }
     }

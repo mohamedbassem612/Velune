@@ -101,6 +101,52 @@ object YTPlayerUtils {
     private val validatedStreamClientsUntil = ConcurrentHashMap<String, Long>()
     private const val VALIDATED_CLIENT_TTL_MS = 30 * 60 * 1000L
 
+    // The client that worked last time is tried first, so we do not walk through every failing
+    // client (150-300ms each) before reaching the one that works. Saved on disk so it also
+    // survives app restarts.
+    @Volatile private var lastWorkingClient: String? = null
+    private const val PREFS_NAME = "stream_client_prefs"
+    private const val PREF_LAST_WORKING_CLIENT = "last_working_client"
+
+    private fun loadLastWorkingClient(): String? {
+        lastWorkingClient?.let { return it }
+        val saved = runCatching {
+            com.nikhil.yt.App.instance
+                .getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                .getString(PREF_LAST_WORKING_CLIENT, null)
+        }.getOrNull()
+        lastWorkingClient = saved
+        return saved
+    }
+
+    private fun saveLastWorkingClient(clientName: String) {
+        val normalized = normalizeStreamClientKey(clientName)
+        if (normalized.isEmpty() || lastWorkingClient == normalized) return
+        lastWorkingClient = normalized
+        runCatching {
+            com.nikhil.yt.App.instance
+                .getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString(PREF_LAST_WORKING_CLIENT, normalized)
+                .apply()
+        }
+    }
+
+    fun warmUp() {
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        NewPipeUtils.warmUp()
+        android.util.Log.i("StreamTiming", "warmUp done in ${android.os.SystemClock.elapsedRealtime() - t0}ms")
+    }
+
+    private inline fun <T> timed(label: String, videoId: String, block: () -> T): T {
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        try {
+            return block()
+        } finally {
+            android.util.Log.i("StreamTiming", "$videoId $label ${android.os.SystemClock.elapsedRealtime() - t0}ms")
+        }
+    }
+
     fun invalidateCachedStreamUrls(videoId: String) {
         val prefix = "$videoId:"
         streamUrlCache.keys.removeIf { it.startsWith(prefix) }
@@ -199,7 +245,7 @@ object YTPlayerUtils {
         avoidCodecs: Set<String>,
     ): PlaybackData {
         Timber.tag(logTag).i("Fetching player response for videoId: $videoId, playlistId: $playlistId")
-        val signatureTimestamp = getSignatureTimestampOrNull(videoId)
+        val signatureTimestamp = timed("signatureTimestamp", videoId) { getSignatureTimestampOrNull(videoId) }
         Timber.tag(logTag).v("Signature timestamp: $signatureTimestamp")
 
         val isLoggedIn = YouTube.cookie != null
@@ -234,8 +280,10 @@ object YTPlayerUtils {
             preferredYouTubeClient.takeIf { preferredStreamClient == PlayerStreamClient.ANDROID_VR } ?: MAIN_CLIENT
 
         Timber.tag(logTag).i("Fetching metadata response using client: ${metadataClient.clientName}")
-        val metadataPlayerResponse = runCatching {
-            YouTube.player(videoId, playlistId, metadataClient, signatureTimestamp).getOrThrow()}.getOrNull()
+        val metadataPlayerResponse = timed("metadata(${metadataClient.clientName})", videoId) {
+            runCatching {
+                YouTube.player(videoId, playlistId, metadataClient, signatureTimestamp).getOrThrow()}.getOrNull()
+        }
         val audioConfig = metadataPlayerResponse?.playerConfig?.audioConfig
         val videoDetails = metadataPlayerResponse?.videoDetails
         val playbackTracking = metadataPlayerResponse?.playbackTracking
@@ -252,6 +300,14 @@ object YTPlayerUtils {
                     Timber.tag(logTag).w("Temporarily blocked stream client for $videoId: ${client.clientName}")
                 }
                 blocked
+            }.let { clients ->
+                val sticky = loadLastWorkingClient()
+                if (sticky == null) {
+                    clients
+                } else {
+                    val (first, rest) = clients.partition { normalizeStreamClientKey(it.clientName) == sticky }
+                    first + rest
+                }
             }
 
         val botDetectedClients = mutableSetOf<String>()
@@ -276,7 +332,9 @@ object YTPlayerUtils {
                     metadataPlayerResponse
                 } else {
                     Timber.tag(logTag).i("Fetching player response for fallback client: ${client.clientName}")
-                    YouTube.player(videoId, playlistId, client, signatureTimestamp).getOrNull()
+                    timed("fallbackPlayer(${client.clientName})", videoId) {
+                        YouTube.player(videoId, playlistId, client, signatureTimestamp).getOrNull()
+                    }
                 }
 
             if (streamPlayerResponse == null) continue
@@ -284,6 +342,7 @@ object YTPlayerUtils {
             if (streamPlayerResponse.playabilityStatus.status != "OK") {
                 val reason = streamPlayerResponse.playabilityStatus.reason.orEmpty()
                 val isBotDetection = isBotDetectionError(reason)
+                android.util.Log.i("StreamTiming", "$videoId SKIP ${client.clientName} status=${streamPlayerResponse.playabilityStatus.status} reason=$reason")
                 Timber.tag(logTag).w(
                     "Player response status not OK: ${streamPlayerResponse.playabilityStatus.status}, reason: $reason, botDetection: $isBotDetection"
                 )
@@ -306,7 +365,10 @@ object YTPlayerUtils {
                     avoidCodecs = avoidCodecs,
                 )
 
-            if (candidates.isEmpty()) continue
+            if (candidates.isEmpty()) {
+                android.util.Log.i("StreamTiming", "$videoId SKIP ${client.clientName} no usable audio formats")
+                continue
+            }
 
             var selectedFormat: PlayerResponse.StreamingData.Format? = null
             var selectedUrl: String? = null
@@ -319,7 +381,9 @@ object YTPlayerUtils {
                     if (cached != null && cached.expiresAtMs > System.currentTimeMillis()) {
                         cached.url
                     } else {
-                        findUrlOrNull(candidate, videoId, client)
+                        timed("findUrl(${client.clientName},itag=${candidate.itag})", videoId) {
+                            findUrlOrNull(candidate, videoId, client)
+                        }
                     } ?: continue
                 selectedFormat = candidate
                 selectedUrl = candidateUrl
@@ -333,6 +397,7 @@ object YTPlayerUtils {
             streamExpiresInSeconds = streamPlayerResponse.streamingData?.expiresInSeconds
 
             if (streamExpiresInSeconds == null) {
+                android.util.Log.i("StreamTiming", "$videoId SKIP ${client.clientName} no expiresInSeconds")
                 streamPlayerResponse = null
                 continue
             }
@@ -343,12 +408,16 @@ object YTPlayerUtils {
             val clientKey = normalizeStreamClientKey(client.clientName)
             val now = System.currentTimeMillis()
             val recentlyValidated = (validatedStreamClientsUntil[clientKey] ?: 0L) > now
-            val valid = recentlyValidated || validateStatus(streamUrl, client.userAgent)
+            val valid = recentlyValidated || timed("validateStatus(${client.clientName})", videoId) {
+                validateStatus(streamUrl, client.userAgent)
+            }
             if (valid) {
                 if (!recentlyValidated) {
                     validatedStreamClientsUntil[clientKey] = now + VALIDATED_CLIENT_TTL_MS
                 }
                 Timber.tag(logTag).i("Stream validated successfully with client: ${client.clientName} (probeSkipped=$recentlyValidated)")
+                saveLastWorkingClient(client.clientName)
+                android.util.Log.i("StreamTiming", "$videoId WINNER client=${client.clientName} after ${index + 1} tries")
                 break
             }
             validatedStreamClientsUntil.remove(clientKey)
