@@ -95,9 +95,43 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun getQuickPicks(){
         when (quickPicksEnum.first()) {
-            QuickPicks.QUICK_PICKS -> quickPicks.value = database.quickPicks().first().shuffled().take(20)
+            QuickPicks.QUICK_PICKS -> quickPicks.value = buildTasteBasedQuickPicks()
             QuickPicks.LAST_LISTEN -> songLoad()
         }
+    }
+
+    /**
+     * Quick picks that follow the listener's taste: related songs first, ranked by how much
+     * the listener plays their artists, without repeating what was just played.
+     */
+    private suspend fun buildTasteBasedQuickPicks(): List<Song> {
+        val now = System.currentTimeMillis()
+        val sixtyDays = 86400000L * 60
+
+        val related = database.quickPicks().first()
+        // New or small libraries have few related songs, so add the most played ones.
+        val candidates = if (related.size >= 24) {
+            related
+        } else {
+            related + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
+        }
+
+        val topArtists = database.mostPlayedArtists(now - sixtyDays, limit = 15).first()
+        val affinity = HashMap<String, Float>()
+        topArtists.forEachIndexed { index, artist ->
+            val rankWeight = (topArtists.size - index).toFloat() / topArtists.size
+            val followBonus = if (artist.artist.bookmarkedAt != null) 0.2f else 0f
+            affinity[artist.id] = (rankWeight + followBonus).coerceAtMost(1f)
+        }
+
+        val recentIds = database.recentEvents(10).first().map { it.song.id }.toSet()
+
+        return com.nikhil.yt.utils.QuickPicksRanker.rank(
+            candidates = candidates,
+            artistAffinity = affinity,
+            recentSongIds = recentIds,
+            limit = 20,
+        )
     }
 
     private suspend fun load() {

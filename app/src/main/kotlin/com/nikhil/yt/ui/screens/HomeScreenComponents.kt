@@ -89,6 +89,9 @@ import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.PlayerConnection
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.playback.queues.ListQueue
+import com.nikhil.yt.extensions.toMediaItem
+import androidx.compose.foundation.border
 import com.nikhil.yt.ui.component.AlbumGridItem
 import com.nikhil.yt.ui.component.ArtistGridItem
 import com.nikhil.yt.ui.component.MenuState
@@ -934,7 +937,8 @@ fun LazyListScope.SimilarRecommendationsContainer(
 
 
 /**
- * Quick picks list style section (below carousel)
+ * Quick picks: pages of 4 songs. The next page peeks from the right edge
+ * so it is clear you can swipe, like YouTube Music.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -949,7 +953,6 @@ fun QuickPicksListSection(
     modifier: Modifier = Modifier
 ) {
     val distinctQuickPicks = remember(quickPicks) { quickPicks.distinctBy { it.id } }
-    // Split into pages of 4 songs each
     val pages = remember(distinctQuickPicks) { distinctQuickPicks.chunked(4) }
     val pagerState = androidx.compose.foundation.pager.rememberPagerState { pages.size }
 
@@ -957,102 +960,93 @@ fun QuickPicksListSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Quick picks",
-                style = MaterialTheme.typography.titleLarge,
+                text = stringResource(R.string.quick_picks),
+                style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = "Play all",
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        RoundedCornerShape(50)
+                    )
+                    .combinedClickable(
+                        onClick = {
+                            if (distinctQuickPicks.isNotEmpty()) {
+                                playerConnection.playQueue(
+                                    ListQueue(
+                                        title = "Quick picks",
+                                        items = distinctQuickPicks.map { it.toMediaItem() }
+                                    )
+                                )
+                            }
+                        }
+                    )
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
 
         androidx.compose.foundation.pager.HorizontalPager(
             state = pagerState,
+            contentPadding = PaddingValues(end = 40.dp),
+            pageSpacing = 8.dp,
             modifier = Modifier.fillMaxWidth()
         ) { pageIndex ->
             val pageSongs = pages.getOrNull(pageIndex) ?: emptyList()
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    pageSongs.forEach { song ->
-                        val isActive = song.id == mediaMetadata?.id
-                        SongListItem(
-                            song = song,
-                            isActive = isActive,
-                            isPlaying = isPlaying,
-                            trailingContent = {
-                                IconButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        menuState.show {
-                                            SongMenu(
-                                                originalSong = song,
-                                                navController = navController,
-                                                onDismiss = menuState::dismiss
-                                            )
-                                        }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                pageSongs.forEach { song ->
+                    val isActive = song.id == mediaMetadata?.id
+                    SongListItem(
+                        song = song,
+                        isActive = isActive,
+                        isPlaying = isPlaying,
+                        trailingContent = {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = song,
+                                            navController = navController,
+                                            onDismiss = menuState::dismiss
+                                        )
                                     }
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.more_vert),
-                                        contentDescription = null
-                                    )
                                 }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = {
-                                        if (isActive) {
-                                            playerConnection.player.togglePlayPause()
-                                        } else {
-                                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
-                                        }
-                                    },
-                                    onLongClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        menuState.show {
-                                            SongMenu(
-                                                originalSong = song,
-                                                navController = navController,
-                                                onDismiss = menuState::dismiss
-                                            )
-                                        }
-                                    }
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.more_vert),
+                                    contentDescription = null
                                 )
-                        )
-                    }
-                }
-            }
-        }
-
-        // Page indicator dots
-        if (pages.size > 1) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-            ) {
-                repeat(pages.size) { index ->
-                    val isSelected = pagerState.currentPage == index
-                    Box(
+                            }
+                        },
                         modifier = Modifier
-                            .padding(horizontal = 3.dp)
-                            .size(if (isSelected) 8.dp else 5.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isSelected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    if (isActive) {
+                                        playerConnection.player.togglePlayPause()
+                                    } else {
+                                        playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                                    }
+                                },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = song,
+                                            navController = navController,
+                                            onDismiss = menuState::dismiss
+                                        )
+                                    }
+                                }
                             )
                     )
                 }
