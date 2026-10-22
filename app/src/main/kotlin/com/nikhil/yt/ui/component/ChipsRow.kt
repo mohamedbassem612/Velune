@@ -76,29 +76,31 @@ fun <E> ChipsRow(
             val isSelected = currentValue == value
             val iconRes = icons[value]
 
-            FilterChip(
-                selected = isSelected,
-                onClick = { onValueUpdate(value) },
-                label = { Text(label) },
-                leadingIcon = {
-                    if (isSelected) {
-                        Icon(
-                            painter = painterResource(R.drawable.done),
-                            contentDescription = null,
-                            modifier = Modifier.size(FilterChipDefaults.IconSize),
-                        )
-                    } else if (iconRes != null) {
+            val leading: (@Composable () -> Unit)? =
+                if (iconRes != null && !isSelected) {
+                    {
                         Icon(
                             painter = painterResource(iconRes),
                             contentDescription = null,
                             modifier = Modifier.size(FilterChipDefaults.IconSize),
                         )
                     }
-                },
-                shape = RoundedCornerShape(16.dp),
+                } else {
+                    null
+                }
+
+            FilterChip(
+                selected = isSelected,
+                onClick = { onValueUpdate(value) },
+                label = { Text(label) },
+                leadingIcon = leading,
+                shape = RoundedCornerShape(8.dp),
                 border = null,
                 colors = FilterChipDefaults.filterChipColors(
                     containerColor = containerColor,
+                    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
+                    selectedLabelColor = MaterialTheme.colorScheme.surface,
+                    selectedLeadingIconColor = MaterialTheme.colorScheme.surface,
                 ),
             )
 

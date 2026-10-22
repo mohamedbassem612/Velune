@@ -97,6 +97,7 @@ fun SwipeableMiniPlayerBox(
     coroutineScope: CoroutineScope,
     pureBlack: Boolean = false,
     useLegacyBackground: Boolean = false,
+    contentHorizontalPadding: androidx.compose.ui.unit.Dp = 12.dp,
     content: @Composable (Float) -> Unit
 ) {
     val offsetXAnimatable = remember { Animatable(0f) }
@@ -125,7 +126,7 @@ fun SwipeableMiniPlayerBox(
                         else MaterialTheme.colorScheme.surfaceContainer
                     )
                 } else {
-                    baseModifier.padding(horizontal = 12.dp)
+                    baseModifier.padding(horizontal = contentHorizontalPadding)
                 }
             }
             .let { baseModifier ->

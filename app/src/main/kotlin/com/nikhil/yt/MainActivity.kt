@@ -8,7 +8,7 @@
 
 package com.nikhil.yt
 
-import com.nikhil.yt.ui.component.FluidSlidingNavigationBar
+import com.nikhil.yt.ui.component.YtMusicNavigationBar
 import android.annotation.SuppressLint
 import android.Manifest
 import android.app.ActivityManager
@@ -719,7 +719,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    val floatingBarsBottomPadding = 8.dp
+                    val floatingBarsBottomPadding = 0.dp
                     val navVisibleHeight = if (slimNav) SlimNavBarHeight else NavigationBarHeight
 
                     val bottomNavigationBarHeight by animateDpAsState(
@@ -1391,22 +1391,10 @@ class MainActivity : ComponentActivity() {
                                             if (pureBlack) Color.Black
                                             else MaterialTheme.colorScheme.surfaceContainer
 
-                                            FluidSlidingNavigationBar(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .padding(
-                                                        start = 12.dp,
-                                                        end = 12.dp,
-                                                        bottom = bottomInset + floatingBarsBottomPadding,
-                                                    )
-                                                    .border(
-                                                        width = 1.dp,
-                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-                                                        shape = RoundedCornerShape(24.dp)
-                                                    )
-                                                    .clip(RoundedCornerShape(24.dp))
-                                                    .fillMaxWidth()
-                                                    .height(navVisibleHeight),
+                                            YtMusicNavigationBar(
+                                                modifier = Modifier.align(Alignment.BottomCenter),
+                                                barHeight = navVisibleHeight,
+                                                bottomInset = bottomInset,
                                                 items = navigationItems,
                                                 currentRoute = navBackStackEntry?.destination?.route ?: "",
                                                 pureBlack = pureBlack,

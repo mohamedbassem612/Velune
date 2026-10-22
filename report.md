@@ -394,6 +394,20 @@ Any value placed inside an APK (BuildConfig included) can be extracted by someon
 - Remove the RESTORE logs, `StartupTrace` and `StreamTiming` logs when no longer needed, and delete `.bak` files.
 - Download feature (Music/Velune, original format, MediaStore, duplicate check by videoId).
 
+## 19. YouTube Music Style UI (patch ytmusic-ui)
+
+Goal: make the app look like YouTube Music.
+
+- Colors: new fixed dark and light color schemes (`YtMusicColors.kt`). Black background, white text, grey secondary text, red as the accent. `VeluneTheme` has a new `ytMusicStyle` parameter (default true). Set it to false to return to the old dynamic colors.
+- Bottom bar: new flat `YtMusicNavigationBar` (no floating pill, icon with small label, white when selected). Bar height is now 64dp (56dp slim).
+- Mini player: flat full-width bar with a small square thumbnail, title and artist, play/pause and next buttons, and a thin progress line on top. The gap between the mini player and the bar is now 0.
+- Chips (home and library filters): 8dp corners, white chip with black text when selected, no check icon.
+
+### Modified Files
+- `MainActivity.kt`, `constants/Dimensions.kt`, `ui/theme/Theme.kt`, `ui/component/ChipsRow.kt`, `ui/player/MiniPlayer.kt`, `ui/player/MiniPlayerComponents.kt`
+- New: `ui/component/YtMusicNavigationBar.kt`, `ui/theme/YtMusicColors.kt`
+
+
 ---
 
 **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

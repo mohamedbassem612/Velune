@@ -138,30 +138,114 @@ private fun NewMiniPlayer(
         layoutDirection = layoutDirection,
         coroutineScope = coroutineScope,
         pureBlack = pureBlack,
-        useLegacyBackground = false
+        useLegacyBackground = false,
+        contentHorizontalPadding = 0.dp
     ) { offsetX ->
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
                 .offset { IntOffset(offsetX.roundToInt(), 0) }
-                .clip(RoundedCornerShape(32.dp))
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceContainer
-                )
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(32.dp)
-                )
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
         ) {
-            FloatingMiniPlayerContent(
-                pureBlack = pureBlack,
+            YtMusicMiniPlayerContent(
                 position = position,
                 duration = duration,
                 playerConnection = playerConnection
             )
         }
+    }
+}
+
+@Composable
+private fun YtMusicMiniPlayerContent(
+    position: Long,
+    duration: Long,
+    playerConnection: PlayerConnection
+) {
+    val isPlaying by playerConnection.isPlaying.collectAsState()
+    val playbackState by playerConnection.playbackState.collectAsState()
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val isLoading = playbackState == STATE_BUFFERING
+    val progress = (position.toFloat() / duration.coerceAtLeast(1L)).coerceIn(0f, 1f)
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = mediaMetadata?.thumbnailUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(4.dp))
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = mediaMetadata?.title ?: "",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee()
+                )
+                Text(
+                    text = mediaMetadata?.artists?.joinToString { it.name } ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(onClick = { playerConnection.player.togglePlayPause() }) {
+                if (isLoading) {
+                    VeluneLoader(size = 24.dp)
+                } else {
+                    Icon(
+                        painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            IconButton(onClick = { playerConnection.player.seekToNext() }) {
+                Icon(
+                    painter = painterResource(R.drawable.skip_next),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth(progress)
+                .height(2.dp)
+                .background(MaterialTheme.colorScheme.primary)
+        )
     }
 }
 

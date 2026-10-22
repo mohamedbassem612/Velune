@@ -1,0 +1,353 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
+index 736ec53..77db921 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
+@@ -89,6 +89,9 @@ import com.nikhil.yt.models.MediaMetadata
+ import com.nikhil.yt.models.toMediaMetadata
+ import com.nikhil.yt.playback.PlayerConnection
+ import com.nikhil.yt.playback.queues.YouTubeQueue
++import com.nikhil.yt.playback.queues.ListQueue
++import com.nikhil.yt.extensions.toMediaItem
++import androidx.compose.foundation.border
+ import com.nikhil.yt.ui.component.AlbumGridItem
+ import com.nikhil.yt.ui.component.ArtistGridItem
+ import com.nikhil.yt.ui.component.MenuState
+@@ -937,7 +940,8 @@ fun LazyListScope.SimilarRecommendationsContainer(
+ 
+ 
+ /**
+- * Quick picks list style section (below carousel)
++ * Quick picks: pages of 4 songs. The next page peeks from the right edge
++ * so it is clear you can swipe, like YouTube Music.
+  */
+ @OptIn(ExperimentalFoundationApi::class)
+ @Composable
+@@ -952,7 +956,6 @@ fun QuickPicksListSection(
+     modifier: Modifier = Modifier
+ ) {
+     val distinctQuickPicks = remember(quickPicks) { quickPicks.distinctBy { it.id } }
+-    // Split into pages of 4 songs each
+     val pages = remember(distinctQuickPicks) { distinctQuickPicks.chunked(4) }
+     val pagerState = androidx.compose.foundation.pager.rememberPagerState { pages.size }
+ 
+@@ -960,102 +963,93 @@ fun QuickPicksListSection(
+         Row(
+             modifier = Modifier
+                 .fillMaxWidth()
+-                .padding(horizontal = 16.dp, vertical = 8.dp),
++                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+             verticalAlignment = Alignment.CenterVertically
+         ) {
+             Text(
+-                text = "Quick picks",
+-                style = MaterialTheme.typography.titleLarge,
++                text = stringResource(R.string.quick_picks),
++                style = MaterialTheme.typography.headlineMedium,
+                 modifier = Modifier.weight(1f)
+             )
+             Text(
+                 text = "Play all",
+                 style = MaterialTheme.typography.labelLarge,
+-                color = MaterialTheme.colorScheme.primary,
++                color = MaterialTheme.colorScheme.onSurface,
+                 modifier = Modifier
+                     .clip(RoundedCornerShape(50))
+-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+-                    .padding(horizontal = 12.dp, vertical = 4.dp)
++                    .border(
++                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
++                        RoundedCornerShape(50)
++                    )
++                    .combinedClickable(
++                        onClick = {
++                            if (distinctQuickPicks.isNotEmpty()) {
++                                playerConnection.playQueue(
++                                    ListQueue(
++                                        title = "Quick picks",
++                                        items = distinctQuickPicks.map { it.toMediaItem() }
++                                    )
++                                )
++                            }
++                        }
++                    )
++                    .padding(horizontal = 16.dp, vertical = 8.dp)
+             )
+         }
+ 
+         androidx.compose.foundation.pager.HorizontalPager(
+             state = pagerState,
++            contentPadding = PaddingValues(end = 40.dp),
++            pageSpacing = 8.dp,
+             modifier = Modifier.fillMaxWidth()
+         ) { pageIndex ->
+             val pageSongs = pages.getOrNull(pageIndex) ?: emptyList()
+-            Row(modifier = Modifier.fillMaxWidth()) {
+-                Column(modifier = Modifier.weight(1f)) {
+-                    pageSongs.forEach { song ->
+-                        val isActive = song.id == mediaMetadata?.id
+-                        SongListItem(
+-                            song = song,
+-                            isActive = isActive,
+-                            isPlaying = isPlaying,
+-                            trailingContent = {
+-                                IconButton(
+-                                    onClick = {
+-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+-                                        menuState.show {
+-                                            SongMenu(
+-                                                originalSong = song,
+-                                                navController = navController,
+-                                                onDismiss = menuState::dismiss
+-                                            )
+-                                        }
++            Column(modifier = Modifier.fillMaxWidth()) {
++                pageSongs.forEach { song ->
++                    val isActive = song.id == mediaMetadata?.id
++                    SongListItem(
++                        song = song,
++                        isActive = isActive,
++                        isPlaying = isPlaying,
++                        trailingContent = {
++                            IconButton(
++                                onClick = {
++                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
++                                    menuState.show {
++                                        SongMenu(
++                                            originalSong = song,
++                                            navController = navController,
++                                            onDismiss = menuState::dismiss
++                                        )
+                                     }
+-                                ) {
+-                                    Icon(
+-                                        painter = painterResource(R.drawable.more_vert),
+-                                        contentDescription = null
+-                                    )
+                                 }
+-                            },
+-                            modifier = Modifier
+-                                .fillMaxWidth()
+-                                .combinedClickable(
+-                                    onClick = {
+-                                        if (isActive) {
+-                                            playerConnection.player.togglePlayPause()
+-                                        } else {
+-                                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+-                                        }
+-                                    },
+-                                    onLongClick = {
+-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+-                                        menuState.show {
+-                                            SongMenu(
+-                                                originalSong = song,
+-                                                navController = navController,
+-                                                onDismiss = menuState::dismiss
+-                                            )
+-                                        }
+-                                    }
++                            ) {
++                                Icon(
++                                    painter = painterResource(R.drawable.more_vert),
++                                    contentDescription = null
+                                 )
+-                        )
+-                    }
+-                }
+-            }
+-        }
+-
+-        // Page indicator dots
+-        if (pages.size > 1) {
+-            Row(
+-                modifier = Modifier
+-                    .fillMaxWidth()
+-                    .padding(top = 8.dp),
+-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+-            ) {
+-                repeat(pages.size) { index ->
+-                    val isSelected = pagerState.currentPage == index
+-                    Box(
++                            }
++                        },
+                         modifier = Modifier
+-                            .padding(horizontal = 3.dp)
+-                            .size(if (isSelected) 8.dp else 5.dp)
+-                            .clip(CircleShape)
+-                            .background(
+-                                if (isSelected) MaterialTheme.colorScheme.primary
+-                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
++                            .fillMaxWidth()
++                            .combinedClickable(
++                                onClick = {
++                                    if (isActive) {
++                                        playerConnection.player.togglePlayPause()
++                                    } else {
++                                        playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
++                                    }
++                                },
++                                onLongClick = {
++                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
++                                    menuState.show {
++                                        SongMenu(
++                                            originalSong = song,
++                                            navController = navController,
++                                            onDismiss = menuState::dismiss
++                                        )
++                                    }
++                                }
+                             )
+                     )
+                 }
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/QuickPicksRanker.kt b/app/src/main/kotlin/com/nikhil/yt/utils/QuickPicksRanker.kt
+new file mode 100644
+index 0000000..104c944
+--- /dev/null
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/QuickPicksRanker.kt
+@@ -0,0 +1,75 @@
++/*
++ * Velune - by Nikhil
++ * Nikhil
++ * Licensed Under GPL-3.0
++ */
++
++package com.nikhil.yt.utils
++
++import com.nikhil.yt.db.entities.Song
++import kotlin.random.Random
++
++/**
++ * Orders quick picks candidates by how well they fit the listener's taste.
++ *
++ * Signals, all taken from the local database so the home screen stays fast:
++ * - how related the song is to what was played lately (candidate order, best first)
++ * - how much the listener plays and follows the song's artists
++ * - liked songs get a small bonus
++ * - songs played a moment ago are pushed down so the list is not a repeat
++ * - songs that were played to death are pushed down a little
++ *
++ * A small random part keeps the list different on each refresh, and no more
++ * than two songs from the same artist can appear.
++ */
++object QuickPicksRanker {
++    private const val MAX_PER_ARTIST = 2
++    private const val WORN_OUT_PLAY_TIME_MS = 2 * 60 * 60 * 1000L
++
++    fun rank(
++        candidates: List<Song>,
++        artistAffinity: Map<String, Float>,
++        recentSongIds: Set<String>,
++        limit: Int,
++        random: Random = Random.Default,
++    ): List<Song> {
++        val unique = candidates.distinctBy { it.id }
++        if (unique.isEmpty()) return emptyList()
++        val total = unique.size.toFloat()
++
++        val scored = unique.mapIndexed { index, song ->
++            val relatedness = 1f - index / total
++            val affinity = song.artists.maxOfOrNull { artistAffinity[it.id] ?: 0f } ?: 0f
++
++            var score = 0.45f * relatedness + 0.45f * affinity
++            if (song.song.liked) score += 0.10f
++            if (song.id in recentSongIds) score -= 0.60f
++            if (song.song.totalPlayTime > WORN_OUT_PLAY_TIME_MS) score -= 0.10f
++            score += random.nextFloat() * 0.15f
++
++            song to score
++        }.sortedByDescending { it.second }
++
++        val perArtist = HashMap<String, Int>()
++        val result = ArrayList<Song>(limit)
++        for ((song, _) in scored) {
++            val key = song.artists.firstOrNull()?.id ?: song.id
++            val used = perArtist[key] ?: 0
++            if (used >= MAX_PER_ARTIST) continue
++            perArtist[key] = used + 1
++            result += song
++            if (result.size >= limit) break
++        }
++
++        // If the artist limit left the list short, fill it with what remains.
++        if (result.size < limit) {
++            val chosen = result.map { it.id }.toHashSet()
++            for ((song, _) in scored) {
++                if (song.id in chosen) continue
++                result += song
++                if (result.size >= limit) break
++            }
++        }
++        return result
++    }
++}
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+index 41bd82e..6a328d0 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+@@ -95,11 +95,45 @@ class HomeViewModel @Inject constructor(
+ 
+     private suspend fun getQuickPicks(){
+         when (quickPicksEnum.first()) {
+-            QuickPicks.QUICK_PICKS -> quickPicks.value = database.quickPicks().first().shuffled().take(20)
++            QuickPicks.QUICK_PICKS -> quickPicks.value = buildTasteBasedQuickPicks()
+             QuickPicks.LAST_LISTEN -> songLoad()
+         }
+     }
+ 
++    /**
++     * Quick picks that follow the listener's taste: related songs first, ranked by how much
++     * the listener plays their artists, without repeating what was just played.
++     */
++    private suspend fun buildTasteBasedQuickPicks(): List<Song> {
++        val now = System.currentTimeMillis()
++        val sixtyDays = 86400000L * 60
++
++        val related = database.quickPicks().first()
++        // New or small libraries have few related songs, so add the most played ones.
++        val candidates = if (related.size >= 24) {
++            related
++        } else {
++            related + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
++        }
++
++        val topArtists = database.mostPlayedArtists(now - sixtyDays, limit = 15).first()
++        val affinity = HashMap<String, Float>()
++        topArtists.forEachIndexed { index, artist ->
++            val rankWeight = (topArtists.size - index).toFloat() / topArtists.size
++            val followBonus = if (artist.artist.bookmarkedAt != null) 0.2f else 0f
++            affinity[artist.id] = (rankWeight + followBonus).coerceAtMost(1f)
++        }
++
++        val recentIds = database.recentEvents(10).first().map { it.song.id }.toSet()
++
++        return com.nikhil.yt.utils.QuickPicksRanker.rank(
++            candidates = candidates,
++            artistAffinity = affinity,
++            recentSongIds = recentIds,
++            limit = 20,
++        )
++    }
++
+     private suspend fun load() {
+         if (isLoading.value) return
+         isLoading.value = true
+diff --git a/report.md b/report.md
+index 1102e07..ca541c0 100644
+--- a/report.md
++++ b/report.md
+@@ -394,6 +394,16 @@ Any value placed inside an APK (BuildConfig included) can be extracted by someon
+ - Remove the RESTORE logs, `StartupTrace` and `StreamTiming` logs when no longer needed, and delete `.bak` files.
+ - Download feature (Music/Velune, original format, MediaStore, duplicate check by videoId).
+ 
++## 19. Quick Picks Redesign and Taste-Based Ranking (patch quickpicks)
++
++- UI: Quick picks now looks like YouTube Music. Larger title, an outlined "Play all" button (it now really plays all the picks as a queue), pages of 4 songs where the next page peeks from the right edge, and no page dots.
++- Algorithm: new `QuickPicksRanker`. Candidates are the related songs from the local database (plus the most played songs when the library is small). Each song gets a score from: how related it is to recent listening, how much you play and follow its artists (last 60 days), a small bonus for liked songs, a penalty for songs played in the last 10 plays or played to death, and a small random part so the list changes on refresh. At most 2 songs per artist.
++
++### Modified Files
++- `ui/screens/HomeScreenComponents.kt`, `viewmodels/HomeViewModel.kt`
++- New: `utils/QuickPicksRanker.kt`
++
++
+ ---
+ 
+ **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

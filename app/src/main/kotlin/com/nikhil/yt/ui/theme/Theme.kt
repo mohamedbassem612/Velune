@@ -59,6 +59,7 @@ fun VeluneTheme(
     themeColor: Color = DefaultThemeColor,
     seedPalette: ThemeSeedPalette? = null,
     useSystemFont: Boolean = false,
+    ytMusicStyle: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -86,7 +87,9 @@ fun VeluneTheme(
         }
 
     val baseColorScheme =
-        if (useSystemDynamicColor) {
+        if (ytMusicStyle) {
+            if (darkTheme) YtMusicDarkColorScheme else YtMusicLightColorScheme
+        } else if (useSystemDynamicColor) {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         } else {
             appColorScheme
