@@ -385,6 +385,14 @@ Any value placed inside an APK (BuildConfig included) can be extracted by someon
 | New files | 1 (StartupTrace.kt) |
 | Main files touched | YTPlayerUtils.kt, MusicService.kt, NewPipe.kt, HomeViewModel.kt, App.kt, MainActivity.kt, GlobalLog.kt, DatabaseDao.kt |
 
+## 17b. Home Quick Picks: Empty History and Cold Start (patch quickpicks-3)
+
+- Cause of the "design is gone after reinstall" problem: the carousel and the Quick picks list are built from the local listening history. Uninstalling the app deletes the database (history, likes, play counts), so after a fresh install both sections had nothing to show and were hidden. The design code itself was still in the app.
+- Fix: with no history, the carousel and the Quick picks list are filled from the YouTube Music home feed, so Home looks the same.
+- Cold start: the new-songs list needed network calls, so it appeared late. The last result is now saved on disk (`QuickPicksCache`) and shown immediately on the next start. The fresh result is saved for the following start so the list does not change while the user looks at it. Pull to refresh still replaces the list. While the very first list loads, the local picks are shown instead of empty space.
+
+Modified: `HomeViewModel.kt`, `HomeScreen.kt`. New: `utils/QuickPicksCache.kt`.
+
 ## 18. Still To Do
 
 - Rotate the Together server token (the old values are in public git history) and add the new one to `local.properties`.

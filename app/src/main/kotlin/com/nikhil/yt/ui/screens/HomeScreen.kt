@@ -95,6 +95,8 @@ fun HomeScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val quickPicks by viewModel.quickPicks.collectAsState()
+    val moodQuickPicks by viewModel.moodQuickPicks.collectAsState()
+    val quickPicksFallback by viewModel.quickPicksFallback.collectAsState()
     val forgottenFavorites by viewModel.forgottenFavorites.collectAsState()
     val keepListening by viewModel.keepListening.collectAsState()
     val homePage by viewModel.homePage.collectAsState()
@@ -336,18 +338,38 @@ fun HomeScreen(
             }
 
 
-            quickPicks?.takeIf { it.isNotEmpty() }?.let { picks ->
-                item {
-                    QuickPicksListSection(
-                        quickPicks = picks,
-                        mediaMetadata = mediaMetadata,
-                        isPlaying = isPlaying,
-                        navController = navController,
-                        playerConnection = playerConnection,
-                        menuState = menuState,
-                        haptic = haptic,
-                        modifier = Modifier.animateItem()
-                    )
+            val moodSongs = moodQuickPicks
+            run {
+                // While the new songs are still loading (null) the local picks are shown
+                // instead of an empty space.
+                if (!moodSongs.isNullOrEmpty()) {
+                    item {
+                        MoodQuickPicksListSection(
+                            songs = moodSongs,
+                            mediaMetadata = mediaMetadata,
+                            isPlaying = isPlaying,
+                            navController = navController,
+                            playerConnection = playerConnection,
+                            menuState = menuState,
+                            haptic = haptic,
+                            modifier = Modifier.animateItem()
+                        )
+                    }
+                } else {
+                    quickPicksFallback?.takeIf { it.isNotEmpty() }?.let { picks ->
+                        item {
+                            QuickPicksListSection(
+                                quickPicks = picks,
+                                mediaMetadata = mediaMetadata,
+                                isPlaying = isPlaying,
+                                navController = navController,
+                                playerConnection = playerConnection,
+                                menuState = menuState,
+                                haptic = haptic,
+                                modifier = Modifier.animateItem()
+                            )
+                        }
+                    }
                 }
             }
 

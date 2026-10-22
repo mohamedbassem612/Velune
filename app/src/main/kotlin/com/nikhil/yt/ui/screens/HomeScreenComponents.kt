@@ -99,6 +99,7 @@ import com.nikhil.yt.ui.component.NavigationTitle
 import com.nikhil.yt.ui.component.SongGridItem
 import com.nikhil.yt.ui.component.SongListItem
 import com.nikhil.yt.ui.component.YouTubeGridItem
+import com.nikhil.yt.ui.component.YouTubeListItem
 import com.nikhil.yt.ui.component.shimmer.GridItemPlaceHolder
 import com.nikhil.yt.ui.component.shimmer.ShimmerHost
 import com.nikhil.yt.ui.component.shimmer.TextPlaceholder
@@ -937,24 +938,19 @@ fun LazyListScope.SimilarRecommendationsContainer(
 
 
 /**
- * Quick picks: pages of 4 songs. The next page peeks from the right edge
- * so it is clear you can swipe, like YouTube Music.
+ * Shared layout for the Quick picks list: pages of 4 rows, and the next page peeks
+ * from the right edge so it is clear you can swipe, like YouTube Music.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun QuickPicksListSection(
-    quickPicks: List<Song>,
-    mediaMetadata: MediaMetadata?,
-    isPlaying: Boolean,
-    navController: NavController,
-    playerConnection: PlayerConnection,
-    menuState: MenuState,
-    haptic: HapticFeedback,
-    modifier: Modifier = Modifier
+private fun QuickPicksPager(
+    itemCount: Int,
+    onPlayAll: () -> Unit,
+    modifier: Modifier = Modifier,
+    itemContent: @Composable (Int) -> Unit
 ) {
-    val distinctQuickPicks = remember(quickPicks) { quickPicks.distinctBy { it.id } }
-    val pages = remember(distinctQuickPicks) { distinctQuickPicks.chunked(4) }
-    val pagerState = androidx.compose.foundation.pager.rememberPagerState { pages.size }
+    val pageCount = (itemCount + 3) / 4
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState { pageCount }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -978,18 +974,7 @@ fun QuickPicksListSection(
                         BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         RoundedCornerShape(50)
                     )
-                    .combinedClickable(
-                        onClick = {
-                            if (distinctQuickPicks.isNotEmpty()) {
-                                playerConnection.playQueue(
-                                    ListQueue(
-                                        title = "Quick picks",
-                                        items = distinctQuickPicks.map { it.toMediaItem() }
-                                    )
-                                )
-                            }
-                        }
-                    )
+                    .combinedClickable(onClick = onPlayAll)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
@@ -1000,58 +985,181 @@ fun QuickPicksListSection(
             pageSpacing = 8.dp,
             modifier = Modifier.fillMaxWidth()
         ) { pageIndex ->
-            val pageSongs = pages.getOrNull(pageIndex) ?: emptyList()
+            val start = pageIndex * 4
             Column(modifier = Modifier.fillMaxWidth()) {
-                pageSongs.forEach { song ->
-                    val isActive = song.id == mediaMetadata?.id
-                    SongListItem(
-                        song = song,
-                        isActive = isActive,
-                        isPlaying = isPlaying,
-                        trailingContent = {
-                            IconButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    menuState.show {
-                                        SongMenu(
-                                            originalSong = song,
-                                            navController = navController,
-                                            onDismiss = menuState::dismiss
-                                        )
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.more_vert),
-                                    contentDescription = null
-                                )
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = {
-                                    if (isActive) {
-                                        playerConnection.player.togglePlayPause()
-                                    } else {
-                                        playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
-                                    }
-                                },
-                                onLongClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    menuState.show {
-                                        SongMenu(
-                                            originalSong = song,
-                                            navController = navController,
-                                            onDismiss = menuState::dismiss
-                                        )
-                                    }
-                                }
-                            )
-                    )
+                for (index in start until minOf(start + 4, itemCount)) {
+                    itemContent(index)
                 }
             }
         }
+    }
+}
+
+/**
+ * Quick picks made of songs from the local database (used when new songs
+ * cannot be loaded, for example without internet).
+ */
+@Composable
+fun QuickPicksListSection(
+    quickPicks: List<Song>,
+    mediaMetadata: MediaMetadata?,
+    isPlaying: Boolean,
+    navController: NavController,
+    playerConnection: PlayerConnection,
+    menuState: MenuState,
+    haptic: HapticFeedback,
+    modifier: Modifier = Modifier
+) {
+    val songs = remember(quickPicks) { quickPicks.distinctBy { it.id } }
+
+    QuickPicksPager(
+        itemCount = songs.size,
+        onPlayAll = {
+            if (songs.isNotEmpty()) {
+                playerConnection.playQueue(
+                    ListQueue(
+                        title = "Quick picks",
+                        items = songs.map { it.toMediaItem() }
+                    )
+                )
+            }
+        },
+        modifier = modifier
+    ) { index ->
+        val song = songs[index]
+        val isActive = song.id == mediaMetadata?.id
+        SongListItem(
+            song = song,
+            isActive = isActive,
+            isPlaying = isPlaying,
+            isSwipeable = false,
+            trailingContent = {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuState.show {
+                            SongMenu(
+                                originalSong = song,
+                                navController = navController,
+                                onDismiss = menuState::dismiss
+                            )
+                        }
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.more_vert),
+                        contentDescription = null
+                    )
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = {
+                        if (isActive) {
+                            playerConnection.player.togglePlayPause()
+                        } else {
+                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                        }
+                    },
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuState.show {
+                            SongMenu(
+                                originalSong = song,
+                                navController = navController,
+                                onDismiss = menuState::dismiss
+                            )
+                        }
+                    }
+                )
+        )
+    }
+}
+
+/**
+ * Quick picks made of new songs picked from the mood of the songs played lately.
+ */
+@Composable
+fun MoodQuickPicksListSection(
+    songs: List<SongItem>,
+    mediaMetadata: MediaMetadata?,
+    isPlaying: Boolean,
+    navController: NavController,
+    playerConnection: PlayerConnection,
+    menuState: MenuState,
+    haptic: HapticFeedback,
+    modifier: Modifier = Modifier
+) {
+    val picks = remember(songs) { songs.distinctBy { it.id } }
+
+    QuickPicksPager(
+        itemCount = picks.size,
+        onPlayAll = {
+            if (picks.isNotEmpty()) {
+                playerConnection.playQueue(
+                    ListQueue(
+                        title = "Quick picks",
+                        items = picks.map { it.toMediaItem() }
+                    )
+                )
+            }
+        },
+        modifier = modifier
+    ) { index ->
+        val song = picks[index]
+        val isActive = song.id == mediaMetadata?.id
+        YouTubeListItem(
+            item = song,
+            isActive = isActive,
+            isPlaying = isPlaying,
+            isSwipeable = false,
+            trailingContent = {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuState.show {
+                            YouTubeSongMenu(
+                                song = song,
+                                navController = navController,
+                                onDismiss = menuState::dismiss
+                            )
+                        }
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.more_vert),
+                        contentDescription = null
+                    )
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = {
+                        if (isActive) {
+                            playerConnection.player.togglePlayPause()
+                        } else {
+                            playerConnection.playQueue(
+                                YouTubeQueue(
+                                    song.endpoint ?: WatchEndpoint(videoId = song.id),
+                                    song.toMediaMetadata()
+                                )
+                            )
+                        }
+                    },
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuState.show {
+                            YouTubeSongMenu(
+                                song = song,
+                                navController = navController,
+                                onDismiss = menuState::dismiss
+                            )
+                        }
+                    }
+                )
+        )
     }
 }
 

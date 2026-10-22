@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.innertube.models.PlaylistItem
+import com.nikhil.yt.innertube.models.SongItem
 import com.nikhil.yt.innertube.models.WatchEndpoint
 import com.nikhil.yt.innertube.models.YTItem
 import com.nikhil.yt.innertube.models.filterExplicit
@@ -35,6 +36,8 @@ import com.nikhil.yt.utils.dataStore
 import com.nikhil.yt.utils.get
 import com.nikhil.yt.utils.SyncUtils
 import com.nikhil.yt.utils.reportException
+import com.nikhil.yt.ui.utils.resize
+import com.nikhil.yt.utils.QuickPicksCache
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +65,19 @@ class HomeViewModel @Inject constructor(
         it[QuickPicksKey].toEnum(QuickPicks.QUICK_PICKS)
     }.distinctUntilChanged()
 
+    // Songs shown in the carousel: what was played lately.
     val quickPicks = MutableStateFlow<List<Song>?>(null)
+    // Quick picks list: new songs picked from the mood of the songs played lately.
+    // null = still loading, empty = nothing found.
+    val moodQuickPicks = MutableStateFlow<List<SongItem>?>(null)
+    // Used by the Quick picks list when new songs cannot be loaded.
+    val quickPicksFallback = MutableStateFlow<List<Song>?>(null)
+    // True while the list on screen came from the disk cache. In that case the fresh result
+    // is only saved for the next start, so the list does not change under the user's finger.
+    private var moodShownFromCache = false
+    private var likedSnapshot: List<Song>? = null
+    private var likedSnapshotTime = 0L
+    private var forceMoodRefresh = false
     val forgottenFavorites = MutableStateFlow<List<Song>?>(null)
     val keepListening = MutableStateFlow<List<LocalItem>?>(null)
     val similarRecommendations = MutableStateFlow<List<SimilarRecommendation>?>(null)
@@ -93,11 +108,170 @@ class HomeViewModel @Inject constructor(
         return chips?.filterNot { it.title.contains("podcasts", ignoreCase = true) }
     }
 
-    private suspend fun getQuickPicks(){
-        when (quickPicksEnum.first()) {
-            QuickPicks.QUICK_PICKS -> quickPicks.value = buildTasteBasedQuickPicks()
-            QuickPicks.LAST_LISTEN -> songLoad()
+    /** Liked songs, most recently liked first. Kept for a few seconds so one load reads them once. */
+    private suspend fun likedSongsRecentFirst(): List<Song> {
+        val now = System.currentTimeMillis()
+        likedSnapshot?.let { if (now - likedSnapshotTime < 10_000) return it }
+        val list = database.likedSongsByRowIdAsc().first().asReversed()
+        likedSnapshot = list
+        likedSnapshotTime = now
+        return list
+    }
+
+    private suspend fun getQuickPicks() {
+        val recent = database.recentEvents(60).first()
+            .map { it.song }
+            .distinctBy { it.id }
+            .take(12)
+        // The carousel is filled with liked songs when there are few recent plays.
+        val recentIds = recent.map { it.id }.toHashSet()
+        val likedFill = likedSongsRecentFirst()
+            .filter { it.id !in recentIds }
+            .take(40)
+            .shuffled()
+            .take(12 - recent.size)
+        val taste = buildTasteBasedQuickPicks()
+        quickPicksFallback.value = taste
+        quickPicks.value = (recent + likedFill).ifEmpty { taste }
+    }
+
+    private suspend fun loadMoodQuickPicks() {
+        val result = try {
+            kotlinx.coroutines.withTimeoutOrNull(10_000) { buildMoodQuickPicks() }
+        } catch (e: Exception) {
+            reportException(e)
+            null
         }
+        if (!result.isNullOrEmpty()) {
+            QuickPicksCache.save(context, result)
+            if (!moodShownFromCache || forceMoodRefresh) {
+                moodQuickPicks.value = result
+                moodShownFromCache = false
+            }
+        } else if (moodQuickPicks.value == null) {
+            moodQuickPicks.value = emptyList()
+        }
+        forceMoodRefresh = false
+    }
+
+    /**
+     * When there is no listening history yet (a new install, or the app data was cleared),
+     * fill the carousel and the Quick picks list from the YouTube Music home feed so the
+     * Home screen looks the same as it does with history.
+     */
+    private fun fillStarterPicksIfNeeded() {
+        if (!quickPicks.value.isNullOrEmpty()) return
+        val songs = homePage.value?.sections.orEmpty()
+            .flatMap { it.items }
+            .filterIsInstance<SongItem>()
+            .distinctBy { it.id }
+        if (songs.size < 4) return
+
+        val carousel = songs.take(12)
+        quickPicks.value = carousel.map { it.toLocalSong() }
+        if (moodQuickPicks.value.isNullOrEmpty()) {
+            moodQuickPicks.value = songs.drop(carousel.size).ifEmpty { songs }.take(20)
+            moodShownFromCache = false
+        }
+    }
+
+    private fun SongItem.toLocalSong() = Song(
+        song = SongEntity(
+            id = id,
+            title = title,
+            duration = duration ?: -1,
+            thumbnailUrl = thumbnail.resize(544, 544),
+            albumId = album?.id,
+            albumName = album?.name,
+            explicit = explicit,
+        ),
+        artists = artists.map {
+            ArtistEntity(id = it.id ?: ArtistEntity.generateArtistId(), name = it.name)
+        },
+    )
+
+    /**
+     * New songs for the current mood. The mood is the vibe of the songs played lately:
+     * we ask YouTube Music for songs related to the last few songs played (the latest
+     * counts the most), keep the ones that show up for several of them, and drop
+     * everything already heard or liked.
+     */
+    private suspend fun buildMoodQuickPicks(): List<SongItem> {
+        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+        val hideVideo = context.dataStore.get(HideVideoKey, false)
+        val lastSongOnly = quickPicksEnum.first() == QuickPicks.LAST_LISTEN
+
+        val events = database.recentEvents(400).first()
+        val liked = likedSongsRecentFirst()
+
+        // The mood comes from the songs played lately and from liked songs.
+        val recentSeeds = events.map { it.song }.distinctBy { it.id }.take(if (lastSongOnly) 1 else 3)
+        val likedSeeds = if (lastSongOnly && recentSeeds.isNotEmpty()) {
+            emptyList<Song>()
+        } else {
+            liked.filter { song -> recentSeeds.none { it.id == song.id } }
+                .take(40)
+                .shuffled()
+                .take(if (recentSeeds.isEmpty()) 4 else 2)
+        }
+        val seeds = recentSeeds + likedSeeds
+        if (seeds.isEmpty()) return emptyList()
+        // Recent plays count the most (the latest first); liked seeds count a bit less.
+        val seedWeights = recentSeeds.indices.map { 1f - it * 0.2f } + likedSeeds.map { 0.6f }
+
+        val known = HashSet<String>()
+        events.forEach { known += it.song.id }
+        liked.forEach { known += it.id }
+
+        val related = kotlinx.coroutines.coroutineScope {
+            seeds.mapIndexed { index, seed ->
+                async {
+                    val endpoint = YouTube.next(WatchEndpoint(videoId = seed.id))
+                        .getOrNull()?.relatedEndpoint
+                    val page = endpoint?.let { YouTube.related(it).getOrNull() }
+                    index to page?.songs.orEmpty()
+                }
+            }.awaitAll()
+        }
+
+        val scores = HashMap<String, Float>()
+        val songsById = LinkedHashMap<String, SongItem>()
+        for ((seedIndex, songs) in related) {
+            val seedWeight = seedWeights[seedIndex]
+            songs.forEachIndexed { position, song ->
+                if (song.id in known) return@forEachIndexed
+                val positionBonus = 1f - position.toFloat() / songs.size.coerceAtLeast(1)
+                scores[song.id] = (scores[song.id] ?: 0f) + seedWeight * (0.7f + 0.3f * positionBonus)
+                songsById.putIfAbsent(song.id, song)
+            }
+        }
+
+        val random = kotlin.random.Random.Default
+        val ranked = songsById.values.toList()
+            .filterExplicit(hideExplicit)
+            .filterVideo(hideVideo)
+            .sortedByDescending { (scores[it.id] ?: 0f) + random.nextFloat() * 0.25f }
+
+        // At most 2 songs from the same artist.
+        val perArtist = HashMap<String, Int>()
+        val result = ArrayList<SongItem>(20)
+        for (song in ranked) {
+            val key = song.artists.firstOrNull()?.name ?: song.id
+            val used = perArtist[key] ?: 0
+            if (used >= 2) continue
+            perArtist[key] = used + 1
+            result += song
+            if (result.size >= 20) break
+        }
+        if (result.size < 20) {
+            val chosen = result.map { it.id }.toHashSet()
+            for (song in ranked) {
+                if (song.id in chosen) continue
+                result += song
+                if (result.size >= 20) break
+            }
+        }
+        return result
     }
 
     /**
@@ -108,12 +282,13 @@ class HomeViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         val sixtyDays = 86400000L * 60
 
+        val liked = likedSongsRecentFirst()
         val related = database.quickPicks().first()
-        // New or small libraries have few related songs, so add the most played ones.
-        val candidates = if (related.size >= 24) {
-            related
-        } else {
-            related + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
+        // Related songs come first (they count as closest to recent listening), then
+        // a sample of liked songs, then the most played ones when the library is small.
+        var candidates = related + liked.take(60).shuffled().take(40)
+        if (candidates.size < 24) {
+            candidates = candidates + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
         }
 
         val topArtists = database.mostPlayedArtists(now - sixtyDays, limit = 15).first()
@@ -122,6 +297,15 @@ class HomeViewModel @Inject constructor(
             val rankWeight = (topArtists.size - index).toFloat() / topArtists.size
             val followBonus = if (artist.artist.bookmarkedAt != null) 0.2f else 0f
             affinity[artist.id] = (rankWeight + followBonus).coerceAtMost(1f)
+        }
+
+        // Artists of liked songs count too: the more likes, the stronger the taste.
+        val likedPerArtist = HashMap<String, Int>()
+        liked.forEach { song -> song.artists.forEach { likedPerArtist[it.id] = (likedPerArtist[it.id] ?: 0) + 1 } }
+        val maxLiked = (likedPerArtist.values.maxOrNull() ?: 1).toFloat()
+        likedPerArtist.forEach { (artistId, count) ->
+            val likeWeight = 0.3f + 0.7f * count / maxLiked
+            affinity[artistId] = maxOf(affinity[artistId] ?: 0f, likeWeight)
         }
 
         val recentIds = database.recentEvents(10).first().map { it.song.id }.toSet()
@@ -137,7 +321,9 @@ class HomeViewModel @Inject constructor(
     private suspend fun load() {
         if (isLoading.value) return
         isLoading.value = true
-        
+
+        viewModelScope.launch(Dispatchers.IO) { loadMoodQuickPicks() }
+
         try {
             supervisorScope {
                 val hideExplicit = context.dataStore.get(HideExplicitKey, false)
@@ -199,6 +385,8 @@ class HomeViewModel @Inject constructor(
                     }.onFailure { reportException(it) }
                 }
             }
+
+            fillStarterPicksIfNeeded()
 
             allLocalItems.value = (quickPicks.value.orEmpty() + forgottenFavorites.value.orEmpty() + keepListening.value.orEmpty())
                 .filter { it is Song || it is Album }
@@ -281,16 +469,6 @@ class HomeViewModel @Inject constructor(
                 homePage.value?.sections?.flatMap { it.items }.orEmpty()
     }
 
-    private suspend fun songLoad() {
-        val song = database.recentEvents(1).first().firstOrNull()?.song
-        if (song != null) {
-            if (database.hasRelatedSongs(song.id)) {
-                val relatedSongs = database.getRelatedSongs(song.id).first().shuffled().take(20)
-                quickPicks.value = relatedSongs
-            }
-        }
-    }
-
     private val _isLoadingMore = MutableStateFlow(false)
     fun loadMoreYouTubeItems(continuation: String?) {
         if (continuation == null || _isLoadingMore.value) return
@@ -350,6 +528,7 @@ class HomeViewModel @Inject constructor(
 
     fun refresh() {
         if (isRefreshing.value) return
+        forceMoodRefresh = true
         viewModelScope.launch(Dispatchers.IO) {
             isRefreshing.value = true
             load()
@@ -394,8 +573,37 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
+        // Show the last Quick picks right away; the fresh ones are saved for the next start.
+        viewModelScope.launch(Dispatchers.IO) {
+            QuickPicksCache.load(context)?.takeIf { it.isNotEmpty() }?.let { cached ->
+                if (moodQuickPicks.value == null) {
+                    moodShownFromCache = true
+                    moodQuickPicks.value = cached
+                }
+            }
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             load()
+        }
+
+        // After a reinstall the liked songs arrive a few seconds later from the account sync.
+        // When the first likes show up, rebuild the Quick picks with them.
+        viewModelScope.launch(Dispatchers.IO) {
+            var hadLikes: Boolean? = null
+            database.likedSongsCount().map { it > 0 }.distinctUntilChanged().collect { hasLikes ->
+                if (hadLikes == false && hasLikes) {
+                    likedSnapshot = null
+                    forceMoodRefresh = true
+                    try {
+                        getQuickPicks()
+                        loadMoodQuickPicks()
+                    } catch (e: Exception) {
+                        reportException(e)
+                    }
+                }
+                hadLikes = hasLikes
+            }
         }
 
         viewModelScope.launch(Dispatchers.IO) {
