@@ -37,7 +37,8 @@ data class ReleaseInfo(
     val name: String,
     val body: String?,
     val publishedAt: String,
-    val htmlUrl: String
+    val htmlUrl: String,
+    val apkUrl: String? = null
 )
 
 private data class ReleasesNetworkResult(
@@ -59,13 +60,26 @@ object Updater {
         val releases = ArrayList<ReleaseInfo>(jsonArray.length())
         for (i in 0 until jsonArray.length()) {
             val item = jsonArray.getJSONObject(i)
+            var apkUrl: String? = null
+            val assets = item.optJSONArray("assets")
+            if (assets != null) {
+                for (j in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(j)
+                    val assetName = asset.optString("name", "")
+                    if (assetName.endsWith(".apk", ignoreCase = true)) {
+                        apkUrl = asset.optString("browser_download_url", "").ifBlank { null }
+                        break
+                    }
+                }
+            }
             releases.add(
                 ReleaseInfo(
                     tagName = item.optString("tag_name", ""),
                     name = item.optString("name", ""),
                     body = if (item.has("body")) item.optString("body") else null,
                     publishedAt = item.optString("published_at", ""),
-                    htmlUrl = item.optString("html_url", "")
+                    htmlUrl = item.optString("html_url", ""),
+                    apkUrl = apkUrl
                 )
             )
         }
@@ -88,7 +102,7 @@ object Updater {
         cachedEtag: String?,
     ): ReleasesNetworkResult {
         val response: HttpResponse =
-            client.get("https://api.github.com/repos/nikhilvishwakarma00/Velune/releases?per_page=$perPage") {
+            client.get("https://api.github.com/repos/mohamedbassem612/Velune/releases?per_page=$perPage") {
                 headers {
                     append("Accept", "application/vnd.github+json")
                     append("User-Agent", "Velune")
@@ -140,10 +154,10 @@ object Updater {
             latest
         }
 
-    suspend fun getCommitHistory(count: Int = 20, branch: String = "dev"): Result<List<GitCommit>> =
+    suspend fun getCommitHistory(count: Int = 20, branch: String = "main"): Result<List<GitCommit>> =
         runCatching {
             val response =
-                client.get("https://api.github.com/repos/nikhilvishwakarma00/Velune/commits?sha=$branch&per_page=$count")
+                client.get("https://api.github.com/repos/mohamedbassem612/Velune/commits?sha=$branch&per_page=$count")
                     .bodyAsText()
             val jsonArray = JSONArray(response)
             val commits = mutableListOf<GitCommit>()
@@ -164,8 +178,23 @@ object Updater {
             commits
         }
 
+    // True only when the release version is higher than the installed version (never offers a downgrade).
+    fun isNewerThanInstalled(release: ReleaseInfo): Boolean {
+        fun parts(v: String): List<Int> =
+            v.trim().removePrefix("Velune").trim().removePrefix("v").split(".")
+                .map { it.takeWhile { c -> c.isDigit() }.toIntOrNull() ?: 0 }
+        val latest = parts(release.tagName)
+        val current = parts(BuildConfig.VERSION_NAME)
+        for (i in 0 until maxOf(latest.size, current.size)) {
+            val l = latest.getOrElse(i) { 0 }
+            val c = current.getOrElse(i) { 0 }
+            if (l != c) return l > c
+        }
+        return false
+    }
+
     fun getLatestDownloadUrl(): String {
-        val baseUrl = "https://github.com/nikhilvishwakarma00/Velune/releases/latest/download/"
+        val baseUrl = "https://github.com/mohamedbassem612/Velune/releases/latest/download/"
         val architecture = BuildConfig.ARCHITECTURE
         return if (architecture == "universal") {
             baseUrl + "Velune.apk"

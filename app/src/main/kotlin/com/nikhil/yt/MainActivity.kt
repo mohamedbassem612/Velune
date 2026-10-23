@@ -511,6 +511,8 @@ class MainActivity : ComponentActivity() {
                     requestAudioPermissionOnce()
                 }
 
+            var pendingUpdate by remember { mutableStateOf<com.nikhil.yt.utils.ReleaseInfo?>(null) }
+
             LaunchedEffect(Unit) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(
@@ -523,13 +525,27 @@ class MainActivity : ComponentActivity() {
                     requestAudioPermissionOnce()
                 }
 
-                // Update checker disabled - IzzyOnDroid handles updates
-                // if (System.currentTimeMillis() - Updater.lastCheckTime > 1.days.inWholeMilliseconds) {
-                //     Updater.getLatestVersionName().onSuccess {
-                //         latestVersionName = it
-                //     }
-                // }
-                // com.nikhil.yt.utils.UpdateNotificationManager.checkForUpdates(this@MainActivity)
+                // In-app update check: at most once every 12 hours, release builds only.
+                if (!com.nikhil.yt.BuildConfig.DEBUG) {
+                    val updatePrefs = getSharedPreferences("update_check", MODE_PRIVATE)
+                    val now = System.currentTimeMillis()
+                    if (now - updatePrefs.getLong("last_check", 0L) > 12L * 60 * 60 * 1000) {
+                        com.nikhil.yt.utils.Updater.getAllReleases(forceRefresh = true).onSuccess { releases ->
+                            updatePrefs.edit().putLong("last_check", now).apply()
+                            val latest = releases.firstOrNull()
+                            if (latest != null && com.nikhil.yt.utils.Updater.isNewerThanInstalled(latest)) {
+                                pendingUpdate = latest
+                            }
+                        }
+                    }
+                }
+            }
+
+            pendingUpdate?.let { release ->
+                com.nikhil.yt.ui.component.UpdateAvailableDialog(
+                    release = release,
+                    onDismiss = { pendingUpdate = null },
+                )
             }
 
             // Use remembered instances so the same state object is used everywhere

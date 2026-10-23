@@ -54,7 +54,7 @@ fun StarDialog(
         text = {
             Column {
                 Text(
-                    text = "Hey there! I\'m Nikhil, the developer of Velune. I have been putting a lot of love into making this app better every day. \n\nIf you enjoy using Velune, you can support its development by giving the project a star on GitHub — it really helps and keeps me motivated to keep improving it!\n\nThanks a bunch for your support and for being part of this journey!",
+                    text = "Hey there! I\'m Muhammed, the developer of Velune. I have been putting a lot of love into making this app better every day. \n\nIf you enjoy using Velune, you can support its development by giving the project a star on GitHub — it really helps and keeps me motivated to keep improving it!\n\nThanks a bunch for your support and for being part of this journey!",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -65,7 +65,7 @@ fun StarDialog(
                     try {
                         val intent = Intent(
                             Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/nikhilvishwakarma00")
+                            Uri.parse("https://github.com/mohamedbassem612")
                         )
                         context.startActivity(intent)
                     } catch (e: Exception) {
@@ -86,7 +86,7 @@ fun StarDialog(
                     try {
                         val intent = Intent(
                             Intent.ACTION_VIEW,
-                            Uri.parse("https://github.com/nikhilvishwakarma00/Velune")
+                            Uri.parse("https://github.com/mohamedbassem612/Velune")
                         )
                         context.startActivity(intent)
                     } catch (e: Exception) {

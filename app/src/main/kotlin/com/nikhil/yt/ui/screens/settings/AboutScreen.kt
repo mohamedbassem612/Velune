@@ -138,10 +138,10 @@ fun AboutScreen(
                 SectionTitle("DEVELOPER")
                 Spacer(Modifier.height(8.dp))
                 AboutItemCard(
-                    iconUrl = "https://github.com/nikhilvishwakarma00.png",
-                    title = "Nikhil",
+                    iconUrl = "https://github.com/mohamedbassem612.png",
+                    title = "Muhammed",
                     subtitle = "App Developer",
-                    onClick = { uriHandler.openUri("https://github.com/nikhilvishwakarma00") }
+                    onClick = { uriHandler.openUri("https://github.com/mohamedbassem612") }
                 )
                 Spacer(Modifier.height(24.dp))
             }
@@ -174,21 +174,10 @@ fun AboutScreen(
                     iconRes = R.drawable.github,
                     title = "GitHub Repository",
                     subtitle = "View source code",
-                    onClick = { uriHandler.openUri("https://github.com/nikhilvishwakarma00/Velune") }
+                    onClick = { uriHandler.openUri("https://github.com/mohamedbassem612/Velune") }
                 )
                 Spacer(Modifier.height(24.dp))
 
-                AboutItemCard(
-                    iconRes = R.drawable.ic_discord,
-                    title = "Discord Server",
-                    subtitle = "Join the community to chat and report bugs",
-                    onClick = { uriHandler.openUri("https://discord.gg/cJNHTdoP6H")}
-                )
-                Spacer(Modifier.height(24.dp))
-
-                SupportDeveloperCard()
-
-                Spacer(Modifier.height(24.dp))
             }
 
 
@@ -311,80 +300,3 @@ fun AboutItemCard(
         }
     }
 }
-fun launchUpiPayment(context: android.content.Context, upiId: String, payeeName: String) {
-    val note = "Support for Velune"
-    val uriString = "upi://pay?pa=$upiId&pn=${android.net.Uri.encode(payeeName)}&tn=${android.net.Uri.encode(note)}&cu=INR"
-    val uri = android.net.Uri.parse(uriString)
-    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
-
-    val chooser = android.content.Intent.createChooser(intent, "Pay with...")
-
-    try {
-        context.startActivity(chooser)
-    } catch (e: android.content.ActivityNotFoundException) {
-        android.widget.Toast.makeText(context, "No UPI app found on this device.", android.widget.Toast.LENGTH_SHORT).show()
-    }
-}
-
-@Composable
-fun SupportDeveloperCard(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val myUpiId = "nikhilvishwakarma9631@oksbi"
-    val myName = "Nikhil"
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
-        ),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "Support the Developer",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "If you enjoy Velune, consider buying me a chai!",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Button(
-                onClick = { launchUpiPayment(context, myUpiId, myName) },
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(36.dp)
-            ) {
-                Icon(
-                    painter = painterResource(id = android.R.drawable.ic_menu_send),
-                    contentDescription = "UPI",
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "UPI",
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-        }
-    }
-}
-
