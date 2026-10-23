@@ -23,8 +23,8 @@ android {
     applicationId = "com.nikhil.yt"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.1.2 "
+        versionCode = System.getenv("RELEASE_VERSION_CODE")?.toIntOrNull() ?: 10
+        versionName = System.getenv("RELEASE_VERSION_NAME") ?: "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
