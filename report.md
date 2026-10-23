@@ -393,6 +393,14 @@ Any value placed inside an APK (BuildConfig included) can be extracted by someon
 
 Modified: `HomeViewModel.kt`, `HomeScreen.kt`. New: `utils/QuickPicksCache.kt`.
 
+## 17c. Quick Picks Algorithm v2 (patch quickpicks-5)
+
+- Mood plus taste: the new songs are scored 70% by the current mood (how many of the seed songs, recent plays and liked songs, suggest them, with the best match scaled to 1) and 30% by general taste (artists from the last 60 days of listening, followed artists and liked songs).
+- Less repetition of songs: songs from the last 30 plays and liked songs are never suggested as new. Songs heard before that are older than the last 30 plays are allowed, with a penalty that gets smaller the longer ago they were played. The list on screen (or cached) is not repeated unless fewer than 12 other songs are left.
+- Less repetition of artists: every artist of a song counts, including featured artists, at most 2 per artist. If the list would be short the limit goes to 3 and then 4, never more, so the list can be shorter than 20. Artists played a lot in the last 30 plays lose a little score (graded, not blocked).
+- `QuickPicksRanker` (local fallback): the old fill step ignored the artist limit and is fixed, the recent-song penalty is graded over the last 30 plays instead of a flat penalty for the last 10, and random noise is reduced.
+- Shared helpers: `QuickPicksRanker.selectDiverse`, `QuickPicksRanker.normalizeArtist`, `HomeViewModel.buildArtistAffinity`.
+
 ## 18. Still To Do
 
 - Rotate the Together server token (the old values are in public git history) and add the new one to `local.properties`.

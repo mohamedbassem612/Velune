@@ -219,9 +219,22 @@ class HomeViewModel @Inject constructor(
         // Recent plays count the most (the latest first); liked seeds count a bit less.
         val seedWeights = recentSeeds.indices.map { 1f - it * 0.2f } + likedSeeds.map { 0.6f }
 
-        val known = HashSet<String>()
-        events.forEach { known += it.song.id }
-        liked.forEach { known += it.id }
+        // What was heard: rank 0 is the song played most recently.
+        val heardRank = LinkedHashMap<String, Int>()
+        events.forEach { heardRank.putIfAbsent(it.song.id, heardRank.size) }
+        val heardCount = heardRank.size.coerceAtLeast(1).toFloat()
+        val recentSongs = events.map { it.song }.distinctBy { it.id }.take(RECENT_EXCLUDE_COUNT)
+        val recentIds = recentSongs.map { it.id }.toHashSet()
+        val likedIds = liked.map { it.id }.toHashSet()
+        val shownIds = moodQuickPicks.value.orEmpty().map { it.id }.toHashSet()
+
+        val recentArtistCounts = HashMap<String, Int>()
+        recentSongs.forEach { song ->
+            song.artists.map { com.nikhil.yt.utils.QuickPicksRanker.normalizeArtist(it.name) }
+                .distinct()
+                .forEach { recentArtistCounts[it] = (recentArtistCounts[it] ?: 0) + 1 }
+        }
+        val affinity = buildArtistAffinity(liked)
 
         val related = kotlinx.coroutines.coroutineScope {
             seeds.mapIndexed { index, seed ->
@@ -234,49 +247,104 @@ class HomeViewModel @Inject constructor(
             }.awaitAll()
         }
 
-        val scores = HashMap<String, Float>()
+        // Mood score: a song gets points from every seed whose related list has it
+        // (once per seed), more for recent seeds and for a higher place in the list.
+        val moodScores = HashMap<String, Float>()
         val songsById = LinkedHashMap<String, SongItem>()
         for ((seedIndex, songs) in related) {
             val seedWeight = seedWeights[seedIndex]
-            songs.forEachIndexed { position, song ->
-                if (song.id in known) return@forEachIndexed
-                val positionBonus = 1f - position.toFloat() / songs.size.coerceAtLeast(1)
-                scores[song.id] = (scores[song.id] ?: 0f) + seedWeight * (0.7f + 0.3f * positionBonus)
+            val distinctSongs = songs.distinctBy { it.id }
+            distinctSongs.forEachIndexed { position, song ->
+                // Liked songs and songs from the last plays are not "new".
+                if (song.id in likedIds || song.id in recentIds) return@forEachIndexed
+                val positionBonus = 1f - position.toFloat() / distinctSongs.size.coerceAtLeast(1)
+                moodScores[song.id] = (moodScores[song.id] ?: 0f) + seedWeight * (0.7f + 0.3f * positionBonus)
                 songsById.putIfAbsent(song.id, song)
             }
         }
+        if (songsById.isEmpty()) return emptyList()
+        val maxMood = (moodScores.values.maxOrNull() ?: 1f).coerceAtLeast(0.0001f)
 
         val random = kotlin.random.Random.Default
         val ranked = songsById.values.toList()
             .filterExplicit(hideExplicit)
             .filterVideo(hideVideo)
-            .sortedByDescending { (scores[it.id] ?: 0f) + random.nextFloat() * 0.25f }
+            .map { song ->
+                // 70% current mood, 30% general taste.
+                val moodScore = ((moodScores[song.id] ?: 0f) / maxMood).coerceIn(0f, 1f)
+                val tasteScore = song.artists
+                    .maxOfOrNull { affinity.of(it.id, it.name) }
+                    ?.coerceIn(0f, 1f) ?: 0f
+                // Heard before but not lately: allowed, with a smaller penalty the longer ago.
+                val heardPenalty = heardRank[song.id]
+                    ?.let { MAX_HEARD_PENALTY * (1f - it / heardCount) } ?: 0f
+                val repeatedArtist = song.artists.maxOfOrNull {
+                    recentArtistCounts[com.nikhil.yt.utils.QuickPicksRanker.normalizeArtist(it.name)] ?: 0
+                } ?: 0
+                val artistPenalty = 0.05f * minOf(repeatedArtist, 4)
 
-        // At most 2 songs from the same artist.
-        val perArtist = HashMap<String, Int>()
-        val result = ArrayList<SongItem>(20)
-        for (song in ranked) {
-            val key = song.artists.firstOrNull()?.name ?: song.id
-            val used = perArtist[key] ?: 0
-            if (used >= 2) continue
-            perArtist[key] = used + 1
-            result += song
-            if (result.size >= 20) break
+                val score = 0.70f * moodScore + 0.30f * tasteScore - heardPenalty - artistPenalty +
+                    random.nextFloat() * 0.03f
+                song to score
+            }
+            .sortedByDescending { it.second }
+            .map { it.first }
+
+        // Do not repeat the list that is on screen, unless too few other songs are left.
+        val fresh = ranked.filter { it.id !in shownIds }
+        val pool = if (fresh.size >= 12) fresh else fresh + ranked.filter { it.id in shownIds }
+
+        return com.nikhil.yt.utils.QuickPicksRanker.selectDiverse(
+            sorted = pool,
+            limit = 20,
+            idOf = { it.id },
+            artistKeys = { song ->
+                song.artists.map { com.nikhil.yt.utils.QuickPicksRanker.normalizeArtist(it.name) }
+            },
+        )
+    }
+
+    /**
+     * Artist taste from the listening history of the last 60 days, followed artists and
+     * liked songs, as a score from 0 to 1 by artist id and by artist name.
+     */
+    private suspend fun buildArtistAffinity(liked: List<Song>): ArtistAffinity {
+        val now = System.currentTimeMillis()
+        val sixtyDays = 86400000L * 60
+        val byId = HashMap<String, Float>()
+        val byName = HashMap<String, Float>()
+
+        fun put(id: String, name: String, weight: Float) {
+            byId[id] = maxOf(byId[id] ?: 0f, weight)
+            val key = com.nikhil.yt.utils.QuickPicksRanker.normalizeArtist(name)
+            byName[key] = maxOf(byName[key] ?: 0f, weight)
         }
-        if (result.size < 20) {
-            val chosen = result.map { it.id }.toHashSet()
-            for (song in ranked) {
-                if (song.id in chosen) continue
-                result += song
-                if (result.size >= 20) break
+
+        val topArtists = database.mostPlayedArtists(now - sixtyDays, limit = 15).first()
+        topArtists.forEachIndexed { index, artist ->
+            val rankWeight = (topArtists.size - index).toFloat() / topArtists.size
+            val followBonus = if (artist.artist.bookmarkedAt != null) 0.2f else 0f
+            put(artist.id, artist.artist.name, (rankWeight + followBonus).coerceAtMost(1f))
+        }
+
+        // Artists of liked songs count too: the more likes, the stronger the taste.
+        val likedPerArtist = HashMap<String, Pair<String, Int>>()
+        liked.forEach { song ->
+            song.artists.forEach { artist ->
+                val count = (likedPerArtist[artist.id]?.second ?: 0) + 1
+                likedPerArtist[artist.id] = artist.name to count
             }
         }
-        return result
+        val maxLiked = (likedPerArtist.values.maxOfOrNull { it.second } ?: 1).toFloat()
+        likedPerArtist.forEach { (artistId, nameAndCount) ->
+            put(artistId, nameAndCount.first, 0.3f + 0.7f * nameAndCount.second / maxLiked)
+        }
+        return ArtistAffinity(byId, byName)
     }
 
     /**
      * Quick picks that follow the listener's taste: related songs first, ranked by how much
-     * the listener plays their artists, without repeating what was just played.
+     * the listener plays and likes their artists, without repeating what was played lately.
      */
     private suspend fun buildTasteBasedQuickPicks(): List<Song> {
         val now = System.currentTimeMillis()
@@ -291,29 +359,23 @@ class HomeViewModel @Inject constructor(
             candidates = candidates + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
         }
 
-        val topArtists = database.mostPlayedArtists(now - sixtyDays, limit = 15).first()
-        val affinity = HashMap<String, Float>()
-        topArtists.forEachIndexed { index, artist ->
-            val rankWeight = (topArtists.size - index).toFloat() / topArtists.size
-            val followBonus = if (artist.artist.bookmarkedAt != null) 0.2f else 0f
-            affinity[artist.id] = (rankWeight + followBonus).coerceAtMost(1f)
-        }
+        val affinity = buildArtistAffinity(liked)
 
-        // Artists of liked songs count too: the more likes, the stronger the taste.
-        val likedPerArtist = HashMap<String, Int>()
-        liked.forEach { song -> song.artists.forEach { likedPerArtist[it.id] = (likedPerArtist[it.id] ?: 0) + 1 } }
-        val maxLiked = (likedPerArtist.values.maxOrNull() ?: 1).toFloat()
-        likedPerArtist.forEach { (artistId, count) ->
-            val likeWeight = 0.3f + 0.7f * count / maxLiked
-            affinity[artistId] = maxOf(affinity[artistId] ?: 0f, likeWeight)
+        val recentSongs = database.recentEvents(100).first()
+            .map { it.song }
+            .distinctBy { it.id }
+            .take(RECENT_EXCLUDE_COUNT)
+        val recentArtistCounts = HashMap<String, Int>()
+        recentSongs.forEach { song ->
+            song.artists.map { it.id }.distinct()
+                .forEach { recentArtistCounts[it] = (recentArtistCounts[it] ?: 0) + 1 }
         }
-
-        val recentIds = database.recentEvents(10).first().map { it.song.id }.toSet()
 
         return com.nikhil.yt.utils.QuickPicksRanker.rank(
             candidates = candidates,
-            artistAffinity = affinity,
-            recentSongIds = recentIds,
+            artistAffinity = affinity.byId,
+            recentSongIds = recentSongs.map { it.id },
+            recentArtistCounts = recentArtistCounts,
             limit = 20,
         )
     }
@@ -689,4 +751,21 @@ class HomeViewModel @Inject constructor(
                 }
         }
     }
+}
+
+/** Songs played in the last [RECENT_EXCLUDE_COUNT] plays are not suggested as new. */
+private const val RECENT_EXCLUDE_COUNT = 30
+
+/** Most points taken from a new song that was heard before (older than the recent plays). */
+private const val MAX_HEARD_PENALTY = 0.35f
+
+private class ArtistAffinity(
+    val byId: Map<String, Float>,
+    val byName: Map<String, Float>,
+) {
+    fun of(id: String?, name: String): Float =
+        maxOf(
+            id?.let { byId[it] } ?: 0f,
+            byName[com.nikhil.yt.utils.QuickPicksRanker.normalizeArtist(name)] ?: 0f,
+        )
 }
