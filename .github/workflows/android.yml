@@ -3,12 +3,13 @@ name: Android CI
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -31,7 +32,7 @@ jobs:
         run: chmod +x gradlew
 
       # Repository secrets are not available to pull_request workflows from forks.
-      # PRs build Debug; pushes to main and manual runs build a signed Release.
+      # PRs build Debug; pushes and manual runs build a signed Release.
       - name: Prepare release signing key
         if: github.event_name != 'pull_request'
         env:
@@ -58,7 +59,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: ./gradlew :app:assembleUniversalDebug
 
-      - name: Upload signed Release APK
+      - name: Upload signed Release APK artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
@@ -66,6 +67,15 @@ jobs:
           path: app/build/outputs/apk/universal/release/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Velune ${{ github.ref_name }}
+          generate_release_notes: true
+          files: app/build/outputs/apk/universal/release/*.apk
 
       - name: Upload Debug APK (pull requests)
         if: github.event_name == 'pull_request'
