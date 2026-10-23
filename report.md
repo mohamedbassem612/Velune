@@ -408,7 +408,7 @@ Modified: `HomeViewModel.kt`, `HomeScreen.kt`. New: `utils/QuickPicksCache.kt`.
 - README encryption claim.
 - Pin the NewPipeExtractor version (currently `master-SNAPSHOT`).
 - Remove the RESTORE logs, `StartupTrace` and `StreamTiming` logs when no longer needed, and delete `.bak` files.
-- Download feature (Music/Velune, original format, MediaStore, duplicate check by videoId).
+- Download feature: done in section 20 (mp3 conversion). Still untested on the phone.
 
 ## 19. YouTube Music Style UI (patch ytmusic-ui)
 
@@ -422,6 +422,80 @@ Goal: make the app look like YouTube Music.
 ### Modified Files
 - `MainActivity.kt`, `constants/Dimensions.kt`, `ui/theme/Theme.kt`, `ui/component/ChipsRow.kt`, `ui/player/MiniPlayer.kt`, `ui/player/MiniPlayerComponents.kt`
 - New: `ui/component/YtMusicNavigationBar.kt`, `ui/theme/YtMusicColors.kt`
+
+
+## 20. Downloads Saved as mp3 (patch mp3-download)
+
+Goal: a downloaded song becomes an mp3 file in the Music/Velune folder instead of living in a special cache.
+
+How it works now:
+- Pressing download still uses the same ExoPlayer download manager. The song is first downloaded in full into the download cache (nothing changed in the screens or menus).
+- When the download finishes, `Mp3Converter` converts it to mp3 in the background (one song at a time, FFmpeg with LAME, quality VBR q2, title, artist, album and cover are written inside the file), saves it with MediaStore in `Music/Velune`, and removes the copy from the download cache.
+- Playback order: mp3 file in the folder first, then the download cache, then the normal cache, then online. A song with an mp3 file is played straight from the file (it never goes through the cache).
+- If the mp3 file was deleted from outside the app, the app forgets it and streams the song online.
+- Removing a download in the app also deletes its mp3 file.
+- On every app start, finished downloads that have no mp3 yet are converted too (this also converts the old downloads and any conversion that was interrupted).
+- The normal cache (LRU, size limit) is not touched.
+
+### Modified Files
+- `playback/DownloadUtil.kt`, `playback/MusicService.kt` (mp3 check first, mp3 extractor, routing data source), `viewmodels/CachePlaylistViewModel.kt`, `gradle/libs.versions.toml`, `app/build.gradle.kts`, `app/proguard-rules.pro`
+- New: `playback/Mp3Converter.kt`, `playback/Mp3Library.kt`, `playback/LocalAwareDataSource.kt`
+
+### Notes
+- New dependency: `dev.ffmpegkit-maintained:ffmpeg-kit-audio:6.0.3` (community fork of the retired FFmpegKit). It makes the APK bigger.
+- The mp3 list (video id to file) is kept in SharedPreferences `mp3_library`. After uninstalling the app the files stay in the folder but the app no longer knows them.
+
+
+## 21. mp3 Songs Recognized After Reinstall (patch mp3-restore)
+
+Problem: after uninstalling and reinstalling, the app forgot the mp3 files in Music/Velune, so liking a song with "download on like" downloaded it again.
+
+- The YouTube video id is written inside each mp3 (ID3 tag, custom field) with the Jaudiotagger Kotlin library. The file name stays "Artist - Title.mp3".
+- On every start the app scans Music/Velune, reads the id from the files it does not know yet, and adds them. They show as downloaded in all screens.
+- The audio permission is asked once (after the notification permission), because after a reinstall Android hides the old files without it. The scan runs again right after it is granted.
+- Any request to download a song that already has an mp3 file is ignored (menus, playlists, albums and download on like all go through `ExoDownloadService`).
+- Removing a restored song deletes its mp3 file and its downloaded mark.
+- Files made before this patch have no id inside, so they are not recognized (delete them and download again).
+
+### Modified Files
+- `playback/Mp3Library.kt`, `playback/Mp3Converter.kt`, `playback/DownloadUtil.kt`, `playback/ExoDownloadService.kt`, `MainActivity.kt`
+- New dependency in `app/build.gradle.kts` (added by hand): `io.github.darkstar085:jaudiotagger-kt:1.0.0`
+
+
+## 22. Fuller mp3 Metadata (patch mp3-metadata)
+
+- Cover: downloaded in a bigger size when the link allows it, converted to a square JPEG (up to 1000 px, quality 92) with `BitmapFactory`, then written inside the mp3. This fixes songs that came out without a cover when the source image was webp.
+- Added the year (from the song, or from its album) and the album artist (first artist of the album) to the tags.
+- Lyrics are not written into the mp3 for now.
+
+### Modified Files
+- `playback/Mp3Converter.kt`
+
+
+## 23. Removing a Download Deletes the mp3 File (patch mp3-delete)
+
+Problem: removing a download inside the app did not delete the mp3 from the phone storage. The delete was refused by Android for files the app does not own (for example files made before a reinstall) and the error was hidden.
+
+- `Mp3Library.delete` now reports when Android needs the user's permission.
+- `DownloadUtil` collects those files (about half a second, so removing a whole playlist shows one dialog) and sends them to the main screen.
+- `MainActivity` shows the system dialog (`MediaStore.createDeleteRequest`, Android 11 and newer). If the user refuses, the file stays and the app finds it again at the next scan.
+- Any other delete error is written to the log (tag `Mp3Library`).
+
+### Modified Files
+- `playback/Mp3Library.kt`, `playback/DownloadUtil.kt`, `MainActivity.kt`
+
+
+## 24. Storage Settings and Smart Trimmer (patch mp3-storage)
+
+Problem: in Settings > Storage the Downloaded songs card read only the old download cache, which is empty once songs are converted to mp3, and "Clear all downloads" did not touch the mp3 files.
+
+- The Downloaded songs card now shows the number of songs and their total size (mp3 files in Music/Velune plus songs still waiting for conversion).
+- "Clear all downloads" deletes the mp3 files (the system permission dialog appears for files the app does not own), empties the download cache and clears the download manager list, so no song stays marked as downloaded.
+- Smart trimmer: it only ever touches the song cache, never downloads. It now removes songs that already exist as mp3 first, because their copy in the song cache is a duplicate.
+- Checked: the trimmer and the cache size limit cannot delete mp3 files or the download cache.
+
+### Modified Files
+- `playback/Mp3Library.kt`, `playback/DownloadUtil.kt`, `playback/MusicService.kt`, `ui/screens/settings/StorageSettings.kt`
 
 
 ---

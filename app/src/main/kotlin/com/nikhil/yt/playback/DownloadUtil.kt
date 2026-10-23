@@ -13,6 +13,7 @@ import androidx.core.content.getSystemService
 import androidx.core.net.toUri
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.datasource.ResolvingDataSource
@@ -23,6 +24,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import androidx.media3.exoplayer.offline.DownloadRequest
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.constants.AudioQuality
 import com.nikhil.yt.constants.AudioQualityKey
@@ -56,7 +58,10 @@ constructor(
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: Cache,
     @PlayerCache val playerCache: Cache,
+    private val mp3Converter: Mp3Converter,
+    private val mp3Library: Mp3Library,
 ) {
+    private val appContext: Context = context
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
     private val preferredStreamClient by enumPreference(context, PlayerStreamClientKey, PlayerStreamClient.ANDROID_VR)
@@ -218,6 +223,8 @@ constructor(
                             registerThrottleSignal(finalException)
                         } else if (download.state == Download.STATE_COMPLETED) {
                             clearThrottleSignal()
+                            // Finished download: convert it to mp3 in the background
+                            mp3Converter.enqueue(download.request.id)
                         }
 
                         downloads.update { map ->
@@ -225,6 +232,14 @@ constructor(
                                 set(download.request.id, download)
                             }
                         }
+                    }
+
+                    override fun onDownloadRemoved(
+                        downloadManager: DownloadManager,
+                        download: Download,
+                    ) {
+                        // Download removed by the user: delete the mp3 file too
+                        removeMp3(download.request.id)
                     }
                 }
             )
@@ -238,10 +253,113 @@ constructor(
                 result[cursor.download.request.id] = cursor.download
             }
             downloads.value = result
+
+            // Songs already saved as mp3 (also after a reinstall) count as downloaded
+            mp3Library.restoreFromFolder()
+            markMp3Downloaded(mp3Library.ids())
+
+            // Convert old downloads (and any conversion that was interrupted) to mp3
+            result.values
+                .filter { it.state == Download.STATE_COMPLETED }
+                .forEach { mp3Converter.enqueue(it.request.id) }
         }
     }
 
     fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
+
+    /** True when the song has an mp3 file in the music folder that can still be opened. */
+    fun hasMp3(songId: String): Boolean = mp3Library.playableUri(songId) != null
+
+    /** Scans the music folder again, used right after the audio permission is granted. */
+    fun restoreMp3Downloads() {
+        CoroutineScope(Dispatchers.IO).launch {
+            mp3Library.restoreFromFolder()
+            markMp3Downloaded(mp3Library.ids())
+        }
+    }
+
+    /** Makes the app show these songs as downloaded (only for songs the download manager does not know). */
+    fun markMp3Downloaded(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val now = System.currentTimeMillis()
+        downloads.update { map ->
+            val updated = map.toMutableMap()
+            ids.forEach { id ->
+                if (updated[id] == null) {
+                    updated[id] = Download(
+                        DownloadRequest.Builder(id, id.toUri()).setCustomCacheKey(id).build(),
+                        Download.STATE_COMPLETED,
+                        now,
+                        now,
+                        C.LENGTH_UNSET.toLong(),
+                        Download.STOP_REASON_NONE,
+                        Download.FAILURE_REASON_NONE,
+                    )
+                }
+            }
+            updated
+        }
+    }
+
+    /**
+     * Number and total size of the downloaded songs: the mp3 files plus the songs that finished
+     * downloading and are still waiting for the mp3 conversion.
+     */
+    fun downloadedSongsStats(): Pair<Int, Long> {
+        val (mp3Count, mp3Bytes) = mp3Library.stats()
+        val mp3Ids = mp3Library.ids()
+        val pending = runCatching {
+            downloadCache.keys.count { it !in mp3Ids && downloadCache.getCachedSpans(it).isNotEmpty() }
+        }.getOrDefault(0)
+        val cacheBytes = runCatching { downloadCache.cacheSpace }.getOrDefault(0L)
+        return (mp3Count + pending) to (mp3Bytes + cacheBytes)
+    }
+
+    /** Deletes every downloaded song: the mp3 files, the download cache and the download manager list. */
+    fun clearAllDownloads() {
+        CoroutineScope(Dispatchers.IO).launch {
+            mp3Library.ids().forEach { removeMp3(it) }
+            runCatching { downloadCache.keys.toList().forEach { downloadCache.removeResource(it) } }
+            runCatching {
+                androidx.media3.exoplayer.offline.DownloadService.sendRemoveAllDownloads(
+                    appContext,
+                    ExoDownloadService::class.java,
+                    false,
+                )
+            }
+        }
+    }
+
+    fun removeMp3(songId: String) {
+        val needsConsent = mp3Library.delete(songId)
+        downloads.update { it - songId }
+        if (needsConsent != null) requestDeleteConsent(needsConsent)
+    }
+
+    // Files Android does not let us delete silently are collected for a moment and sent together,
+    // so removing a whole playlist shows one permission dialog and not one per song.
+    private val deleteConsentLock = Any()
+    private val pendingDeleteConsent = mutableSetOf<Uri>()
+    private var deleteConsentJob: Job? = null
+    private val deleteConsentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val deleteConsentFlow = MutableSharedFlow<List<Uri>>(extraBufferCapacity = 8)
+
+    /** Lists of mp3 files that need the user's permission to be deleted (collected by the main screen). */
+    val deleteConsentRequests: SharedFlow<List<Uri>> = deleteConsentFlow.asSharedFlow()
+
+    private fun requestDeleteConsent(uri: Uri) {
+        synchronized(deleteConsentLock) {
+            pendingDeleteConsent += uri
+            deleteConsentJob?.cancel()
+            deleteConsentJob = deleteConsentScope.launch {
+                delay(500)
+                val batch = synchronized(deleteConsentLock) {
+                    pendingDeleteConsent.toList().also { pendingDeleteConsent.clear() }
+                }
+                deleteConsentFlow.emit(batch)
+            }
+        }
+    }
 
     private fun deviceSupportsMimeType(mimeType: String): Boolean {
         return runCatching {

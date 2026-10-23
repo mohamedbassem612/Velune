@@ -1,0 +1,189 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt b/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt
+index e0e2743..91435e2 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt
+@@ -61,6 +61,7 @@ constructor(
+     private val mp3Converter: Mp3Converter,
+     private val mp3Library: Mp3Library,
+ ) {
++    private val appContext: Context = context
+     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
+     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+     private val preferredStreamClient by enumPreference(context, PlayerStreamClientKey, PlayerStreamClient.ANDROID_VR)
+@@ -300,6 +301,35 @@ constructor(
+         }
+     }
+ 
++    /**
++     * Number and total size of the downloaded songs: the mp3 files plus the songs that finished
++     * downloading and are still waiting for the mp3 conversion.
++     */
++    fun downloadedSongsStats(): Pair<Int, Long> {
++        val (mp3Count, mp3Bytes) = mp3Library.stats()
++        val mp3Ids = mp3Library.ids()
++        val pending = runCatching {
++            downloadCache.keys.count { it !in mp3Ids && downloadCache.getCachedSpans(it).isNotEmpty() }
++        }.getOrDefault(0)
++        val cacheBytes = runCatching { downloadCache.cacheSpace }.getOrDefault(0L)
++        return (mp3Count + pending) to (mp3Bytes + cacheBytes)
++    }
++
++    /** Deletes every downloaded song: the mp3 files, the download cache and the download manager list. */
++    fun clearAllDownloads() {
++        CoroutineScope(Dispatchers.IO).launch {
++            mp3Library.ids().forEach { removeMp3(it) }
++            runCatching { downloadCache.keys.toList().forEach { downloadCache.removeResource(it) } }
++            runCatching {
++                androidx.media3.exoplayer.offline.DownloadService.sendRemoveAllDownloads(
++                    appContext,
++                    ExoDownloadService::class.java,
++                    false,
++                )
++            }
++        }
++    }
++
+     fun removeMp3(songId: String) {
+         val needsConsent = mp3Library.delete(songId)
+         downloads.update { it - songId }
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt
+index 1aaef60..be45f44 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt
+@@ -46,6 +46,29 @@ constructor(
+ 
+     fun has(id: String): Boolean = prefs.contains(id)
+ 
++    /** Number of songs saved as mp3 and the space they take on the phone. */
++    fun stats(): Pair<Int, Long> {
++        var count = 0
++        var bytes = 0L
++        prefs.all.values.forEach { value ->
++            val stored = value as? String ?: return@forEach
++            count++
++            bytes += sizeOf(stored.toUri())
++        }
++        return count to bytes
++    }
++
++    private fun sizeOf(uri: Uri): Long =
++        runCatching {
++            if (uri.scheme == "file") {
++                File(requireNotNull(uri.path)).length()
++            } else {
++                context.contentResolver
++                    .query(uri, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null)
++                    ?.use { if (it.moveToFirst()) it.getLong(0) else 0L } ?: 0L
++            }
++        }.getOrDefault(0L)
++
+     /** Returns the uri of the mp3 if it still exists, otherwise forgets it and returns null. */
+     fun playableUri(id: String): Uri? {
+         val stored = prefs.getString(id, null) ?: return null
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+index 95f3d31..9fdaaf5 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -4071,7 +4071,10 @@ class MusicService :
+                             val sizeBytes = spans.sumOf { it.length }
+                             Candidate(key = key, lastTouchTimestamp = oldestTouch, sizeBytes = sizeBytes)
+                         }.getOrNull()
+-                    }.sortedBy { it.lastTouchTimestamp }
++                    }.sortedWith(
++                        // Songs already saved as mp3 are duplicates here, so they go first
++                        compareBy<Candidate>({ !mp3Library.has(it.key) }, { it.lastTouchTimestamp })
++                    )
+                 }.getOrNull().orEmpty()
+ 
+             for (candidate in candidates) {
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/StorageSettings.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/StorageSettings.kt
+index 5a5682a..7dfe9cf 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/StorageSettings.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/StorageSettings.kt
+@@ -26,6 +26,7 @@ import androidx.navigation.NavController
+ import coil3.annotation.ExperimentalCoilApi
+ import coil3.imageLoader
+ import com.nikhil.yt.LocalPlayerAwareWindowInsets
++import com.nikhil.yt.LocalDownloadUtil
+ import com.nikhil.yt.LocalPlayerConnection
+ import com.nikhil.yt.R
+ import com.nikhil.yt.constants.MaxCanvasCacheSizeKey
+@@ -56,6 +57,7 @@ fun StorageSettings(
+     val imageDiskCache = context.imageLoader.diskCache ?: return
+     val playerCache = LocalPlayerConnection.current?.service?.playerCache ?: return
+     val downloadCache = LocalPlayerConnection.current?.service?.downloadCache ?: return
++    val downloadUtil = LocalDownloadUtil.current
+     
+     val downloadCacheDir = remember { context.filesDir.resolve("download") }
+     val playerCacheDir = remember { context.filesDir.resolve("exoplayer") }
+@@ -89,6 +91,8 @@ fun StorageSettings(
+     var imageCacheSize by remember { mutableStateOf(imageDiskCache.size) }
+     var playerCacheSize by remember { mutableStateOf(0L) }
+     var downloadCacheSize by remember { mutableStateOf(0L) }
++    var downloadedSongsCount by remember { mutableStateOf(0) }
++    var downloadedSongsSize by remember { mutableStateOf(0L) }
+     var canvasCacheSize by remember { mutableStateOf(CanvasArtworkPlaybackCache.size()) }
+     
+     val imageCacheProgress by animateFloatAsState(
+@@ -166,6 +170,15 @@ fun StorageSettings(
+                 }
+         }
+     }
++    // Downloaded songs are mp3 files in Music/Velune (plus songs still waiting for conversion)
++    LaunchedEffect(downloadUtil) {
++        while (isActive) {
++            val (count, bytes) = withContext(Dispatchers.IO) { downloadUtil.downloadedSongsStats() }
++            downloadedSongsCount = count
++            downloadedSongsSize = bytes
++            delay(2000)
++        }
++    }
+     LaunchedEffect(Unit) {
+         while (isActive) {
+             delay(500)
+@@ -233,7 +246,7 @@ fun StorageSettings(
+                 NewCacheCard(
+                     icon = R.drawable.ic_download,
+                     title = stringResource(R.string.downloaded_songs),
+-                    description = stringResource(R.string.size_used, formatFileSize(downloadCacheSize)),
++                    description = "${context.resources.getQuantityString(R.plurals.n_song, downloadedSongsCount, downloadedSongsCount)} - ${formatFileSize(downloadedSongsSize)}",
+                     progress = null,
+                     showMaxCacheSize = false,
+                     maxCacheSizeText = null,
+@@ -325,11 +338,7 @@ fun StorageSettings(
+                 title = stringResource(R.string.clear_all_downloads),
+                 onDismiss = { clearDownloads = false },
+                 onConfirm = {
+-                    coroutineScope.launch(Dispatchers.IO) {
+-                        downloadCache.keys.forEach { key ->
+-                            downloadCache.removeResource(key)
+-                        }
+-                    }
++                    downloadUtil.clearAllDownloads()
+                     clearDownloads = false
+                 },
+                 onCancel = { clearDownloads = false },
+diff --git a/report.md b/report.md
+index d21b165..e2118a5 100644
+--- a/report.md
++++ b/report.md
+@@ -485,6 +485,19 @@ Problem: removing a download inside the app did not delete the mp3 from the phon
+ - `playback/Mp3Library.kt`, `playback/DownloadUtil.kt`, `MainActivity.kt`
+ 
+ 
++## 24. Storage Settings and Smart Trimmer (patch mp3-storage)
++
++Problem: in Settings > Storage the Downloaded songs card read only the old download cache, which is empty once songs are converted to mp3, and "Clear all downloads" did not touch the mp3 files.
++
++- The Downloaded songs card now shows the number of songs and their total size (mp3 files in Music/Velune plus songs still waiting for conversion).
++- "Clear all downloads" deletes the mp3 files (the system permission dialog appears for files the app does not own), empties the download cache and clears the download manager list, so no song stays marked as downloaded.
++- Smart trimmer: it only ever touches the song cache, never downloads. It now removes songs that already exist as mp3 first, because their copy in the song cache is a duplicate.
++- Checked: the trimmer and the cache size limit cannot delete mp3 files or the download cache.
++
++### Modified Files
++- `playback/Mp3Library.kt`, `playback/DownloadUtil.kt`, `playback/MusicService.kt`, `ui/screens/settings/StorageSettings.kt`
++
++
+ ---
+ 
+ **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

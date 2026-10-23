@@ -76,6 +76,7 @@ import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
@@ -354,6 +355,9 @@ class MusicService :
     @Inject
     @DownloadCache
     lateinit var downloadCache: Cache
+
+    @Inject
+    lateinit var mp3Library: Mp3Library
 
     lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
@@ -4067,7 +4071,10 @@ class MusicService :
                             val sizeBytes = spans.sumOf { it.length }
                             Candidate(key = key, lastTouchTimestamp = oldestTouch, sizeBytes = sizeBytes)
                         }.getOrNull()
-                    }.sortedBy { it.lastTouchTimestamp }
+                    }.sortedWith(
+                        // Songs already saved as mp3 are duplicates here, so they go first
+                        compareBy<Candidate>({ !mp3Library.has(it.key) }, { it.lastTouchTimestamp })
+                    )
                 }.getOrNull().orEmpty()
 
             for (candidate in candidates) {
@@ -4100,8 +4107,22 @@ class MusicService :
             .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
 
     private fun createDataSourceFactory(): DataSource.Factory {
-        return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
+        val cacheFactory = createCacheDataSource()
+        val localFactory = DefaultDataSource.Factory(this)
+        val routingFactory = DataSource.Factory {
+            LocalAwareDataSource(cacheFactory.createDataSource(), localFactory.createDataSource())
+        }
+        return ResolvingDataSource.Factory(routingFactory) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
+
+            // Song saved as mp3 in the music folder: play the file directly (no cache, no network)
+            mp3Library.playableUri(mediaId)?.let { localUri ->
+                return@Factory dataSpec
+                    .buildUpon()
+                    .setUri(localUri)
+                    .setKey(LocalAwareDataSource.LOCAL_KEY_PREFIX + mediaId)
+                    .build()
+            }
 
             val requiredCachedLength =
                 if (dataSpec.length >= 0) {
@@ -4241,6 +4262,7 @@ class MusicService :
 
         ioScope.launch {
             try {
+                if (mp3Library.has(nextId)) return@launch
                 if (runCatching { downloadCache.getCachedSpans(nextId).isNotEmpty() }.getOrDefault(false)) return@launch
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 val data = YTPlayerUtils.playerResponseForPlayback(
@@ -4342,7 +4364,7 @@ class MusicService :
         DefaultMediaSourceFactory(
             createDataSourceFactory(),
             ExtractorsFactory {
-                arrayOf(Mp4Extractor(), FragmentedMp4Extractor(), MatroskaExtractor())
+                arrayOf(Mp4Extractor(), FragmentedMp4Extractor(), MatroskaExtractor(), Mp3Extractor())
             },
         )
 

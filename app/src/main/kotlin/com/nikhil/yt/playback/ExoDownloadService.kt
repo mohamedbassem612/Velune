@@ -13,11 +13,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import androidx.core.content.IntentCompat
 import androidx.media3.common.util.NotificationUtil
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.scheduler.PlatformScheduler
 import androidx.media3.exoplayer.scheduler.Scheduler
@@ -38,6 +40,21 @@ class ExoDownloadService : DownloadService(
     lateinit var downloadUtil: DownloadUtil
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_ADD_DOWNLOAD -> {
+                val request = IntentCompat.getParcelableExtra(intent, KEY_DOWNLOAD_REQUEST, DownloadRequest::class.java)
+                if (request != null && downloadUtil.hasMp3(request.id)) {
+                    // The song is already saved as mp3 in the music folder: do not download it again
+                    downloadUtil.markMp3Downloaded(listOf(request.id))
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+            }
+
+            ACTION_REMOVE_DOWNLOAD -> {
+                intent.getStringExtra(KEY_CONTENT_ID)?.let { downloadUtil.removeMp3(it) }
+            }
+        }
         if (intent?.action == REMOVE_ALL_PENDING_DOWNLOADS) {
             downloadManager.currentDownloads.forEach { download ->
                 downloadManager.removeDownload(download.request.id)

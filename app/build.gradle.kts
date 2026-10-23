@@ -173,6 +173,8 @@ dependencies {
     implementation(libs.hilt.navigation)
     implementation(libs.datastore)
     implementation(libs.work.runtime)
+    implementation(libs.ffmpeg.kit.audio)
+    implementation("com.arthenica:smart-exception-java:0.2.1")
 
     implementation(libs.compose.runtime)
     implementation(libs.compose.foundation)
@@ -190,6 +192,7 @@ dependencies {
     implementation(libs.material3)
     implementation(libs.palette)
     implementation(libs.multiplatform.markdown)
+    implementation("io.github.darkstar085:jaudiotagger-kt:1.0.0")
 
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
@@ -214,6 +217,7 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.re2j)
     ksp(libs.hilt.compiler)
+    ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.20")
 
     implementation(project(":innertube"))
     implementation(project(":kugou"))

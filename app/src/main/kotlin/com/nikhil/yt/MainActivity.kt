@@ -19,6 +19,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.MediaStore
 import android.os.Bundle
 import android.os.IBinder
 import android.view.View
@@ -26,6 +27,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
@@ -465,11 +467,48 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            // Needed to see the mp3 files in Music/Velune again after reinstalling the app (asked only once)
+            val audioPermissionLauncher =
+                rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+                    if (isGranted) {
+                        downloadUtil.restoreMp3Downloads()
+                    }
+                }
+            // Songs saved before a reinstall are not owned by the app: Android asks the user before deleting them
+            val deleteMp3Launcher =
+                rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { }
+            LaunchedEffect(Unit) {
+                downloadUtil.deleteConsentRequests.collect { uris ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        runCatching {
+                            val sender = MediaStore.createDeleteRequest(contentResolver, uris).intentSender
+                            deleteMp3Launcher.launch(IntentSenderRequest.Builder(sender).build())
+                        }
+                    }
+                }
+            }
+            val requestAudioPermissionOnce: () -> Unit = {
+                val permission = when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> Manifest.permission.READ_MEDIA_AUDIO
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> Manifest.permission.READ_EXTERNAL_STORAGE
+                    else -> null
+                }
+                val state = getSharedPreferences("mp3_library_state", MODE_PRIVATE)
+                if (permission != null &&
+                    ContextCompat.checkSelfPermission(this@MainActivity, permission) != PackageManager.PERMISSION_GRANTED &&
+                    !state.getBoolean("audio_permission_asked", false)
+                ) {
+                    state.edit().putBoolean("audio_permission_asked", true).apply()
+                    audioPermissionLauncher.launch(permission)
+                }
+            }
+
             val notificationPermissionLauncher =
                 rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
                     if (isGranted) {
                         playerConnection?.service?.refreshPlaybackNotification()
                     }
+                    requestAudioPermissionOnce()
                 }
 
             LaunchedEffect(Unit) {
@@ -480,6 +519,8 @@ class MainActivity : ComponentActivity() {
                     ) != PackageManager.PERMISSION_GRANTED
                 ) {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    requestAudioPermissionOnce()
                 }
 
                 // Update checker disabled - IzzyOnDroid handles updates

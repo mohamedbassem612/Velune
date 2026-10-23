@@ -26,6 +26,7 @@ import androidx.navigation.NavController
 import coil3.annotation.ExperimentalCoilApi
 import coil3.imageLoader
 import com.nikhil.yt.LocalPlayerAwareWindowInsets
+import com.nikhil.yt.LocalDownloadUtil
 import com.nikhil.yt.LocalPlayerConnection
 import com.nikhil.yt.R
 import com.nikhil.yt.constants.MaxCanvasCacheSizeKey
@@ -56,6 +57,7 @@ fun StorageSettings(
     val imageDiskCache = context.imageLoader.diskCache ?: return
     val playerCache = LocalPlayerConnection.current?.service?.playerCache ?: return
     val downloadCache = LocalPlayerConnection.current?.service?.downloadCache ?: return
+    val downloadUtil = LocalDownloadUtil.current
     
     val downloadCacheDir = remember { context.filesDir.resolve("download") }
     val playerCacheDir = remember { context.filesDir.resolve("exoplayer") }
@@ -89,6 +91,8 @@ fun StorageSettings(
     var imageCacheSize by remember { mutableStateOf(imageDiskCache.size) }
     var playerCacheSize by remember { mutableStateOf(0L) }
     var downloadCacheSize by remember { mutableStateOf(0L) }
+    var downloadedSongsCount by remember { mutableStateOf(0) }
+    var downloadedSongsSize by remember { mutableStateOf(0L) }
     var canvasCacheSize by remember { mutableStateOf(CanvasArtworkPlaybackCache.size()) }
     
     val imageCacheProgress by animateFloatAsState(
@@ -166,6 +170,15 @@ fun StorageSettings(
                 }
         }
     }
+    // Downloaded songs are mp3 files in Music/Velune (plus songs still waiting for conversion)
+    LaunchedEffect(downloadUtil) {
+        while (isActive) {
+            val (count, bytes) = withContext(Dispatchers.IO) { downloadUtil.downloadedSongsStats() }
+            downloadedSongsCount = count
+            downloadedSongsSize = bytes
+            delay(2000)
+        }
+    }
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(500)
@@ -233,7 +246,7 @@ fun StorageSettings(
                 NewCacheCard(
                     icon = R.drawable.ic_download,
                     title = stringResource(R.string.downloaded_songs),
-                    description = stringResource(R.string.size_used, formatFileSize(downloadCacheSize)),
+                    description = "${context.resources.getQuantityString(R.plurals.n_song, downloadedSongsCount, downloadedSongsCount)} - ${formatFileSize(downloadedSongsSize)}",
                     progress = null,
                     showMaxCacheSize = false,
                     maxCacheSizeText = null,
@@ -325,11 +338,7 @@ fun StorageSettings(
                 title = stringResource(R.string.clear_all_downloads),
                 onDismiss = { clearDownloads = false },
                 onConfirm = {
-                    coroutineScope.launch(Dispatchers.IO) {
-                        downloadCache.keys.forEach { key ->
-                            downloadCache.removeResource(key)
-                        }
-                    }
+                    downloadUtil.clearAllDownloads()
                     clearDownloads = false
                 },
                 onCancel = { clearDownloads = false },

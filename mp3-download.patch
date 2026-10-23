@@ -1,0 +1,591 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index af2801e..b77ec38 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -173,6 +173,7 @@ dependencies {
+     implementation(libs.hilt.navigation)
+     implementation(libs.datastore)
+     implementation(libs.work.runtime)
++    implementation(libs.ffmpeg.kit.audio)
+ 
+     implementation(libs.compose.runtime)
+     implementation(libs.compose.foundation)
+diff --git a/app/proguard-rules.pro b/app/proguard-rules.pro
+index 35dc6da..044f5f9 100644
+--- a/app/proguard-rules.pro
++++ b/app/proguard-rules.pro
+@@ -119,3 +119,8 @@
+ -keep class androidx.media3.** { *; }
+ -keep interface androidx.media3.** { *; }
+ -dontwarn androidx.media3.**
++
++# FFmpegKit (mp3 conversion) is called from native code
++-keep class com.arthenica.ffmpegkit.** { *; }
++-keep class com.arthenica.smartexception.** { *; }
++-dontwarn com.arthenica.**
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt b/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt
+index 9f81b4e..f75ce18 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/DownloadUtil.kt
+@@ -56,6 +56,8 @@ constructor(
+     val databaseProvider: DatabaseProvider,
+     @DownloadCache val downloadCache: Cache,
+     @PlayerCache val playerCache: Cache,
++    private val mp3Converter: Mp3Converter,
++    private val mp3Library: Mp3Library,
+ ) {
+     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
+     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+@@ -218,6 +220,8 @@ constructor(
+                             registerThrottleSignal(finalException)
+                         } else if (download.state == Download.STATE_COMPLETED) {
+                             clearThrottleSignal()
++                            // Finished download: convert it to mp3 in the background
++                            mp3Converter.enqueue(download.request.id)
+                         }
+ 
+                         downloads.update { map ->
+@@ -226,6 +230,14 @@ constructor(
+                             }
+                         }
+                     }
++
++                    override fun onDownloadRemoved(
++                        downloadManager: DownloadManager,
++                        download: Download,
++                    ) {
++                        // Download removed by the user: delete the mp3 file too
++                        mp3Library.delete(download.request.id)
++                    }
+                 }
+             )
+         }
+@@ -238,6 +250,11 @@ constructor(
+                 result[cursor.download.request.id] = cursor.download
+             }
+             downloads.value = result
++
++            // Convert old downloads (and any conversion that was interrupted) to mp3
++            result.values
++                .filter { it.state == Download.STATE_COMPLETED }
++                .forEach { mp3Converter.enqueue(it.request.id) }
+         }
+     }
+ 
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/LocalAwareDataSource.kt b/app/src/main/kotlin/com/nikhil/yt/playback/LocalAwareDataSource.kt
+new file mode 100644
+index 0000000..624cdbd
+--- /dev/null
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/LocalAwareDataSource.kt
+@@ -0,0 +1,56 @@
++/*
++ * Velune - by Nikhil
++ * Nikhil
++ * Licensed Under GPL-3.0
++ */
++
++package com.nikhil.yt.playback
++
++import android.net.Uri
++import androidx.media3.common.util.UnstableApi
++import androidx.media3.datasource.DataSource
++import androidx.media3.datasource.DataSpec
++import androidx.media3.datasource.TransferListener
++
++/**
++ * Sends requests for local mp3 files straight to [local] (no cache involved),
++ * and everything else to [network] (the normal cache chain).
++ * A request is local when its key starts with [LOCAL_KEY_PREFIX].
++ */
++@UnstableApi
++class LocalAwareDataSource(
++    private val network: DataSource,
++    private val local: DataSource,
++) : DataSource {
++    private var active: DataSource? = null
++
++    override fun addTransferListener(transferListener: TransferListener) {
++        network.addTransferListener(transferListener)
++        local.addTransferListener(transferListener)
++    }
++
++    override fun open(dataSpec: DataSpec): Long {
++        val source = if (dataSpec.key?.startsWith(LOCAL_KEY_PREFIX) == true) local else network
++        active = source
++        return source.open(dataSpec)
++    }
++
++    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
++        checkNotNull(active).read(buffer, offset, length)
++
++    override fun getUri(): Uri? = active?.uri
++
++    override fun getResponseHeaders(): Map<String, List<String>> = active?.responseHeaders ?: emptyMap()
++
++    override fun close() {
++        try {
++            active?.close()
++        } finally {
++            active = null
++        }
++    }
++
++    companion object {
++        const val LOCAL_KEY_PREFIX = "local-mp3:"
++    }
++}
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt
+new file mode 100644
+index 0000000..f7cf166
+--- /dev/null
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt
+@@ -0,0 +1,176 @@
++/*
++ * Velune - by Nikhil
++ * Nikhil
++ * Licensed Under GPL-3.0
++ */
++
++package com.nikhil.yt.playback
++
++import android.content.Context
++import androidx.core.net.toUri
++import androidx.media3.common.util.UnstableApi
++import androidx.media3.datasource.DataSourceInputStream
++import androidx.media3.datasource.DataSpec
++import androidx.media3.datasource.cache.Cache
++import androidx.media3.datasource.cache.CacheDataSource
++import com.arthenica.ffmpegkit.FFmpegKit
++import com.arthenica.ffmpegkit.ReturnCode
++import com.nikhil.yt.db.MusicDatabase
++import com.nikhil.yt.di.DownloadCache
++import dagger.hilt.android.qualifiers.ApplicationContext
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.asCoroutineDispatcher
++import kotlinx.coroutines.launch
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import timber.log.Timber
++import java.io.File
++import java.util.concurrent.ConcurrentHashMap
++import java.util.concurrent.Executors
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Converts a finished download (sitting in the download cache) to mp3 in the background,
++ * saves it in Music/Velune, then removes the old copy from the download cache.
++ * Songs are converted one at a time.
++ */
++@UnstableApi
++@Singleton
++class Mp3Converter
++@Inject
++constructor(
++    @ApplicationContext private val context: Context,
++    private val database: MusicDatabase,
++    @DownloadCache private val downloadCache: Cache,
++    private val mp3Library: Mp3Library,
++) {
++    private val scope = CoroutineScope(
++        SupervisorJob() + Executors.newSingleThreadExecutor { r ->
++            Thread(r, "Mp3Converter").apply { priority = Thread.MIN_PRIORITY }
++        }.asCoroutineDispatcher()
++    )
++    private val queued = ConcurrentHashMap.newKeySet<String>()
++    private val httpClient by lazy { OkHttpClient() }
++
++    fun enqueue(id: String) {
++        if (mp3Library.has(id) || !queued.add(id)) return
++        scope.launch {
++            try {
++                convert(id)
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: Throwable) {
++                Timber.tag(TAG).e(e, "Conversion failed for $id")
++            } finally {
++                queued.remove(id)
++            }
++        }
++    }
++
++    private fun convert(id: String) {
++        val hasData = runCatching { downloadCache.getCachedSpans(id).isNotEmpty() }.getOrDefault(false)
++        if (!hasData) return
++
++        val workDir = File(context.cacheDir, "mp3_convert").apply { mkdirs() }
++        val input = File(workDir, "$id.src")
++        val output = File(workDir, "$id.mp3")
++        val cover = File(workDir, "$id.cover")
++        try {
++            copyFromCache(id, input)
++
++            val song = database.getSongByIdBlocking(id)
++            val title = song?.song?.title?.takeIf { it.isNotBlank() } ?: id
++            val artist = song?.artists?.joinToString(", ") { it.name }.orEmpty()
++            val album = song?.song?.albumName.orEmpty()
++            val hasCover = song?.song?.thumbnailUrl?.let { downloadCover(it, cover) } == true
++
++            var ok = runFfmpeg(input, if (hasCover) cover else null, output, title, artist, album)
++            if (!ok && hasCover) {
++                output.delete()
++                ok = runFfmpeg(input, null, output, title, artist, album)
++            }
++            if (!ok || output.length() <= 0L) {
++                Timber.tag(TAG).e("ffmpeg failed for $id, keeping the original download")
++                return
++            }
++
++            val displayName = if (artist.isNotBlank()) "$artist - $title" else title
++            val saved = mp3Library.save(id, displayName, output)
++            if (saved == null) {
++                Timber.tag(TAG).e("Could not save mp3 for $id, keeping the original download")
++                return
++            }
++
++            runCatching { downloadCache.removeResource(id) }
++            Timber.tag(TAG).i("Converted $id to mp3 and removed it from the download cache")
++        } finally {
++            input.delete()
++            output.delete()
++            cover.delete()
++        }
++    }
++
++    private fun copyFromCache(id: String, target: File) {
++        // No upstream: reads only what is already in the download cache and fails if something is missing.
++        val dataSource = CacheDataSource
++            .Factory()
++            .setCache(downloadCache)
++            .setCacheWriteDataSinkFactory(null)
++            .createDataSource()
++        val spec = DataSpec.Builder()
++            .setUri("velune://song/$id".toUri())
++            .setKey(id)
++            .build()
++        DataSourceInputStream(dataSource, spec).use { source ->
++            target.outputStream().use { out -> source.copyTo(out) }
++        }
++    }
++
++    private fun downloadCover(url: String, target: File): Boolean =
++        runCatching {
++            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
++                if (!response.isSuccessful) return@use false
++                val body = response.body ?: return@use false
++                target.outputStream().use { out -> body.byteStream().copyTo(out) }
++                target.length() > 0L
++            }
++        }.getOrDefault(false)
++
++    private fun runFfmpeg(
++        input: File,
++        cover: File?,
++        output: File,
++        title: String,
++        artist: String,
++        album: String,
++    ): Boolean {
++        val args = mutableListOf("-y", "-i", input.absolutePath)
++        if (cover != null) {
++            args += listOf("-i", cover.absolutePath, "-map", "0:a:0", "-map", "1:v:0", "-c:v", "copy")
++            args += listOf("-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)")
++        } else {
++            args += listOf("-vn", "-map", "0:a:0")
++        }
++        args += listOf("-c:a", "libmp3lame", "-q:a", "2", "-id3v2_version", "3")
++        args += listOf("-metadata", "title=$title")
++        if (artist.isNotBlank()) args += listOf("-metadata", "artist=$artist")
++        if (album.isNotBlank()) args += listOf("-metadata", "album=$album")
++        args += "-f"
++        args += "mp3"
++        args += output.absolutePath
++
++        val session = FFmpegKit.executeWithArguments(args.toTypedArray())
++        val success = ReturnCode.isSuccess(session.returnCode)
++        if (!success) {
++            Timber.tag(TAG).w("ffmpeg exit=${session.returnCode} ${session.failStackTrace.orEmpty()}")
++        }
++        return success
++    }
++
++    companion object {
++        private const val TAG = "Mp3Converter"
++    }
++}
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt
+new file mode 100644
+index 0000000..208c123
+--- /dev/null
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Library.kt
+@@ -0,0 +1,118 @@
++/*
++ * Velune - by Nikhil
++ * Nikhil
++ * Licensed Under GPL-3.0
++ */
++
++package com.nikhil.yt.playback
++
++import android.content.ContentValues
++import android.content.Context
++import android.net.Uri
++import android.os.Build
++import android.os.Environment
++import android.provider.MediaStore
++import androidx.core.net.toUri
++import dagger.hilt.android.qualifiers.ApplicationContext
++import timber.log.Timber
++import java.io.File
++import java.io.IOException
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Keeps track of the songs that were converted to mp3 and saved in the Music/Velune folder.
++ * The index (videoId -> file uri) is stored in SharedPreferences.
++ */
++@Singleton
++class Mp3Library
++@Inject
++constructor(
++    @ApplicationContext private val context: Context,
++) {
++    private val prefs = context.getSharedPreferences("mp3_library", Context.MODE_PRIVATE)
++
++    fun ids(): Set<String> = prefs.all.keys.toSet()
++
++    fun has(id: String): Boolean = prefs.contains(id)
++
++    /** Returns the uri of the mp3 if it still exists, otherwise forgets it and returns null. */
++    fun playableUri(id: String): Uri? {
++        val stored = prefs.getString(id, null) ?: return null
++        val uri = stored.toUri()
++        val exists = runCatching {
++            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length != 0L } ?: false
++        }.getOrDefault(false)
++        if (!exists) {
++            Timber.tag(TAG).w("mp3 file for $id is missing, falling back to streaming")
++            prefs.edit().remove(id).apply()
++            return null
++        }
++        return uri
++    }
++
++    fun save(id: String, displayName: String, source: File): Uri? {
++        val safeName = sanitize(displayName) + ".mp3"
++        val uri = runCatching {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++                saveToMediaStore(safeName, source)
++            } else {
++                saveToAppMusicDir(safeName, source)
++            }
++        }.onFailure { Timber.tag(TAG).e(it, "Saving mp3 failed for $id") }.getOrNull()
++        if (uri != null) prefs.edit().putString(id, uri.toString()).commit()
++        return uri
++    }
++
++    fun delete(id: String) {
++        val stored = prefs.getString(id, null) ?: return
++        prefs.edit().remove(id).apply()
++        val uri = stored.toUri()
++        runCatching {
++            if (uri.scheme == "file") {
++                File(requireNotNull(uri.path)).delete()
++            } else {
++                context.contentResolver.delete(uri, null, null)
++            }
++        }.onFailure { Timber.tag(TAG).w(it, "Could not delete mp3 for $id") }
++    }
++
++    private fun saveToMediaStore(fileName: String, source: File): Uri? {
++        val resolver = context.contentResolver
++        val values = ContentValues().apply {
++            put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
++            put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
++            put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$FOLDER_NAME")
++            put(MediaStore.Audio.Media.IS_PENDING, 1)
++        }
++        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
++        val uri = resolver.insert(collection, values) ?: return null
++        try {
++            val out = resolver.openOutputStream(uri, "w") ?: throw IOException("No output stream")
++            out.use { stream -> source.inputStream().use { it.copyTo(stream) } }
++            values.clear()
++            values.put(MediaStore.Audio.Media.IS_PENDING, 0)
++            resolver.update(uri, values, null, null)
++            return uri
++        } catch (e: Exception) {
++            runCatching { resolver.delete(uri, null, null) }
++            throw e
++        }
++    }
++
++    // Android 8 and 9: no scoped storage, use the app's own music folder (needs no permission).
++    private fun saveToAppMusicDir(fileName: String, source: File): Uri? {
++        val dir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: return null
++        val target = File(dir, "$FOLDER_NAME/$fileName").apply { parentFile?.mkdirs() }
++        source.copyTo(target, overwrite = true)
++        return Uri.fromFile(target)
++    }
++
++    private fun sanitize(name: String): String =
++        name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(100).ifBlank { "song" }
++
++    companion object {
++        private const val TAG = "Mp3Library"
++        const val FOLDER_NAME = "Velune"
++    }
++}
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+index 83b088b..95f3d31 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -76,6 +76,7 @@ import androidx.media3.extractor.ExtractorsFactory
+ import androidx.media3.extractor.mkv.MatroskaExtractor
+ import androidx.media3.extractor.mp4.FragmentedMp4Extractor
+ import androidx.media3.extractor.mp4.Mp4Extractor
++import androidx.media3.extractor.mp3.Mp3Extractor
+ import androidx.media3.session.CommandButton
+ import androidx.media3.session.DefaultMediaNotificationProvider
+ import androidx.media3.session.MediaController
+@@ -355,6 +356,9 @@ class MusicService :
+     @DownloadCache
+     lateinit var downloadCache: Cache
+ 
++    @Inject
++    lateinit var mp3Library: Mp3Library
++
+     lateinit var player: ExoPlayer
+     private lateinit var mediaSession: MediaLibrarySession
+ 
+@@ -4100,9 +4104,23 @@ class MusicService :
+             .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
+ 
+     private fun createDataSourceFactory(): DataSource.Factory {
+-        return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
++        val cacheFactory = createCacheDataSource()
++        val localFactory = DefaultDataSource.Factory(this)
++        val routingFactory = DataSource.Factory {
++            LocalAwareDataSource(cacheFactory.createDataSource(), localFactory.createDataSource())
++        }
++        return ResolvingDataSource.Factory(routingFactory) { dataSpec ->
+             val mediaId = dataSpec.key ?: error("No media id")
+ 
++            // Song saved as mp3 in the music folder: play the file directly (no cache, no network)
++            mp3Library.playableUri(mediaId)?.let { localUri ->
++                return@Factory dataSpec
++                    .buildUpon()
++                    .setUri(localUri)
++                    .setKey(LocalAwareDataSource.LOCAL_KEY_PREFIX + mediaId)
++                    .build()
++            }
++
+             val requiredCachedLength =
+                 if (dataSpec.length >= 0) {
+                     dataSpec.length
+@@ -4241,6 +4259,7 @@ class MusicService :
+ 
+         ioScope.launch {
+             try {
++                if (mp3Library.has(nextId)) return@launch
+                 if (runCatching { downloadCache.getCachedSpans(nextId).isNotEmpty() }.getOrDefault(false)) return@launch
+                 val t0 = android.os.SystemClock.elapsedRealtime()
+                 val data = YTPlayerUtils.playerResponseForPlayback(
+@@ -4342,7 +4361,7 @@ class MusicService :
+         DefaultMediaSourceFactory(
+             createDataSourceFactory(),
+             ExtractorsFactory {
+-                arrayOf(Mp4Extractor(), FragmentedMp4Extractor(), MatroskaExtractor())
++                arrayOf(Mp4Extractor(), FragmentedMp4Extractor(), MatroskaExtractor(), Mp3Extractor())
+             },
+         )
+ 
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/CachePlaylistViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/CachePlaylistViewModel.kt
+index 39bd6db..f04c9da 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/CachePlaylistViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/CachePlaylistViewModel.kt
+@@ -34,7 +34,8 @@ class CachePlaylistViewModel @Inject constructor(
+     @ApplicationContext private val context: Context,
+     private val database: MusicDatabase,
+     @PlayerCache private val playerCache: Cache,
+-    @DownloadCache private val downloadCache: Cache
++    @DownloadCache private val downloadCache: Cache,
++    private val mp3Library: com.nikhil.yt.playback.Mp3Library,
+ ) : ViewModel() {
+ 
+     private val _cachedSongs = MutableStateFlow<List<Song>>(emptyList())
+@@ -45,7 +46,7 @@ class CachePlaylistViewModel @Inject constructor(
+             while (true) {
+                 val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                 val cachedIds = playerCache.keys.toSet()
+-                val downloadedIds = downloadCache.keys.toSet()
++                val downloadedIds = downloadCache.keys.toSet() + mp3Library.ids()
+                 val pureCacheIds = cachedIds.subtract(downloadedIds)
+ 
+                 val songs = if (pureCacheIds.isNotEmpty()) {
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index 0997944..fda74d6 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -23,6 +23,7 @@ navigation = "2.9.7"
+ hiltNavigation = "1.3.0"
+ datastore = "1.2.0"
+ workManager = "2.11.1"
++ffmpegKit = "6.0.3"
+ composeReorderable = "3.0.0"
+ squigglyslider = "1.0.0"
+ shimmer = "1.3.3"
+@@ -51,6 +52,7 @@ navigation = { module = "androidx.navigation:navigation-compose", version.ref =
+ hilt-navigation = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigation" }
+ datastore = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+ work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "workManager" }
++ffmpeg-kit-audio = { module = "dev.ffmpegkit-maintained:ffmpeg-kit-audio", version.ref = "ffmpegKit" }
+ 
+ compose-runtime = { module = "androidx.compose.runtime:runtime", version.ref = "compose" }
+ compose-foundation = { module = "androidx.compose.foundation:foundation", version.ref = "compose" }
+diff --git a/report.md b/report.md
+index 720b097..7bacb0a 100644
+--- a/report.md
++++ b/report.md
+@@ -408,7 +408,7 @@ Modified: `HomeViewModel.kt`, `HomeScreen.kt`. New: `utils/QuickPicksCache.kt`.
+ - README encryption claim.
+ - Pin the NewPipeExtractor version (currently `master-SNAPSHOT`).
+ - Remove the RESTORE logs, `StartupTrace` and `StreamTiming` logs when no longer needed, and delete `.bak` files.
+-- Download feature (Music/Velune, original format, MediaStore, duplicate check by videoId).
++- Download feature: done in section 20 (mp3 conversion). Still untested on the phone.
+ 
+ ## 19. YouTube Music Style UI (patch ytmusic-ui)
+ 
+@@ -424,6 +424,28 @@ Goal: make the app look like YouTube Music.
+ - New: `ui/component/YtMusicNavigationBar.kt`, `ui/theme/YtMusicColors.kt`
+ 
+ 
++## 20. Downloads Saved as mp3 (patch mp3-download)
++
++Goal: a downloaded song becomes an mp3 file in the Music/Velune folder instead of living in a special cache.
++
++How it works now:
++- Pressing download still uses the same ExoPlayer download manager. The song is first downloaded in full into the download cache (nothing changed in the screens or menus).
++- When the download finishes, `Mp3Converter` converts it to mp3 in the background (one song at a time, FFmpeg with LAME, quality VBR q2, title, artist, album and cover are written inside the file), saves it with MediaStore in `Music/Velune`, and removes the copy from the download cache.
++- Playback order: mp3 file in the folder first, then the download cache, then the normal cache, then online. A song with an mp3 file is played straight from the file (it never goes through the cache).
++- If the mp3 file was deleted from outside the app, the app forgets it and streams the song online.
++- Removing a download in the app also deletes its mp3 file.
++- On every app start, finished downloads that have no mp3 yet are converted too (this also converts the old downloads and any conversion that was interrupted).
++- The normal cache (LRU, size limit) is not touched.
++
++### Modified Files
++- `playback/DownloadUtil.kt`, `playback/MusicService.kt` (mp3 check first, mp3 extractor, routing data source), `viewmodels/CachePlaylistViewModel.kt`, `gradle/libs.versions.toml`, `app/build.gradle.kts`, `app/proguard-rules.pro`
++- New: `playback/Mp3Converter.kt`, `playback/Mp3Library.kt`, `playback/LocalAwareDataSource.kt`
++
++### Notes
++- New dependency: `dev.ffmpegkit-maintained:ffmpeg-kit-audio:6.0.3` (community fork of the retired FFmpegKit). It makes the APK bigger.
++- The mp3 list (video id to file) is kept in SharedPreferences `mp3_library`. After uninstalling the app the files stay in the folder but the app no longer knows them.
++
++
+ ---
+ 
+ **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.
