@@ -36,9 +36,9 @@ jobs:
       - name: Prepare release signing key
         if: github.event_name != 'pull_request'
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          test -n "$KEYSTORE_BASE64" || (echo "Missing KEYSTORE_BASE64 repository secret" && exit 1)
+          test -n "$KEYSTORE_BASE64" || (echo "Missing ANDROID_KEYSTORE_BASE64 repository secret" && exit 1)
           mkdir -p app/keystore
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/keystore/release.keystore
           test -s app/keystore/release.keystore
@@ -46,13 +46,13 @@ jobs:
       - name: Build Universal Release APK
         if: github.event_name != 'pull_request'
         env:
-          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          test -n "$STORE_PASSWORD" || (echo "Missing KEYSTORE_PASSWORD repository secret" && exit 1)
-          test -n "$KEY_ALIAS" || (echo "Missing KEY_ALIAS repository secret" && exit 1)
-          test -n "$KEY_PASSWORD" || (echo "Missing KEY_PASSWORD repository secret" && exit 1)
+          test -n "$STORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret" && exit 1)
+          test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
+          test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
           ./gradlew :app:assembleUniversalRelease
 
       - name: Build Universal Debug APK (pull requests)
