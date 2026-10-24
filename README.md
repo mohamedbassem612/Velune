@@ -1,291 +1,133 @@
-
 <div align="center">
 
- <img src="https://raw.githubusercontent.com/mohamedbassem612/Velune/main/fastlane/metadata/android/en-US/images/icon.png" width="110" />
+<img src="fastlane/metadata/android/en-US/images/icon.png" width="96" alt="Velune icon" />
+
+# Velune
+
+An Android client for YouTube Music, built with Kotlin and Jetpack Compose.
+
+[![Build](https://github.com/mohamedbassem612/Velune/actions/workflows/android.yml/badge.svg)](https://github.com/mohamedbassem612/Velune/actions/workflows/android.yml)
+[![Latest release](https://img.shields.io/github/v/release/mohamedbassem612/Velune?label=release)](https://github.com/mohamedbassem612/Velune/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/github/license/mohamedbassem612/Velune)](LICENSE)
 
 </div>
 
-# 🌌 Velune
-<div align="center">
-
-<pre>
-██╗   ██╗███████╗██╗     ██╗   ██╗███╗   ██╗███████╗
-██║   ██║██╔════╝██║     ██║   ██║████╗  ██║██╔════╝
-██║   ██║█████╗  ██║     ██║   ██║██╔██╗ ██║█████╗
-╚██╗ ██╔╝██╔══╝  ██║     ██║   ██║██║╚██╗██║██╔══╝
- ╚████╔╝ ███████╗███████╗╚██████╔╝██║ ╚████║███████╗
-  ╚═══╝  ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
-</pre>
-
-</div>
-
-### 🎧 The YouTube Music app you always wanted
-
-🚫 No Ads • 💰 No Subscription • ⚡ Full Control  
+## Screenshots
 
 <div align="center">
 
-![Release](https://img.shields.io/github/v/release/mohamedbassem612/Velune?style=for-the-badge&logo=github&logoColor=white&labelColor=18181B&color=3B82F6)
-![Downloads](https://img.shields.io/github/downloads/mohamedbassem612/Velune/total?style=for-the-badge&logo=github&logoColor=white&labelColor=18181B&color=10B981)
-![Stars](https://img.shields.io/github/stars/mohamedbassem612/Velune?style=for-the-badge&logo=github&logoColor=white&labelColor=18181B&color=F59E0B)
-![License](https://img.shields.io/github/license/mohamedbassem612/Velune?style=for-the-badge&labelColor=18181B&color=EF4444)
+<img src="screenshots/Home.png" width="160" alt="Home" />
+<img src="screenshots/Now%20Playing.png" width="160" alt="Now playing" />
+<img src="screenshots/Lyrics.png" width="160" alt="Lyrics" />
+<img src="screenshots/Library.png" width="160" alt="Library" />
 
-<br>
-
-![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
-![Jetpack Compose](https://img.shields.io/badge/Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
-![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
-![Architecture](https://img.shields.io/badge/Architecture-MVVM-52525B?style=for-the-badge)
+<img src="screenshots/Downloaded.png" width="160" alt="Downloads" />
+<img src="screenshots/Stats.png" width="160" alt="Stats" />
+<img src="screenshots/History.png" width="160" alt="History" />
+<img src="screenshots/Settings.png" width="160" alt="Settings" />
 
 </div>
 
+## Install
 
-<br>
-<hr>
+Requires Android 8.0 (API 26) or newer.
 
-⚠️ Official Velune Notice
+1. Open the [latest release](https://github.com/mohamedbassem612/Velune/releases/latest) and download the APK.
+2. Install it. Android will ask you to allow installs from your browser or file manager the first time.
 
-This is the official Velune repository, maintained by Nikhil Vishwakarma.
+You can also follow releases with [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/mohamedbassem612/Velune).
 
-Official source code & releases:
-https://github.com/mohamedbassem612/Velune
+Updates: release builds check GitHub for a newer version when the app is opened (at most every 12 hours). If one is found, the app offers to download it and hands the APK to the Android installer. You still tap Install yourself, and the update must be signed with the same key as the installed app.
 
-Please be cautious of third-party websites or downloads using the Velune name that are not linked from this repository.
+## Features
 
-In particular, https://velune.cc  is not operated or maintained by me, and I am not affiliated with that website.
+Playback
+- Background playback with a media notification
+- Crossfade between tracks
+- Skip silence
+- Audio normalization
+- Tempo and pitch control
+- Equalizer (built-in, and the system equalizer panel)
+- Sleep timer
 
-For your safety, download Velune only from the official GitHub releases
+Library and discovery
+- Sign in with a YouTube Music account to use your library
+- Personalized home feed, charts, and mood and genre browsing
+- Listening history, stats, and a year in music summary
+- Listen Together sessions
+- Backup and restore of app data
 
-<hr>
-<br>
+Lyrics
+- Multiple lyrics sources: LrcLib, KuGou, SimpMusic, BetterLyrics, and YouTube Music
+- Word-by-word highlighting when the source provides word timings
+- Lyrics translation
 
-## 📥 Download Now
+Downloads
+- Download songs for offline playback
+- Export downloads as MP3 (FFmpeg)
 
+Interface and integrations
+- Material 3 with dynamic color
+- Discord Rich Presence
+- Last.fm scrobbling
 
-<div align="center">
+## Tech stack
 
-<h2>Stable Release</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th align="center">Obtainium</th>
-      <th align="center">IzzyOnDroid</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center">
-        <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/mohamedbassem612/Velune">
-          <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" height="50" alt="Get Velune on Obtainium">
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://apt.izzysoft.de/fdroid/index/apk/com.nikhil.yt">
-          <img src="assets/IzzyOnDroidButtonBorder.svg" height="50" alt="Get Velune on IzzyOnDroid">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <th align="center" colspan="2">GitHub</th>
-    </tr>
-    <tr>
-      <td align="center" colspan="2">
-        <a href="https://github.com/mohamedbassem612/Velune/releases/latest">
-          <img src="assets/badge_github.png" height="50" alt="Get Velune on GitHub">
-        </a>
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-</div>
-
-
-## 🚀 Why Velune?
-
-Velune is not just another music player — it's a **complete reimagination of YouTube Music**.
-
-* ⚡ **Faster** than the official app
-* 🎵 Built for audiophiles & power users
-* 📦 True offline-first experience
-* 🎨 Stunning **Material You** interface
-
-> 💡 This is YouTube Music — *but unlocked*
-
----
-
-## 🎯 Highlight Feature
-
-### 🎤 Real-Time Synced Lyrics
-
-Experience lyrics like never before:
-
-- Word-by-word sync  
-- Smooth animations  
-- Translation support  
-- Fully immersive playback  
-
----
-
-## 📸 Preview
-
-<div align="center">
-
-<img src="screenshots/Home.png" width="140"/>
-<img src="screenshots/Now Playing.png" width="140"/>
-<img src="screenshots/History.png" width="140"/>
-<img src="screenshots/Stats.png" width="140"/>
-
-<br/>
-
-<img src="screenshots/Library.png" width="140"/>
-<img src="screenshots/Settings.png" width="140"/>
-<img src="screenshots/About.png" width="140"/>
-
-</div>
-
-
-
----
-
-## ✨ Features
-
-### 🎵 Core Experience
-- Ad-Free Playback  
-- Full Library Sync  
-- Offline Caching (Encrypted)  
-- Background Playback  
-
-### 🔊 Audio Engine
-- Gapless Playback  
-- Crossfade Engine  
-- Silence Skipping  
-- Loudness Normalization (EBU R128)  
-- Tempo & Pitch Control  
-- System EQ Integration  
-
-### 🎨 UI & Discovery
-- Material You (Dynamic Colors)  
-- Synced Lyrics + Translation  
-- Discord Rich Presence  
-- Personalized Home Feed  
-- Year in Review Stats  
-- Custom Animated Loader  
-
----
-
-## 🧠 Architecture
-
-Built using **modern Android engineering principles**:
-
-- MVVM + Clean Architecture  
-- Unidirectional Data Flow (UDF)  
-- Modular & scalable codebase  
-
----
-
-## 🛠 Tech Stack
-
-| Layer | Stack |
-|------|------|
+| Area | Libraries |
+|------|-----------|
 | Language | Kotlin |
-| UI | Jetpack Compose + Material 3 |
-| Audio | Media3 / ExoPlayer |
-| DI | Hilt |
-| Database | Room (Encrypted) |
-| Networking | Ktor + Retrofit |
-| Async | Coroutines + Flow |
-| Build | Gradle KTS |
+| UI | Jetpack Compose, Material 3 |
+| Playback | Media3 / ExoPlayer |
+| Dependency injection | Hilt |
+| Database | Room |
+| Networking | Ktor |
+| Async | Coroutines and Flow |
+| Build | Gradle (Kotlin DSL), JDK 21 |
 
----
+compileSdk and targetSdk are 36, minSdk is 26.
 
-## 📂 Project Structure
+## Project structure
+
+| Module | Purpose |
+|--------|---------|
+| `app` | The Android application |
+| `innertube` | YouTube Music API client |
+| `lrclib`, `kugou`, `simpmusic`, `betterlyrics` | Lyrics providers |
+| `lastfm` | Last.fm API client |
+| `kizzy` | Discord Rich Presence |
+| `canvas` | Canvas artwork support |
+
+## Build from source
+
+Requirements: a recent Android Studio, JDK 21, and the Android SDK for API 36.
 
 ```bash
-velune/
-├── app/
-├── innertube/
-├── lrclib/
-├── kizzy/
-├── canvas/
-├── lastfm/
-├── kugou/
+git clone https://github.com/mohamedbassem612/Velune.git
+cd Velune
+./gradlew :app:assembleUniversalDebug
 ```
 
-Getting Started \
-Requirements\
-Android Studio Ladybug+\
-JDK 17
-Android SDK 34+ \
-Run Locally\
-Bash
-```
-git clone https://github.com/mohamedbassem612/Velune.git\
-cd Velune\
+The APK is written to `app/build/outputs/apk/universal/debug/`. You can also open the project in Android Studio, let Gradle sync, and run it.
 
-```
-Open in Android Studio → Sync → Run ▶ \
-📦 Download
- 
+A local release build (`assembleUniversalRelease`) is signed with the debug key unless `app/keystore/release.keystore` exists, so it will not update an installed official release.
 
-🚀 Get Latest Release⁠ 
+## Releases
 
--------------------------------------------------------------------------
+Releases are built by GitHub Actions and signed with the project key. Pushing a tag in the form `vMAJOR.MINOR.PATCH` (for example `v1.3.1`) builds the signed APK, sets the app version from the tag, and publishes a GitHub release with the APK attached. The required repository secrets are `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
 
-## 💬 Community
+## Credits
 
-Have a feature request, found a bug,
-or just want to share your favorite music setups? Join the official Velune community!
+Velune is based on the earlier Velune project by [nikhilvishwakarma00](https://github.com/nikhilvishwakarma00), and builds on the work of these projects:
 
-* *Discord:* [Join the Velune Server](https://discord.gg/cJNHTdpP6H)
-* *GitHub Discussions:* [Open a Discussion](https://github.com/mohamedbassem612/Velune/discussions)
+- [ArchiveTune](https://github.com/koiverse/ArchiveTune)
+- [Metrolist](https://github.com/mostafaalagamy/Metrolist)
+- InnerTune
+- Kizzy
+- SimpMusic
+- BetterLyrics
 
+## Legal
 
+Velune is an independent client. It is not affiliated with, endorsed by, or sponsored by YouTube or Google. Please support artists through official platforms.
 
---------------------------------------------------------------------------------------------------------------
-
-
-🙌 Credits\
-Huge respect to these projects:
-
-Archivetune -base framework
-
-Metrolist
-
-InnerTune
-
-Kizzy
-
-SimpMusic
-
-BetterLyrics
-
-⚖️ Legal
-Velune is an independent client and is not affiliated with YouTube or Google.\
-Please support artists through official platforms ❤️\
-Licensed under GPL-3.0
- 
-
-💙 Built with passion by Nikhil\
-⭐ Star the repo if Velune impressed you\
-🚀 Help it reach more people
-
-## 🔗 Star History
-
-<div align="center">
-  <a href="https://star-history.com/mohamedbassem612/velune&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mohamedbassem612/velune&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mohamedbassem612/velune&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mohamedbassem612/velune&type=Date" />
-    </picture>
-  </a>
-
-  <br/>
-  <br/><br/>
-</div>
-
----
-
-Velune is licensed under GPL-3.0 (see LICENSE). Originally based on Velune by nikhilvishwakarma00, which builds on ArchiveTune and Metrolist.
+Licensed under the [GNU General Public License v3.0](LICENSE).
