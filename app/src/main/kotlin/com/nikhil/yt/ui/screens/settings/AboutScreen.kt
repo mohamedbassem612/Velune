@@ -159,6 +159,13 @@ fun AboutScreen(
                     subtitle = "App Developer",
                     onClick = { uriHandler.openUri("https://github.com/mohamedbassem612") }
                 )
+                Spacer(Modifier.height(8.dp))
+                AboutItemCard(
+                    iconUrl = "https://github.com/nikhilvishwakarma00.png",
+                    title = "Nikhil",
+                    subtitle = "Original developer. Velune is based on his work",
+                    onClick = { uriHandler.openUri("https://github.com/nikhilvishwakarma00") }
+                )
                 Spacer(Modifier.height(24.dp))
             }
 
