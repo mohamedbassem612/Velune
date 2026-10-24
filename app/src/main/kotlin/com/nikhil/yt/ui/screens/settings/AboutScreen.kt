@@ -16,6 +16,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +42,7 @@ import com.nikhil.yt.LocalPlayerAwareWindowInsets
 import com.nikhil.yt.R
 import com.nikhil.yt.ui.component.IconButton
 import com.nikhil.yt.ui.utils.backToMain
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -48,6 +54,16 @@ fun AboutScreen(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var pendingUpdate by remember { mutableStateOf<com.nikhil.yt.utils.ReleaseInfo?>(null) }
+
+    pendingUpdate?.let { release ->
+        com.nikhil.yt.ui.component.UpdateAvailableDialog(
+            release = release,
+            onDismiss = { pendingUpdate = null },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -184,6 +200,46 @@ fun AboutScreen(
             // --- APP INFO SECTION ---
             item {
                 SectionTitle("APP INFO")
+                Spacer(Modifier.height(8.dp))
+                AboutItemCard(
+                    iconRes = R.drawable.new_release,
+                    title = "Check for updates",
+                    subtitle = if (isCheckingUpdate) "Checking..." else "Current version v${BuildConfig.VERSION_NAME}",
+                    onClick = if (isCheckingUpdate) null else ({
+                        if (BuildConfig.DEBUG) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Updates are disabled in debug builds",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            isCheckingUpdate = true
+                            scope.launch {
+                                com.nikhil.yt.utils.Updater.getAllReleases(forceRefresh = true)
+                                    .onSuccess { releases ->
+                                        val latest = releases.firstOrNull()
+                                        if (latest != null && com.nikhil.yt.utils.Updater.isNewerThanInstalled(latest)) {
+                                            pendingUpdate = latest
+                                        } else {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "You are on the latest version",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                    .onFailure {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Could not check for updates",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                isCheckingUpdate = false
+                            }
+                        }
+                    })
+                )
                 Spacer(Modifier.height(8.dp))
                 val installDate = try {
                     val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
