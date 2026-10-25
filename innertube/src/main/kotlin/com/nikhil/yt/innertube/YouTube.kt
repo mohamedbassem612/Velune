@@ -1257,7 +1257,7 @@ object YouTube {
     @JvmInline
     value class SearchFilter(val value: String) {
         companion object {
-            val FILTER_SONG = SearchFilter("git EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D")
+            val FILTER_SONG = SearchFilter("EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D")
             val FILTER_VIDEO = SearchFilter("EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D")
             val FILTER_ALBUM = SearchFilter("EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D")
             val FILTER_ARTIST = SearchFilter("EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D")
