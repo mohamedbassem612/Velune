@@ -2364,7 +2364,7 @@ fun Lyrics(
             if (coverUrl != null) {
                 withContext(Dispatchers.IO) {
                     try {
-                        val loader = coil3.SingletonImageLoader.get(context)
+                        val loader = ImageLoader(context)
                         val req = ImageRequest.Builder(context).data(coverUrl).allowHardware(false).build()
                         val result = loader.execute(req)
                         val bmp = result.image?.toBitmap()

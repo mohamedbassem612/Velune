@@ -13,7 +13,6 @@ import com.nikhil.yt.innertube.models.YouTubeClient
 import com.nikhil.yt.innertube.models.response.PlayerResponse
 import io.ktor.http.URLBuilder
 import io.ktor.http.parseQueryString
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
@@ -31,7 +30,6 @@ import java.util.concurrent.TimeUnit
 private class NewPipeDownloaderImpl(proxy: Proxy?) : Downloader() {
 
     private val client = OkHttpClient.Builder()
-        .bandwidthDiagnostics("NewPipeDownloaderImpl.execute", "Extract YouTube player JavaScript, signatures and fallback streams")
         .proxy(proxy)
         .retryOnConnectionFailure(true)
         .connectTimeout(15, TimeUnit.SECONDS)

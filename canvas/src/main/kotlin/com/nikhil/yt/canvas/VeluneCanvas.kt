@@ -8,7 +8,6 @@
 
 package com.nikhil.yt.canvas
 
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -38,7 +37,6 @@ object VeluneCanvas {
 
     private val client by lazy {
         HttpClient(OkHttp) {
-            bandwidthDiagnostics("VeluneCanvas", "Look up animated artwork")
             install(ContentNegotiation) { json(json) }
             install(HttpTimeout) {
                 connectTimeoutMillis = 12_000

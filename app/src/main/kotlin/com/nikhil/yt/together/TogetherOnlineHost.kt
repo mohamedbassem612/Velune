@@ -7,7 +7,6 @@
 package com.nikhil.yt.together
 
 import androidx.compose.runtime.Immutable
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.WebSockets
@@ -17,8 +16,6 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
-import com.nikhil.yt.diagnostics.recordBandwidth
-import com.nikhil.yt.diagnostics.sendWithBandwidth
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.util.UUID
@@ -55,7 +52,6 @@ class TogetherOnlineHost(
 ) {
     private val client =
         HttpClient(OkHttp) {
-            bandwidthDiagnostics("TogetherOnlineHost", "Host online listening room")
             engine {
                 config {
                     connectTimeout(15, TimeUnit.SECONDS)
@@ -128,7 +124,7 @@ class TogetherOnlineHost(
                             clientId = clientId,
                             displayName = hostDisplayName.trim(),
                         )
-                    sendLogged(TogetherJson.json.encodeToString(TogetherMessage.serializer(), hello))
+                    send(TogetherJson.json.encodeToString(TogetherMessage.serializer(), hello))
                     runLoop(this, candidate)
                 }
                 return
@@ -194,7 +190,7 @@ class TogetherOnlineHost(
 
         if (!approved) {
             runCatching {
-                session?.sendLogged(
+                session?.send(
                     TogetherJson.json.encodeToString(
                         TogetherMessage.serializer(),
                         JoinDecision(sessionId = sessionId, participantId = participantId, approved = false),
@@ -207,7 +203,7 @@ class TogetherOnlineHost(
 
         guest.pending = false
         runCatching {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     JoinDecision(sessionId = sessionId, participantId = participantId, approved = true),
@@ -231,7 +227,7 @@ class TogetherOnlineHost(
     suspend fun kickParticipant(participantId: String, reason: String?) {
         if (!guests.containsKey(participantId)) return
         runCatching {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     KickParticipant(sessionId = sessionId, participantId = participantId, reason = reason),
@@ -243,7 +239,7 @@ class TogetherOnlineHost(
     suspend fun banParticipant(participantId: String, reason: String?) {
         if (!guests.containsKey(participantId)) return
         runCatching {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     BanParticipant(sessionId = sessionId, participantId = participantId, reason = reason),
@@ -263,7 +259,7 @@ class TogetherOnlineHost(
             )
 
         runCatching {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     RoomStateMessage(roomState),
@@ -308,7 +304,7 @@ class TogetherOnlineHost(
                     while (true) {
                         val frame =
                             try {
-                                session.incoming.receive().recordBandwidth("TogetherOnlineHost", "TogetherOnlineHost.runLoop", incoming = true)
+                                session.incoming.receive()
                             } catch (_: ClosedReceiveChannelException) {
                                 break
                             }
@@ -394,8 +390,4 @@ class TogetherOnlineHost(
             }
         loopJob?.join()
     }
-}
-
-private suspend fun WebSocketSession.sendLogged(text: String) {
-    sendWithBandwidth(Frame.Text(text), "TogetherOnlineHost", com.nikhil.yt.diagnostics.BandwidthLog.caller("TogetherOnlineHost.send"))
 }

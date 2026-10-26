@@ -13,7 +13,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.nikhil.yt.db.entities.Song
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
@@ -27,7 +26,7 @@ object ListenBrainzManager {
     private var scope: CoroutineScope? = null
     private var job: Job? = null
     private var lifecycleObserver: Any? = null
-    private val httpClient = OkHttpClient.Builder().bandwidthDiagnostics("ListenBrainzManager", "Validate token and submit listening history").build()
+    private val httpClient = OkHttpClient()
 
     private val _lastSubmitTime = MutableStateFlow<Long?>(null)
     val lastSubmitTimeFlow = _lastSubmitTime.asStateFlow()

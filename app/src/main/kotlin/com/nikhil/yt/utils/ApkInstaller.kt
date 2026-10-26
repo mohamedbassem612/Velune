@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 
 object ApkInstaller {
     fun canInstall(context: Context): Boolean =
@@ -34,13 +36,19 @@ object ApkInstaller {
         dir.listFiles()?.forEach { it.delete() }
         val file = File(dir, "Velune-update.apk")
 
-        val request = okhttp3.Request.Builder().url(url).build()
-        BandwidthDiagnostics.updateClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val total = response.body.contentLength()
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 30_000
+            connection.connect()
+            if (connection.responseCode !in 200..299) {
+                throw IOException("HTTP ${connection.responseCode}")
+            }
+            val total = connection.contentLengthLong
             var done = 0L
             var lastPercent = -1
-            response.body.byteStream().use { input ->
+            connection.inputStream.use { input ->
                 file.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
                     while (true) {
@@ -58,6 +66,8 @@ object ApkInstaller {
                     }
                 }
             }
+        } finally {
+            connection.disconnect()
         }
         file
     }

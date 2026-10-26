@@ -71,11 +71,6 @@ fun LoginScreen(
         factory = { context ->
             WebView(context).apply {
                 webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(view: WebView, request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {
-                        com.nikhil.yt.utils.BandwidthDiagnostics.webViewRequest(request, "LoginScreen")
-                        return super.shouldInterceptRequest(view, request)
-                    }
-
                     override fun onPageFinished(view: WebView, url: String?) {
                         loadUrl("javascript:Android.onRetrieveVisitorData(window.yt.config_.VISITOR_DATA)")
                         loadUrl("javascript:Android.onRetrieveDataSyncId(window.yt.config_.DATASYNC_ID)")

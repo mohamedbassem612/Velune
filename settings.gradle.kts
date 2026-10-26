@@ -25,7 +25,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "Velune"
 include(":app")
-include(":diagnostics")
 include(":innertube")
 include(":kugou")
 include(":lrclib")

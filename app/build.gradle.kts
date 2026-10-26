@@ -23,8 +23,8 @@ android {
     applicationId = "com.nikhil.yt"
         minSdk = 26
         targetSdk = 36
-        versionCode = System.getenv("RELEASE_VERSION_CODE")?.toIntOrNull() ?: 10305
-        versionName = System.getenv("RELEASE_VERSION_NAME") ?: "1.3.5"
+        versionCode = System.getenv("RELEASE_VERSION_CODE")?.toIntOrNull() ?: 10
+        versionName = System.getenv("RELEASE_VERSION_NAME") ?: "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -163,7 +163,6 @@ ksp {
 }
 
 dependencies {
-    implementation(project(":diagnostics"))
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
     implementation(libs.concurrent.futures)

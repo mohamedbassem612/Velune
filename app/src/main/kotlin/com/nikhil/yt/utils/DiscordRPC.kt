@@ -128,9 +128,7 @@ class DiscordRPC(
                             translatedMap[ctx] = translated
                         } else {
                             try {
-                                val result = com.nikhil.yt.diagnostics.observeBandwidth("Translator", "DiscordRPC.translate", "Translate Discord presence text") {
-                                    translator.translateBlocking(value, Language.valueOf(targetLang.uppercase()))
-                                }
+                                val result = translator.translateBlocking(value, Language.valueOf(targetLang.uppercase()))
                                 translatedMap[ctx] = result.translatedText
                                 translationCache[cacheKey] = result.translatedText
                             } catch (e: Exception) {

@@ -207,7 +207,7 @@ object ComposeToImage {
         var coverArtBitmap: Bitmap? = null
         if (coverArtUrl != null) {
             try {
-                val imageLoader = coil3.SingletonImageLoader.get(context)
+                val imageLoader = ImageLoader(context)
                 val request = ImageRequest.Builder(context)
                     .data(coverArtUrl)
                     .size(512)

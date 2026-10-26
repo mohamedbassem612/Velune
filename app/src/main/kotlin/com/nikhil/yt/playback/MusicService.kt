@@ -211,7 +211,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.FileOutputStream
@@ -288,7 +287,6 @@ class MusicService :
     private val mediaOkHttpClient: OkHttpClient by lazy {
         OkHttpClient
             .Builder()
-            .bandwidthDiagnostics("MusicService.createDataSourceFactory", "Stream audio from network when playback caches miss")
             .proxy(YouTube.streamProxy)
             .followRedirects(true)
             .followSslRedirects(true)

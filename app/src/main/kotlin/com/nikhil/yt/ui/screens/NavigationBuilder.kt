@@ -344,9 +344,6 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/discord/experimental") {
         com.nikhil.yt.ui.screens.settings.DiscordExperimental(navController)
     }
-    composable("settings/experimental") {
-        com.nikhil.yt.ui.screens.settings.ExperimentalSettings(navController)
-    }
     composable("settings/misc") {
         DebugSettings(navController)
     }

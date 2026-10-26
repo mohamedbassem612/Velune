@@ -94,7 +94,6 @@ class App : Application(), SingletonImageLoader.Factory {
             Timber.plant(Timber.DebugTree())
             return
         }
-        com.nikhil.yt.utils.BandwidthDiagnostics.initialize(this)
         PreferenceStore.start(this)
         Timber.plant(Timber.DebugTree())
         try {
@@ -305,11 +304,6 @@ class App : Application(), SingletonImageLoader.Factory {
         }
 
         return ImageLoader.Builder(this)
-            .components {
-                add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(
-                    callFactory = { com.nikhil.yt.utils.BandwidthDiagnostics.imageClient },
-                ))
-            }
             .crossfade(true)
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)

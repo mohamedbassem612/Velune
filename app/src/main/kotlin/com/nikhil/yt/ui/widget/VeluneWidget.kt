@@ -63,6 +63,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URL
 
 val widgetTitleKey = stringPreferencesKey("widget_title")
 val widgetArtistKey = stringPreferencesKey("widget_artist")
@@ -305,11 +306,9 @@ fun updateVeluneWidgetState(context: Context, title: String, artist: String, isP
 
         if (title != oldTitle && !thumbnailUrl.isNullOrBlank()) {
             try {
-                val request = okhttp3.Request.Builder().url(thumbnailUrl).build()
-                val bitmap = com.nikhil.yt.utils.BandwidthDiagnostics.widgetClient.newCall(request).execute().use { response ->
-                    check(response.isSuccessful) { "Widget artwork HTTP ${response.code}" }
-                    response.body.byteStream().use { input -> requireNotNull(BitmapFactory.decodeStream(input)) }
-                }
+                val connection = URL(thumbnailUrl).openConnection()
+                connection.connect()
+                val bitmap = BitmapFactory.decodeStream(connection.getInputStream())
                 val scaledBitmap = Bitmap.createScaledBitmap(bitmap, 256, 256, true)
 
                 val file = File(context.cacheDir, "widget_art.png")

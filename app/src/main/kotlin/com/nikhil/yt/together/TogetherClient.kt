@@ -7,7 +7,6 @@
 package com.nikhil.yt.together
 
 import androidx.compose.runtime.Immutable
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.WebSockets
@@ -17,8 +16,6 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
-import com.nikhil.yt.diagnostics.recordBandwidth
-import com.nikhil.yt.diagnostics.sendWithBandwidth
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.util.UUID
@@ -88,7 +85,6 @@ class TogetherClient(
 ) {
     private val client =
         HttpClient(OkHttp) {
-            bandwidthDiagnostics("TogetherClient", "Connect to listening room")
             engine {
                 config {
                     connectTimeout(15, TimeUnit.SECONDS)
@@ -145,7 +141,7 @@ class TogetherClient(
                                 clientId = clientId,
                                 displayName = displayName.trim(),
                             )
-                        sendLogged(TogetherJson.json.encodeToString(TogetherMessage.serializer(), hello))
+                        send(TogetherJson.json.encodeToString(TogetherMessage.serializer(), hello))
                         _state.value = TogetherClientState.Connected(joinInfo)
                         runLoop(this, joinInfo.sessionId)
                     }
@@ -192,7 +188,7 @@ class TogetherClient(
                                 clientId = clientId,
                                 displayName = displayName.trim().ifBlank { "Guest" },
                             )
-                        sendLogged(TogetherJson.json.encodeToString(TogetherMessage.serializer(), hello))
+                        send(TogetherJson.json.encodeToString(TogetherMessage.serializer(), hello))
                         _state.value = TogetherClientState.ConnectedRemote(wsUrl = candidate, sessionId = sessionId)
                         runLoop(this, sessionId)
                     }
@@ -247,7 +243,7 @@ class TogetherClient(
     fun requestControl(sessionId: String, action: ControlAction) {
         val pid = selfParticipantId ?: return
         scope.launch {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     ControlRequest(sessionId = sessionId, participantId = pid, action = action),
@@ -259,7 +255,7 @@ class TogetherClient(
     fun requestAddTrack(sessionId: String, track: TogetherTrack, mode: AddTrackMode) {
         val pid = selfParticipantId ?: return
         scope.launch {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     AddTrackRequest(sessionId = sessionId, participantId = pid, track = track, mode = mode),
@@ -270,7 +266,7 @@ class TogetherClient(
 
     fun sendHeartbeat(sessionId: String, pingId: Long, clientElapsedRealtimeMs: Long) {
         scope.launch {
-            session?.sendLogged(
+            session?.send(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     HeartbeatPing(
@@ -290,7 +286,7 @@ class TogetherClient(
                     while (true) {
                         val frame =
                             try {
-                                session.incoming.receive().recordBandwidth("TogetherClient", "TogetherClient.runLoop", incoming = true)
+                                session.incoming.receive()
                             } catch (_: ClosedReceiveChannelException) {
                                 break
                             }
@@ -366,8 +362,4 @@ class TogetherClient(
             }
         loopJob?.join()
     }
-}
-
-private suspend fun WebSocketSession.sendLogged(text: String) {
-    sendWithBandwidth(Frame.Text(text), "TogetherClient", com.nikhil.yt.diagnostics.BandwidthLog.caller("TogetherClient.send"))
 }

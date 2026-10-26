@@ -23,8 +23,6 @@ import com.my.kizzy.gateway.entities.op.OpCode.PRESENCE_UPDATE
 import com.my.kizzy.gateway.entities.op.OpCode.RECONNECT
 import com.my.kizzy.gateway.entities.op.OpCode.RESUME
 import com.my.kizzy.gateway.entities.presence.Presence
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
-import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
@@ -32,8 +30,6 @@ import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
-import com.nikhil.yt.diagnostics.recordBandwidth
-import com.nikhil.yt.diagnostics.sendWithBandwidth
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -67,8 +63,7 @@ open class DiscordWebSocket(
     private var resumeGatewayUrl: String? = null
     private var heartbeatJob: Job? = null
     private var connected = false
-    private var client: HttpClient = HttpClient(OkHttp) {
-        bandwidthDiagnostics("DiscordWebSocket", "Connect Discord presence gateway")
+    private var client: HttpClient = HttpClient {
         install(WebSockets)
     }
     private val json = Json {
@@ -89,7 +84,6 @@ open class DiscordWebSocket(
                 // start receiving messages
                 websocket!!.incoming.receiveAsFlow()
                     .collect {
-                        it.recordBandwidth("DiscordWebSocket", "DiscordWebSocket.connect.receive", incoming = true)
                         when (it) {
                             is Frame.Text -> {
                                 val jsonString = it.readText()
@@ -253,7 +247,7 @@ open class DiscordWebSocket(
                     d = json.encodeToJsonElement(d),
                 )
             )
-            websocket?.sendWithBandwidth(Frame.Text(payload), "DiscordWebSocket", "DiscordWebSocket.send.${op.name}")
+            websocket?.send(Frame.Text(payload))
         }
     }
 

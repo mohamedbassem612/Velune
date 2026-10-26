@@ -11,8 +11,6 @@
  */
 package com.my.kizzy.remote
 
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
-import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.cache.HttpCache
@@ -25,8 +23,7 @@ import kotlinx.serialization.json.Json
 
 
 class ApiService {
-    private val client = HttpClient(OkHttp) {
-        bandwidthDiagnostics("Discord.ApiService", "Upload / resolve presence artwork")
+    private val client = HttpClient {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true

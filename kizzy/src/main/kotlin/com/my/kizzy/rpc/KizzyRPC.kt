@@ -17,8 +17,6 @@ import com.my.kizzy.gateway.entities.presence.Metadata
 import com.my.kizzy.gateway.entities.presence.Presence
 import com.my.kizzy.gateway.entities.presence.Timestamps
 import com.my.kizzy.repository.KizzyRepository
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
-import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -271,9 +269,7 @@ open class KizzyRPC(private val token: String, private val injectedLogger: Kizzy
 
     companion object {
         suspend fun getUserInfo(token: String): Result<UserInfo> = runCatching {
-            val client = HttpClient(OkHttp) {
-                bandwidthDiagnostics("KizzyRPC.getUserInfo", "Fetch Discord profile")
-            }
+            val client = HttpClient()
             val response = client.get("https://discord.com/api/v9/users/@me") {
                 header("Authorization", token)
             }.bodyAsText()

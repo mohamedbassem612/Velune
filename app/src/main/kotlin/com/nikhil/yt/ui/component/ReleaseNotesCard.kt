@@ -73,12 +73,8 @@ fun ReleaseNotesCard() {
 suspend fun fetchReleaseNotesText(): List<String> {
     return withContext(Dispatchers.IO) {
         try {
-            val url = "https://github.com/mohamedbassem612/Velune/releases/latest"
-            val request = okhttp3.Request.Builder().url(url).build()
-            val document = com.nikhil.yt.utils.BandwidthDiagnostics.releaseNotesClient.newCall(request).execute().use { response ->
-                check(response.isSuccessful) { "Release notes HTTP ${response.code}" }
-                Jsoup.parse(response.body.string(), url)
-            }
+            val document =
+                Jsoup.connect("https://github.com/mohamedbassem612/Velune/releases/latest").get()
             val changelogElement = document.selectFirst(".markdown-body")
             val htmlContent = changelogElement?.html() ?: "No release notes found"
 

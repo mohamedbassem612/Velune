@@ -211,14 +211,6 @@ fun VeluneSettingsScreen(
                 )
             }
 
-            item {
-                SettingsItemScreenshotStyle(
-                    icon = painterResource(R.drawable.settings),
-                    title = androidx.compose.ui.res.stringResource(R.string.experimental_settings),
-                    onClick = { navController.navigate("settings/experimental") }
-                )
-            }
-
             item { Spacer(Modifier.height(32.dp)) }
         }
 

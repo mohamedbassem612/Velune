@@ -11,7 +11,6 @@ package com.nikhil.yt.lastfm
 import com.nikhil.yt.lastfm.models.Authentication
 import com.nikhil.yt.lastfm.models.LastFmError
 import com.nikhil.yt.lastfm.models.TokenResponse
-import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -35,7 +34,6 @@ object LastFM {
 
     private val client by lazy {
         HttpClient(OkHttp) {
-            bandwidthDiagnostics("LastFM", "Account, scrobbling and artist metadata")
             install(ContentNegotiation) {
                 json(json)
             }

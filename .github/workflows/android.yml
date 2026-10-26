@@ -31,8 +31,8 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Test bandwidth diagnostics and YouTube search filters
-        run: ./gradlew :diagnostics:test :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
+      - name: Test YouTube search filters
+        run: ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
 
       # Repository secrets are not available to pull_request workflows from forks.
       # PRs build Debug; pushes and manual runs build a signed Release.
