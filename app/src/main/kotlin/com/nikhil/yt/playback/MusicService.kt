@@ -4092,12 +4092,10 @@ class MusicService :
         CacheDataSource
             .Factory()
             .setCache(downloadCache)
-            .setEventListener(com.nikhil.yt.utils.BandwidthDiagnostics.cacheListener("downloadCache"))
             .setUpstreamDataSourceFactory(
                 CacheDataSource
                     .Factory()
                     .setCache(playerCache)
-                    .setEventListener(com.nikhil.yt.utils.BandwidthDiagnostics.cacheListener("playerCache"))
                     .setUpstreamDataSourceFactory(
                         DefaultDataSource.Factory(
                             this,
@@ -4155,24 +4153,13 @@ class MusicService :
                     downloadCache.isCached(mediaId, dataSpec.position, requiredCachedLength) ||
                         playerCache.isCached(mediaId, dataSpec.position, requiredCachedLength)
                 if (isFullyCached) {
-                    com.nikhil.yt.utils.BandwidthDiagnostics.resolverNote(mediaId, "FULLY_CACHED; no network needed")
                     scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
                     return@Factory dataSpec
                 }
-                com.nikhil.yt.utils.BandwidthDiagnostics.resolverNote(
-                    mediaId,
-                    "NOT_FULLY_CACHED position=${dataSpec.position} required=$requiredCachedLength",
-                )
-            } else {
-                com.nikhil.yt.utils.BandwidthDiagnostics.resolverNote(
-                    mediaId,
-                    "UNKNOWN_LENGTH; cache cannot be verified so the network URL is resolved",
-                )
             }
 
             playbackUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
                 android.util.Log.i("StreamTiming", "$mediaId url served from cache (no resolve)")
-                com.nikhil.yt.utils.BandwidthDiagnostics.resolverNote(mediaId, "URL_CACHE reused; audio bytes still come from the network")
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
                 val length = if (dataSpec.length >= 0) minOf(dataSpec.length, CHUNK_LENGTH) else CHUNK_LENGTH
                 return@Factory dataSpec.withUri(it.first.toUri()).subrange(dataSpec.uriPositionOffset, length)

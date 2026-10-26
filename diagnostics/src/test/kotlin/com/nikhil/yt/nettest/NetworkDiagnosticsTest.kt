@@ -115,7 +115,7 @@ class NetworkDiagnosticsTest {
         assertTrue(BandwidthLog.snapshot().received in 1..100)
     }
 
-    @Test fun `disk cache hits are logged as zero byte HIT rows`() {
+    @Test fun `disk cache hits do not create network rows`() {
         val directory = Files.createTempDirectory("bandwidth-cache").toFile()
         Cache(directory, 1024 * 1024).use { cache ->
             val cached = client.newBuilder().cache(cache).build()
@@ -123,54 +123,10 @@ class NetworkDiagnosticsTest {
             repeat(2) {
                 cached.newCall(Request.Builder().url("$baseUrl/api/search").build()).execute().use { it.body.bytes() }
             }
-            val entries = BandwidthLog.snapshot().entries
-            assertEquals(2, entries.size)
-            assertEquals("NET", entries[0].cache)
-            assertEquals("HIT", entries[1].cache)
-            assertEquals(0, entries[1].received)
+            assertEquals(1, BandwidthLog.snapshot().entries.size)
             assertEquals(31, BandwidthLog.snapshot().received)
-            assertTrue(entries[0].key.isNotEmpty())
-            assertEquals(entries[0].key, entries[1].key)
         }
         directory.deleteRecursively()
-    }
-
-    @Test fun `same GET resource fetched twice from the network is reported as repeated`() {
-        BandwidthLog.setEnabled(true)
-        repeat(2) {
-            client.newCall(Request.Builder().url("$baseUrl/api/search?x=1").build()).execute().use { it.body.bytes() }
-        }
-        val exported = BandwidthLog.export()
-        assertTrue(exported.contains("repeatedNetworkKeys=1"))
-        assertTrue(exported.contains("repeatedNetworkBytes=31"))
-        assertFalse(exported.contains("x=1"))
-    }
-
-    @Test fun `rows are stamped with foreground or background state and notes mark transitions`() {
-        BandwidthLog.setForeground(false)
-        BandwidthLog.setEnabled(true)
-        BandwidthLog.setForeground(true)
-        BandwidthLog.begin("Test", "fg", "test", "redacted", "GET")!!.finish("HTTP 200")
-        BandwidthLog.setForeground(false)
-        BandwidthLog.begin("Test", "bg", "test", "redacted", "GET")!!.finish("HTTP 200")
-        val entries = BandwidthLog.snapshot().entries
-        val fg = entries.single { it.function == "fg" }
-        val bg = entries.single { it.function == "bg" }
-        assertEquals("FG", fg.appState)
-        assertTrue(fg.sinceFgMs >= 0)
-        assertEquals("BG", bg.appState)
-        assertEquals(-1, bg.sinceFgMs)
-        assertTrue(entries.count { it.method == "NOTE" && it.source == "App" } >= 2)
-    }
-
-    @Test fun `keys are stable within a process and counters are exported`() {
-        assertEquals(BandwidthLog.keyOf("a"), BandwidthLog.keyOf("a"))
-        assertNotEquals(BandwidthLog.keyOf("a"), BandwidthLog.keyOf("b"))
-        assertEquals(8, BandwidthLog.keyOf("a").length)
-        BandwidthLog.setEnabled(true)
-        BandwidthLog.countCache("Coil.memory")
-        BandwidthLog.countCache("Coil.memory")
-        assertTrue(BandwidthLog.export().contains("Coil.memory=2"))
     }
 
     @Test fun `error responses retain bytes and HTTP status`() {

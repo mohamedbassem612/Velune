@@ -310,7 +310,6 @@ class App : Application(), SingletonImageLoader.Factory {
                     callFactory = { com.nikhil.yt.utils.BandwidthDiagnostics.imageClient },
                 ))
             }
-            .eventListenerFactory(com.nikhil.yt.utils.BandwidthDiagnostics.coilEvents)
             .crossfade(true)
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)
