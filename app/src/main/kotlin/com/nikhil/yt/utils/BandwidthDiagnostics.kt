@@ -93,7 +93,7 @@ object BandwidthDiagnostics {
 
     /** Records Coil results that never reach the network: disk hits as rows, memory hits as a counter. */
     val coilEvents = EventListener.Factory {
-        object : EventListener {
+        object : EventListener() {
             override fun onSuccess(request: ImageRequest, result: SuccessResult) {
                 if (!BandwidthLog.enabled) return
                 val raw = request.data.toString()
