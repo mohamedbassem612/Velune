@@ -124,3 +124,29 @@ Ktor caller propagation and header stripping, endpoint redaction, WebSocket UTF-
 payloads, concurrent row eviction, and rollback during an in-flight transfer.
 The release-tag workflow also runs the diagnostics tests before building and
 publishing the signed universal APK.
+
+
+## Cache and app-lifecycle context (added after v1.3.5)
+
+The TSV has six extra columns at the end: `cache`, `cachedBytes`, `key`, `appState`,
+`fgSession`, `sinceFgMs`. Existing columns keep their positions.
+
+- `cache`: `NET` the request went to the network, `REVALIDATE` a conditional request
+  for a stale cached copy, `HIT` served from a cache with zero network bytes,
+  `HIT-DISK` served from Coil's disk cache. Blank means the layer cannot tell.
+  OkHttp cache hits, Coil disk hits and Media3 (`downloadCache` / `playerCache`)
+  reads are recorded. Coil memory hits are only counted in the `# cacheCounters` line.
+- `NOTE` rows (method column) are zero-byte explanations. `MusicService.resolver`
+  notes say per song whether audio was `FULLY_CACHED`, `NOT_FULLY_CACHED` or
+  `UNKNOWN_LENGTH` (cache could not be verified, so a network URL is resolved).
+  `cache ignored: UNSET_LENGTH / ERROR` notes show Media3 bypassing its cache.
+- `key` is a salted, truncated hash of the full URL (GET only) or of the media id,
+  different on every process start. Equal keys in one export mean the same
+  resource. The URL / id itself is never stored. The header line
+  `repeatedNetworkKeys` / `repeatedNetworkBytes` summarises resources fetched from the
+  network more than once in the recording.
+- `appState` (`FG` / `BG`), `fgSession` (increments each time the app UI returns to
+  the foreground) and `sinceFgMs` show what loads right after coming back from the
+  background. `App` / `lifecycle` NOTE rows mark each transition and how long the
+  app was in the other state. The header `processStartMs` / `pid` show whether the
+  process was restarted between two exports.

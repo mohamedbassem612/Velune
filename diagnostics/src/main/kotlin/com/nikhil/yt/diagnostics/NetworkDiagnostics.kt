@@ -20,7 +20,7 @@ import java.io.IOException
 import java.net.URI
 
 private const val ORIGIN_HEADER = "X-Velune-Local-Diagnostic-Origin"
-private data class Origin(val function: String)
+private data class Origin(val function: String, val key: String)
 private val requestOrigin = createClientPlugin("VeluneDiagnosticOrigin") {
     onRequest { request, _ ->
         if (BandwidthLog.enabled) request.headers.append(ORIGIN_HEADER, BandwidthLog.caller("Ktor request"))
@@ -32,16 +32,27 @@ fun HttpClientConfig<OkHttpConfig>.bandwidthDiagnostics(source: String, reason: 
     engine { config { bandwidthDiagnostics(source, reason) } }
 }
 
-/** Network interceptor runs only for the upstream: disk/memory cache hits never count. */
+/**
+ * The network interceptor runs only for the upstream, so an OkHttp cache hit never reaches it. The application
+ * interceptor below sees the final response and records those hits as zero-byte rows instead.
+ */
 fun OkHttpClient.Builder.bandwidthDiagnostics(source: String, reason: String): OkHttpClient.Builder = apply {
     addInterceptor { chain ->
         val request = chain.request()
         val origin = request.header(ORIGIN_HEADER)
         if (!BandwidthLog.enabled && origin == null) return@addInterceptor chain.proceed(request)
         val clean = request.newBuilder().removeHeader(ORIGIN_HEADER)
-        if (BandwidthLog.enabled) clean.tag(Origin::class.java, Origin(origin ?: BandwidthLog.caller(source)))
+        val logging = BandwidthLog.enabled
+        val function = if (logging) origin ?: BandwidthLog.caller(source) else null
+        // Only GET is hashed: for POST (InnerTube) the URL alone does not identify the resource.
+        val key = if (logging && request.method == "GET") BandwidthLog.keyOf(request.url.toString()) else ""
+        if (function != null) clean.tag(Origin::class.java, Origin(function, key))
         try {
-            chain.proceed(clean.build())
+            val response = chain.proceed(clean.build())
+            if (function != null && response.networkResponse == null && response.cacheResponse != null) {
+                BandwidthLog.cacheHit(source, function, reason, safeEndpoint(request.url.toString()), request.method, "HIT", key = key)
+            }
+            response
         } catch (error: IOException) {
             // Includes DNS/connect/TLS failures that never reach a network interceptor.
             BandwidthLog.begin(source, origin ?: source, reason, safeEndpoint(request.url.toString()), "CALL")
@@ -66,8 +77,12 @@ private class BodyCounter(private val source: String, private val reason: String
             "get_search_suggestions" -> "$reason: search suggestions"
             else -> reason
         }
-        val transfer = BandwidthLog.begin(source, request.tag(Origin::class.java)?.function ?: source, purpose, endpoint, request.method)
+        val origin = request.tag(Origin::class.java)
+        val transfer = BandwidthLog.begin(source, origin?.function ?: source, purpose, endpoint, request.method, origin?.key.orEmpty())
             ?: return chain.proceed(request)
+        // OkHttp adds these validators itself when it holds a stale cached copy.
+        val conditional = request.header("If-None-Match") != null || request.header("If-Modified-Since") != null
+        transfer.cache(if (conditional) "REVALIDATE" else "NET")
         val body = request.body
         val counted = if (body == null) request else request.newBuilder().method(request.method, object : RequestBody() {
             override fun contentType() = body.contentType()
