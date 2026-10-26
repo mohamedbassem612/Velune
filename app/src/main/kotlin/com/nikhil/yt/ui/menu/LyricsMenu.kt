@@ -442,7 +442,9 @@ fun LyricsMenu(
                                                 val batchTexts = batchIndices.map { contents[it]!! }
                                                 val joined = batchTexts.joinToString(separator = sep)
                                                 val translatedJoined =
-                                                    translator.translateBlocking(joined, lang).translatedText
+                                                    com.nikhil.yt.diagnostics.observeBandwidth("Translator", "LyricsMenu.translateBatch", "Translate a batch of lyrics") {
+                                                        translator.translateBlocking(joined, lang).translatedText
+                                                    }
 
                                                 val parts = translatedJoined.split(sep)
                                                 if (parts.size == batchTexts.size) {
@@ -453,7 +455,9 @@ fun LyricsMenu(
                                                     for (idx in batchIndices) {
                                                         val original = contents[idx]!!
                                                         val singleTranslated = runCatching {
-                                                            translator.translateBlocking(original, lang).translatedText
+                                                            com.nikhil.yt.diagnostics.observeBandwidth("Translator", "LyricsMenu.translateLine", "Translate a lyric line after batch fallback") {
+                                                                translator.translateBlocking(original, lang).translatedText
+                                                            }
                                                         }.getOrNull() ?: original
                                                         translatedMap[idx] = singleTranslated
                                                     }

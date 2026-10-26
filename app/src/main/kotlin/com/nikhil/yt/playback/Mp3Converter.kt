@@ -27,6 +27,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
@@ -57,7 +58,7 @@ constructor(
         }.asCoroutineDispatcher()
     )
     private val queued = ConcurrentHashMap.newKeySet<String>()
-    private val httpClient by lazy { OkHttpClient() }
+    private val httpClient by lazy { OkHttpClient.Builder().bandwidthDiagnostics("Mp3Converter", "Fetch cover art for MP3 metadata").build() }
 
     fun enqueue(id: String) {
         if (mp3Library.has(id) || !queued.add(id)) return

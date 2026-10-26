@@ -114,6 +114,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.File
@@ -732,6 +733,7 @@ private fun CanvasArtworkPlayer(
         remember {
             OkHttpClient
                 .Builder()
+            .bandwidthDiagnostics("Thumbnail", "Stream animated artwork / canvas video")
                 .proxy(YouTube.proxy)
                 .addInterceptor { chain ->
                     val request = chain.request()

@@ -34,6 +34,7 @@ import com.nikhil.yt.innertube.models.YouTubeClient.Companion.VISIONOS
 import com.nikhil.yt.innertube.models.YouTubeClient.Companion.WEB
 import com.nikhil.yt.innertube.models.YouTubeClient.Companion.WEB_CREATOR
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.util.Locale
@@ -51,6 +52,7 @@ object YTPlayerUtils {
             if (proxy == current) return client
         }
         val client = OkHttpClient.Builder()
+            .bandwidthDiagnostics("YTPlayerUtils.currentStreamClient", "Probe and validate stream URLs")
             .proxy(current)
             .build()
         streamClientPair = current to client

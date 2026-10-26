@@ -12,6 +12,8 @@ import com.nikhil.yt.kugou.models.DownloadLyricsResponse
 import com.nikhil.yt.kugou.models.Keyword
 import com.nikhil.yt.kugou.models.SearchLyricsResponse
 import com.nikhil.yt.kugou.models.SearchSongResponse
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.compression.ContentEncoding
@@ -30,7 +32,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
 
 @OptIn(ExperimentalSerializationApi::class)
-private val client = HttpClient {
+private val client = HttpClient(OkHttp) {
+    bandwidthDiagnostics("KuGou", "Search, download and decode lyrics")
     expectSuccess = true
 
     install(ContentNegotiation) {

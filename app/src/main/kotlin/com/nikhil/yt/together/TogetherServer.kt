@@ -17,6 +17,8 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
+import com.nikhil.yt.diagnostics.recordBandwidth
+import com.nikhil.yt.diagnostics.sendWithBandwidth
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.util.UUID
@@ -126,7 +128,7 @@ class TogetherServer(
 
         if (!approved) {
             runCatching {
-                client.session.send(
+                client.session.sendLogged(
                     TogetherJson.json.encodeToString(
                         TogetherMessage.serializer(),
                         JoinDecision(sessionId = sessionId, participantId = participantId, approved = false),
@@ -141,7 +143,7 @@ class TogetherServer(
 
         client.pending = false
         runCatching {
-            client.session.send(
+            client.session.sendLogged(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     JoinDecision(sessionId = sessionId, participantId = participantId, approved = true),
@@ -212,7 +214,7 @@ class TogetherServer(
                 }
 
             runCatching {
-                client.session.send(
+                client.session.sendLogged(
                     TogetherJson.json.encodeToString(
                         TogetherMessage.serializer(),
                         RoomStateMessage(safeState),
@@ -225,7 +227,7 @@ class TogetherServer(
     private suspend fun WebSocketSession.handleClient() {
         val helloText =
             try {
-                incoming.receive() as? Frame.Text
+                incoming.receive().recordBandwidth("TogetherServer", "TogetherServer.handleClient", incoming = true) as? Frame.Text
             } catch (_: ClosedReceiveChannelException) {
                 null
             }
@@ -243,7 +245,7 @@ class TogetherServer(
         }
 
         if (hello.protocolVersion != TogetherProtocolVersion) {
-            send(
+            sendLogged(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     ServerError(sessionId = hello.sessionId, message = "Unsupported protocol version"),
@@ -254,7 +256,7 @@ class TogetherServer(
         }
 
         if (hello.sessionId != sessionId || hello.sessionKey != sessionKey) {
-            send(
+            sendLogged(
                 TogetherJson.json.encodeToString(
                     TogetherMessage.serializer(),
                     ServerError(sessionId = hello.sessionId, message = "Invalid session"),
@@ -288,7 +290,7 @@ class TogetherServer(
                 settings = mutex.withLock { settings },
             )
 
-        send(TogetherJson.json.encodeToString(TogetherMessage.serializer(), welcome))
+        sendLogged(TogetherJson.json.encodeToString(TogetherMessage.serializer(), welcome))
 
         val participant =
             TogetherParticipant(
@@ -305,6 +307,7 @@ class TogetherServer(
 
         try {
             for (frame in incoming) {
+                frame.recordBandwidth("TogetherServer", "TogetherServer.handleClient", incoming = true)
                 val text = (frame as? Frame.Text)?.readText() ?: continue
                 val message =
                     runCatching { TogetherJson.json.decodeFromString(TogetherMessage.serializer(), text) }
@@ -315,7 +318,7 @@ class TogetherServer(
 
                 when (message) {
                     is HeartbeatPing -> {
-                        send(
+                        sendLogged(
                             TogetherJson.json.encodeToString(
                                 TogetherMessage.serializer(),
                                 HeartbeatPong(
@@ -354,4 +357,8 @@ class TogetherServer(
             runCatching { close() }
         }
     }
+}
+
+private suspend fun WebSocketSession.sendLogged(text: String) {
+    sendWithBandwidth(Frame.Text(text), "TogetherServer", com.nikhil.yt.diagnostics.BandwidthLog.caller("TogetherServer.send"))
 }

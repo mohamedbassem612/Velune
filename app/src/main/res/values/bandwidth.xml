@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="experimental_settings">Experimental settings</string>
+    <string name="bandwidth_back">Back</string>
+    <string name="bandwidth_cancel">Cancel</string>
+    <string name="bandwidth_enable">Record bandwidth logs</string>
+    <string name="bandwidth_explanation">Off by default. Records network activity from activation until disabled, including background activity. Logs stay on this device in memory until the app process stops; export them before closing. No request bodies, headers, tokens or URL queries are saved.</string>
+    <string name="bandwidth_payload_totals">Recorded payload: ↓ %1$s · ↑ %2$s</string>
+    <string name="bandwidth_uid_totals">Android app total: ↓ %1$s · ↑ %2$s</string>
+    <string name="bandwidth_limits">HTTP body bytes count network transfers, including redirects and retries, without cache hits. WebSocket rows count application payloads queued or received, excluding automatic ping/pong. Android totals also include connection overhead and opaque libraries / WebViews; their individual functions cannot be identified. Retains the newest %1$d rows; %2$d older rows removed. Totals include removed rows; function summaries cover retained rows.</string>
+    <string name="bandwidth_export">Export logs</string>
+    <string name="bandwidth_export_success">Bandwidth logs exported</string>
+    <string name="bandwidth_export_error">Could not export logs. Choose a writable location and try again.</string>
+    <string name="bandwidth_clear">Clear logs</string>
+    <string name="bandwidth_rollback">Rollback experiment</string>
+    <string name="bandwidth_rollback_explanation">Disable bandwidth recording, remove its saved opt-in and erase all current logs and counters. Already exported files remain where you saved them. This resets the experiment; it does not downgrade the app.</string>
+    <string name="bandwidth_filter">Filter by source, function or reason</string>
+    <string name="bandwidth_logs">Logs</string>
+    <string name="bandwidth_functions">Functions</string>
+    <string name="bandwidth_empty">No matching network activity. Enable recording and use the app, then return here.</string>
+    <string name="bandwidth_function_totals">%1$d requests / frames · ↓ %2$s · ↑ %3$s</string>
+    <string name="bandwidth_unknown">Unavailable</string>
+</resources>

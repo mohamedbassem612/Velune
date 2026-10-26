@@ -6,6 +6,7 @@
 
 package com.nikhil.yt.together
 
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.header
@@ -73,6 +74,7 @@ class TogetherOnlineApi(
 
     private val client =
         HttpClient(OkHttp) {
+            bandwidthDiagnostics("TogetherOnlineApi", "Create or join an online listening room")
             engine {
                 config {
                     connectTimeout(15, TimeUnit.SECONDS)

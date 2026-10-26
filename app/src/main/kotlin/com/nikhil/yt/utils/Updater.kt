@@ -15,6 +15,8 @@ import com.nikhil.yt.constants.GitHubReleasesEtagKey
 import com.nikhil.yt.constants.GitHubReleasesFingerprintKey
 import com.nikhil.yt.constants.GitHubReleasesJsonKey
 import com.nikhil.yt.constants.GitHubReleasesLastCheckedAtKey
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
@@ -48,7 +50,9 @@ private data class ReleasesNetworkResult(
 )
 
 object Updater {
-    private val client = HttpClient()
+    private val client = HttpClient(OkHttp) {
+        bandwidthDiagnostics("Updater", "Check GitHub versions, changelog and commits")
+    }
     private const val ReleaseCacheCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
     var lastCheckTime = -1L
         private set

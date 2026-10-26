@@ -91,6 +91,11 @@ fun DiscordLoginScreen(navController: NavController) {
                 }, "Android")
 
                 webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(view: WebView, request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {
+                        com.nikhil.yt.utils.BandwidthDiagnostics.webViewRequest(request, "DiscordLoginScreen")
+                        return super.shouldInterceptRequest(view, request)
+                    }
+
                     override fun onPageFinished(view: WebView, url: String) {
                         if (isCompleting) return
                         if (!url.contains("discord.com")) return

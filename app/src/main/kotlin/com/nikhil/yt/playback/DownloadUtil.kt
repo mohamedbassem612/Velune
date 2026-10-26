@@ -44,6 +44,7 @@ import com.nikhil.yt.utils.get
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import java.util.concurrent.Executors
@@ -80,6 +81,7 @@ constructor(
     private val mediaOkHttpClient: OkHttpClient by lazy {
         OkHttpClient
             .Builder()
+            .bandwidthDiagnostics("DownloadUtil.downloadManager", "Download audio when download and playback caches miss")
             .proxy(YouTube.streamProxy)
             .followRedirects(true)
             .followSslRedirects(true)

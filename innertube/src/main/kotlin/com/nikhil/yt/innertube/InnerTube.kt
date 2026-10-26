@@ -17,6 +17,7 @@ import com.nikhil.yt.innertube.models.body.*
 import com.nikhil.yt.innertube.models.response.NextResponse
 import com.nikhil.yt.innertube.utils.parseCookieString
 import com.nikhil.yt.innertube.utils.sha1
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.*
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.*
@@ -69,6 +70,7 @@ class InnerTube {
 
     @OptIn(ExperimentalSerializationApi::class)
     private fun createClient() = HttpClient(OkHttp) {
+        bandwidthDiagnostics("InnerTube", "YouTube API: metadata, search, recommendations and stream resolution")
         expectSuccess = true
 
         install(ContentNegotiation) {

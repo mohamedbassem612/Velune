@@ -9,6 +9,7 @@
 package com.nikhil.yt.betterlyrics
 
 import com.nikhil.yt.betterlyrics.models.TTMLResponse
+import com.nikhil.yt.diagnostics.bandwidthDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -35,6 +36,7 @@ object BetterLyrics {
     
     private val client by lazy {
         HttpClient(OkHttp) {
+            bandwidthDiagnostics("BetterLyrics", "Fetch synchronized lyrics")
             install(ContentNegotiation) {
                 json(jsonFormat)
             }

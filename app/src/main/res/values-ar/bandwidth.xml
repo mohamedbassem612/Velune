@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="experimental_settings">الإعدادات التجريبية</string>
+    <string name="bandwidth_back">رجوع</string>
+    <string name="bandwidth_cancel">إلغاء</string>
+    <string name="bandwidth_enable">تسجيل استهلاك الإنترنت</string>
+    <string name="bandwidth_explanation">متوقف افتراضيًا. يسجل نشاط الشبكة من وقت التفعيل حتى إيقافه، بما في ذلك النشاط في الخلفية. السجلات محفوظة في ذاكرة الجهاز حتى إغلاق عملية التطبيق؛ صدّرها قبل الإغلاق. لا يتم حفظ محتوى الطلبات أو الهيدرز أو التوكنات أو معاملات الروابط.</string>
+    <string name="bandwidth_payload_totals">المحتوى المسجل: ↓ %1$s · ↑ %2$s</string>
+    <string name="bandwidth_uid_totals">إجمالي التطبيق حسب أندرويد: ↓ %1$s · ↑ %2$s</string>
+    <string name="bandwidth_limits">حجم محتوى HTTP يشمل النقل من الشبكة وإعادة المحاولات والتحويلات، ولا يشمل القراءة من الكاش. سجلات WebSocket تقيس محتوى الرسائل المرسلة لقائمة الإرسال أو المستقبلة، دون رسائل ping/pong التلقائية. إجمالي أندرويد يشمل أيضًا تكلفة الاتصال والمكتبات الداخلية وصفحات WebView التي لا يمكن تحديد دوالها. يتم الاحتفاظ بآخر %1$d سجل؛ حُذف %2$d سجل قديم. الإجمالي يشمل المحذوف؛ ملخص الدوال يشمل السجلات المتاحة.</string>
+    <string name="bandwidth_export">تصدير السجلات</string>
+    <string name="bandwidth_export_success">تم تصدير سجلات استهلاك الإنترنت</string>
+    <string name="bandwidth_export_error">تعذّر تصدير السجلات. اختر مكانًا قابلًا للكتابة وحاول مرة أخرى.</string>
+    <string name="bandwidth_clear">مسح السجلات</string>
+    <string name="bandwidth_rollback">التراجع عن التجربة</string>
+    <string name="bandwidth_rollback_explanation">إيقاف التسجيل وإزالة إعداد تفعيله ومسح السجلات والعدادات الحالية. الملفات التي صدّرتها تظل في مكان حفظها. هذا يعيد ضبط التجربة ولا يرجع التطبيق لإصدار أقدم.</string>
+    <string name="bandwidth_filter">البحث بالمصدر أو الدالة أو السبب</string>
+    <string name="bandwidth_logs">السجلات</string>
+    <string name="bandwidth_functions">الدوال</string>
+    <string name="bandwidth_empty">لا يوجد نشاط شبكة مطابق. فعّل التسجيل واستخدم التطبيق ثم ارجع هنا.</string>
+    <string name="bandwidth_function_totals">%1$d طلب أو رسالة · ↓ %2$s · ↑ %3$s</string>
+    <string name="bandwidth_unknown">غير متاح</string>
+</resources>

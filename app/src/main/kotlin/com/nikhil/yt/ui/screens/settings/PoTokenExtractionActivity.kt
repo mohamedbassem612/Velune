@@ -257,6 +257,11 @@ class PoTokenExtractionActivity : ComponentActivity() {
                         }, "Android")
 
                         webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(view: WebView, request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {
+                                com.nikhil.yt.utils.BandwidthDiagnostics.webViewRequest(request, "PoTokenExtractionActivity")
+                                return super.shouldInterceptRequest(view, request)
+                            }
+
                             override fun onPageFinished(view: WebView, url: String?) {
                                 currentUrl = url.orEmpty()
                             }
