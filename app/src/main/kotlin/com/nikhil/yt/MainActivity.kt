@@ -161,6 +161,9 @@ import com.nikhil.yt.constants.HasPressedStarKey
 import com.nikhil.yt.constants.LaunchCountKey
 import com.nikhil.yt.constants.MiniPlayerBottomSpacing
 import com.nikhil.yt.constants.MiniPlayerHeight
+import com.nikhil.yt.ui.component.OfflineModeBanner
+import com.nikhil.yt.utils.isOnlineNow
+import com.nikhil.yt.utils.onlineFlow
 import com.nikhil.yt.constants.NavigationBarAnimationSpec
 import com.nikhil.yt.constants.NavigationBarHeight
 import com.nikhil.yt.constants.PauseSearchHistoryKey
@@ -1593,6 +1596,22 @@ class MainActivity : ComponentActivity() {
                         BottomSheetMenu(
                             state = LocalMenuState.current,
                             modifier = Modifier.align(Alignment.BottomCenter)
+                        )
+
+                        val isOnlineNow by remember { this@MainActivity.onlineFlow() }
+                            .collectAsState(initial = this@MainActivity.isOnlineNow())
+                        OfflineModeBanner(
+                            isOnline = isOnlineNow,
+                            visible = playerBottomSheetState.isCollapsed || playerBottomSheetState.isDismissed,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(
+                                    bottom = (if (playerBottomSheetState.isDismissed) {
+                                        bottomInset + getBottomNavPadding()
+                                    } else {
+                                        playerBottomSheetState.collapsedBound
+                                    }) + 8.dp
+                                )
                         )
 
                         BottomSheetPage(

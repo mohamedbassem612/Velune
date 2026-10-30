@@ -95,20 +95,28 @@ fun HomeScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val quickPicks by viewModel.quickPicks.collectAsState()
-    val moodQuickPicks by viewModel.moodQuickPicks.collectAsState()
+    val isOnline by viewModel.isOnline.collectAsState()
+    val moodQuickPicksRaw by viewModel.moodQuickPicks.collectAsState()
     val quickPicksFallback by viewModel.quickPicksFallback.collectAsState()
-    val forgottenFavorites by viewModel.forgottenFavorites.collectAsState()
-    val keepListening by viewModel.keepListening.collectAsState()
-    val homePage by viewModel.homePage.collectAsState()
-    val explorePage by viewModel.explorePage.collectAsState()
-    val forYouSuggestions by viewModel.forYouSuggestions.collectAsState()
+    val forgottenFavoritesRaw by viewModel.forgottenFavorites.collectAsState()
+    val keepListeningRaw by viewModel.keepListening.collectAsState()
+    val homePageRaw by viewModel.homePage.collectAsState()
+    val explorePageRaw by viewModel.explorePage.collectAsState()
+    val forYouSuggestionsRaw by viewModel.forYouSuggestions.collectAsState()
+    // Offline mode shows only the carousel and the Quick picks list, so the rest is hidden.
+    val moodQuickPicks = if (isOnline) moodQuickPicksRaw else null
+    val forgottenFavorites = if (isOnline) forgottenFavoritesRaw else null
+    val keepListening = if (isOnline) keepListeningRaw else null
+    val homePage = if (isOnline) homePageRaw else null
+    val explorePage = if (isOnline) explorePageRaw else null
+    val forYouSuggestions = if (isOnline) forYouSuggestionsRaw else null
 
     val allLocalItems by viewModel.allLocalItems.collectAsState()
     val allYtItems by viewModel.allYtItems.collectAsState()
     val selectedChip by viewModel.selectedChip.collectAsState()
 
     val isLoading: Boolean by viewModel.isLoading.collectAsState()
-    val isMoodAndGenresLoading = isLoading && explorePage?.moodAndGenres == null
+    val isMoodAndGenresLoading = isOnline && isLoading && explorePage?.moodAndGenres == null
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pullRefreshState = rememberPullToRefreshState()
 
@@ -301,7 +309,7 @@ fun HomeScreen(
                 state = lazylistState,
                 contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
             ) {
-                if (showHomeCategoryChips) {
+                if (showHomeCategoryChips && isOnline) {
                     item {
                         ChipsRow(
                             chips = homePage?.chips.orEmpty().map { it to it.title },
@@ -488,7 +496,7 @@ fun HomeScreen(
                 }
             }
 
-            if (isLoading || homePage?.continuation != null && homePage?.sections?.isNotEmpty() == true) {
+            if (isOnline && (isLoading || homePage?.continuation != null && homePage?.sections?.isNotEmpty() == true)) {
                 item {
                     HomeLoadingShimmer(modifier = Modifier.animateItem())
                 }

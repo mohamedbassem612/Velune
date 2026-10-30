@@ -48,6 +48,12 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import timber.log.Timber
+import androidx.media3.datasource.cache.Cache
+import com.nikhil.yt.di.DownloadCache
+import com.nikhil.yt.di.PlayerCache
+import com.nikhil.yt.extensions.filterExplicit as filterExplicitSongs
+import com.nikhil.yt.utils.isOnlineNow
+import com.nikhil.yt.utils.onlineFlow
 import javax.inject.Inject
 
 @HiltViewModel
@@ -56,7 +62,13 @@ class HomeViewModel @Inject constructor(
     val database: MusicDatabase,
     val syncUtils: SyncUtils,
     val forYouEngine: com.nikhil.yt.utils.ForYouSuggestionEngine,
+    @PlayerCache private val playerCache: Cache,
+    @DownloadCache private val downloadCache: Cache,
+    private val mp3Library: com.nikhil.yt.playback.Mp3Library,
 ) : ViewModel() {
+    // False while the phone has no working internet. The Home then shows offline mode.
+    val isOnline = MutableStateFlow(context.isOnlineNow())
+
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
     private val isInitialLoadComplete = MutableStateFlow(false)
@@ -398,9 +410,53 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    // Offline mode: the top 5 most played songs go in the carousel and the Quick picks list is
+    // filled with other songs that are downloaded or fully saved in the cache. Nothing else is shown.
+    private suspend fun loadOfflineHome() {
+        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+        val mp3Ids = mp3Library.ids()
+        val ids = (downloadCache.keys + playerCache.keys + mp3Ids).toList()
+        val songs = ids.chunked(500).flatMap { database.getSongsByIds(it) }
+        val playable = songs.filter { song ->
+            val length = song.format?.contentLength ?: 0L
+            song.song.id in mp3Ids ||
+                (length > 0 && (downloadCache.isCached(song.song.id, 0, length) || playerCache.isCached(song.song.id, 0, length)))
+        }.filterExplicitSongs(hideExplicit)
+        val ranked = playable.sortedByDescending { it.song.totalPlayTime }
+        val header = ranked.take(5)
+        quickPicks.value = header
+        quickPicksFallback.value = ranked.drop(5).shuffled().take(20).ifEmpty { header }
+        allLocalItems.value = ranked.take(25)
+        allYtItems.value = emptyList()
+    }
+
+    private fun watchConnectivity() {
+        viewModelScope.launch(Dispatchers.IO) {
+            context.onlineFlow().collect { online ->
+                if (isOnline.value == online) return@collect
+                isOnline.value = online
+                viewModelScope.launch(Dispatchers.IO) {
+                    if (online) load() else loadOfflineHome()
+                }
+            }
+        }
+    }
+
     private suspend fun load() {
         if (isLoading.value) return
         isLoading.value = true
+
+        if (!isOnline.value) {
+            try {
+                loadOfflineHome()
+            } catch (e: Exception) {
+                reportException(e)
+            } finally {
+                isInitialLoadComplete.value = true
+                isLoading.value = false
+            }
+            return
+        }
 
         viewModelScope.launch(Dispatchers.IO) { loadMoodQuickPicks() }
 
@@ -686,6 +742,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             load()
         }
+
+        watchConnectivity()
 
         // After a reinstall the liked songs arrive a few seconds later from the account sync.
         // When the first likes show up, rebuild the Quick picks with them.
