@@ -36,6 +36,9 @@ import com.nikhil.yt.innertube.models.getItems
 import com.nikhil.yt.innertube.models.oddElements
 import com.nikhil.yt.innertube.models.response.AccountMenuResponse
 import com.nikhil.yt.innertube.models.response.BrowseResponse
+import io.ktor.client.statement.bodyAsText
+import kotlinx.serialization.json.Json
+import java.io.File
 import com.nikhil.yt.innertube.models.response.CreatePlaylistResponse
 import com.nikhil.yt.innertube.models.response.GetQueueResponse
 import com.nikhil.yt.innertube.models.response.GetSearchSuggestionsResponse
@@ -68,10 +71,8 @@ import com.nikhil.yt.innertube.pages.SearchSummary
 import com.nikhil.yt.innertube.pages.SearchSummaryPage
 import com.nikhil.yt.innertube.utils.PoTokenGenerator
 import io.ktor.client.call.body
-import io.ktor.client.statement.bodyAsText
 
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -601,12 +602,46 @@ object YouTube {
         )
     }
 
-    suspend fun home(continuation: String? = null, params: String? = null): Result<HomePage> = runCatching {
-        if (continuation != null) {
-            return@runCatching homeContinuation(continuation).getOrThrow()
-        }
+    // Folder for the saved Home feed. Set by the app at startup. Null means no disk cache.
+    @Volatile
+    var homeCacheDir: File? = null
 
-        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_home", params = params, setLogin = true).body<BrowseResponse>()
+    private val homeCacheJson = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        encodeDefaults = true
+    }
+
+    // One file per account and language, so another account never sees the old feed.
+    private fun homeCacheFile(): File? {
+        val dir = homeCacheDir ?: return null
+        val key = "${innerTube.dataSyncId.orEmpty()}|${innerTube.locale.gl}|${innerTube.locale.hl}".hashCode()
+        return File(dir, "home_$key.json")
+    }
+
+    /** Last saved Home feed and the time it was saved, or null if there is none. */
+    suspend fun cachedHome(): Pair<HomePage, Long>? = runCatching {
+        val file = homeCacheFile()?.takeIf { it.exists() } ?: return@runCatching null
+        val response = homeCacheJson.decodeFromString<BrowseResponse>(file.readText())
+        val page = parseHomeResponse(response)
+        if (page.sections.isEmpty()) null else page to file.lastModified()
+    }.getOrNull()
+
+    private fun saveHomeCache(text: String) {
+        try {
+            val file = homeCacheFile() ?: return
+            file.parentFile?.mkdirs()
+            val temp = File(file.parentFile, file.name + ".tmp")
+            temp.writeText(text)
+            if (!temp.renameTo(file)) {
+                file.writeText(text)
+                temp.delete()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun parseHomeResponse(response: BrowseResponse): HomePage {
         val sectionListRender = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
             ?.tabRenderer?.content?.sectionListRenderer
             ?: response.contents?.sectionListRenderer
@@ -623,7 +658,19 @@ object YouTube {
                 HomePage.Section.fromMusicCarouselShelfRenderer(it)
             }.toMutableList()
         val chips = sectionListRender?.header?.chipCloudRenderer?.chips?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
-        HomePage(chips, sections, continuation)
+        return HomePage(chips, sections, continuation)
+    }
+
+    suspend fun home(continuation: String? = null, params: String? = null): Result<HomePage> = runCatching {
+        if (continuation != null) {
+            return@runCatching homeContinuation(continuation).getOrThrow()
+        }
+
+        val text = innerTube.browse(WEB_REMIX, browseId = "FEmusic_home", params = params, setLogin = true).bodyAsText()
+        val page = parseHomeResponse(homeCacheJson.decodeFromString<BrowseResponse>(text))
+        // Only the plain Home feed is saved (not a mood chip) and only when it has content.
+        if (params == null && page.sections.isNotEmpty()) saveHomeCache(text)
+        page
     }
 
     private suspend fun homeContinuation(continuation: String): Result<HomePage> = runCatching {

@@ -38,6 +38,7 @@ import com.nikhil.yt.utils.SyncUtils
 import com.nikhil.yt.utils.reportException
 import com.nikhil.yt.ui.utils.resize
 import com.nikhil.yt.utils.QuickPicksCache
+import com.nikhil.yt.innertube.toHighResThumbnail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,8 @@ class HomeViewModel @Inject constructor(
     private var likedSnapshot: List<Song>? = null
     private var likedSnapshotTime = 0L
     private var forceMoodRefresh = false
+    @Volatile private var forceHomeRefresh = false
+    @Volatile private var lastHomeFetchAt = 0L
     val forgottenFavorites = MutableStateFlow<List<Song>?>(null)
     val keepListening = MutableStateFlow<List<LocalItem>?>(null)
     val similarRecommendations = MutableStateFlow<List<SimilarRecommendation>?>(null)
@@ -118,6 +121,10 @@ class HomeViewModel @Inject constructor(
         return list
     }
 
+    private companion object {
+        const val HOME_FRESH_MS = 15 * 60 * 1000L
+    }
+
     private suspend fun getQuickPicks() {
         val recent = database.recentEvents(60).first()
             .map { it.song }
@@ -127,12 +134,22 @@ class HomeViewModel @Inject constructor(
         val recentIds = recent.map { it.id }.toHashSet()
         val likedFill = likedSongsRecentFirst()
             .filter { it.id !in recentIds }
-            .take(40)
-            .shuffled()
             .take(12 - recent.size)
         val taste = buildTasteBasedQuickPicks()
         quickPicksFallback.value = taste
         quickPicks.value = (recent + likedFill).ifEmpty { taste }
+        prefetchThumbnails(quickPicks.value.orEmpty().mapNotNull { it.song.thumbnailUrl?.toHighResThumbnail() })
+    }
+
+    // Loads covers into the Coil disk cache right away, so they also show when offline later.
+    private fun prefetchThumbnails(urls: List<String>) {
+        try {
+            val loader = coil3.SingletonImageLoader.get(context)
+            urls.distinct().forEach { url ->
+                loader.enqueue(coil3.request.ImageRequest.Builder(context).data(url).build())
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun loadMoodQuickPicks() {
@@ -144,6 +161,7 @@ class HomeViewModel @Inject constructor(
         }
         if (!result.isNullOrEmpty()) {
             QuickPicksCache.save(context, result)
+            prefetchThumbnails(result.mapNotNull { it.thumbnail })
             if (!moodShownFromCache || forceMoodRefresh) {
                 moodQuickPicks.value = result
                 moodShownFromCache = false
@@ -406,7 +424,26 @@ class HomeViewModel @Inject constructor(
                 }
 
                 launch {
-                        YouTube.home().onSuccess { page ->
+                    val force = forceHomeRefresh
+                    forceHomeRefresh = false
+                    val now = System.currentTimeMillis()
+                    var feedAgeMs: Long? = if (homePage.value != null) now - lastHomeFetchAt else null
+                    // Show the saved feed right away, before the network answers.
+                    if (!force && homePage.value == null) {
+                        YouTube.cachedHome()?.let { (saved, savedAt) ->
+                            homePage.value = saved.copy(
+                                chips = filterHomeChips(saved.chips),
+                                sections = saved.sections.map { section ->
+                                    section.copy(items = section.items.filterExplicit(hideExplicit).filterVideo(hideVideo))
+                                }
+                            )
+                            feedAgeMs = now - savedAt
+                        }
+                    }
+                    // A recent feed is reused. Only an old one, or a pull to refresh, asks the network.
+                    if (!force && feedAgeMs != null && feedAgeMs!! < HOME_FRESH_MS) return@launch
+                    YouTube.home().onSuccess { page ->
+                        lastHomeFetchAt = System.currentTimeMillis()
                         homePage.value = page.copy(
                             chips = filterHomeChips(page.chips),
                             sections = page.sections.map { section ->
@@ -591,6 +628,7 @@ class HomeViewModel @Inject constructor(
     fun refresh() {
         if (isRefreshing.value) return
         forceMoodRefresh = true
+        forceHomeRefresh = true
         viewModelScope.launch(Dispatchers.IO) {
             isRefreshing.value = true
             load()
