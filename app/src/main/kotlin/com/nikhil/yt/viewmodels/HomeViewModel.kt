@@ -38,6 +38,7 @@ import com.nikhil.yt.utils.SyncUtils
 import com.nikhil.yt.utils.reportException
 import com.nikhil.yt.ui.utils.resize
 import com.nikhil.yt.utils.QuickPicksCache
+import com.nikhil.yt.innertube.toHighResThumbnail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -127,12 +128,22 @@ class HomeViewModel @Inject constructor(
         val recentIds = recent.map { it.id }.toHashSet()
         val likedFill = likedSongsRecentFirst()
             .filter { it.id !in recentIds }
-            .take(40)
-            .shuffled()
             .take(12 - recent.size)
         val taste = buildTasteBasedQuickPicks()
         quickPicksFallback.value = taste
         quickPicks.value = (recent + likedFill).ifEmpty { taste }
+        prefetchThumbnails(quickPicks.value.orEmpty().mapNotNull { it.song.thumbnailUrl?.toHighResThumbnail() })
+    }
+
+    // Loads covers into the Coil disk cache right away, so they also show when offline later.
+    private fun prefetchThumbnails(urls: List<String>) {
+        try {
+            val loader = coil3.SingletonImageLoader.get(context)
+            urls.distinct().forEach { url ->
+                loader.enqueue(coil3.request.ImageRequest.Builder(context).data(url).build())
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun loadMoodQuickPicks() {
@@ -144,6 +155,7 @@ class HomeViewModel @Inject constructor(
         }
         if (!result.isNullOrEmpty()) {
             QuickPicksCache.save(context, result)
+            prefetchThumbnails(result.mapNotNull { it.thumbnail })
             if (!moodShownFromCache || forceMoodRefresh) {
                 moodQuickPicks.value = result
                 moodShownFromCache = false
