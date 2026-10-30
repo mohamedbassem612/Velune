@@ -23,6 +23,12 @@ import coil3.disk.directory
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
 import coil3.request.crossfade
+import coil3.request.Options
+import coil3.network.CacheStrategy
+import coil3.network.NetworkRequest
+import coil3.network.NetworkResponse
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.annotation.ExperimentalCoilApi
 import com.nikhil.yt.constants.*
 import com.nikhil.yt.extensions.*
 import com.nikhil.yt.ui.screens.settings.ThemePalettes
@@ -290,6 +296,7 @@ class App : Application(), SingletonImageLoader.Factory {
         }
     }
 
+    @OptIn(ExperimentalCoilApi::class)
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val smartTrimmer = dataStore[SmartTrimmerKey] ?: false
         val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey])
@@ -308,6 +315,9 @@ class App : Application(), SingletonImageLoader.Factory {
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)
             .diskCachePolicy(imageCacheConfig.policy)
+            .components {
+                add(OkHttpNetworkFetcherFactory(cacheStrategy = { ForceCacheStrategy }))
+            }
             .build()
     }
 
@@ -350,6 +360,24 @@ class App : Application(), SingletonImageLoader.Factory {
             }
         }
     }
+}
+
+// Always reuse a cached image if we have it, ignore server Cache-Control revalidation.
+// Without this, YouTube image headers force a network check and covers are blank offline.
+@OptIn(ExperimentalCoilApi::class)
+internal object ForceCacheStrategy : CacheStrategy {
+    override suspend fun read(
+        cacheResponse: NetworkResponse,
+        networkRequest: NetworkRequest,
+        options: Options,
+    ) = CacheStrategy.ReadResult(cacheResponse)
+
+    override suspend fun write(
+        cacheResponse: NetworkResponse?,
+        networkRequest: NetworkRequest,
+        networkResponse: NetworkResponse,
+        options: Options,
+    ) = CacheStrategy.WriteResult(networkResponse)
 }
 
 internal data class ImageDiskCacheConfig(
