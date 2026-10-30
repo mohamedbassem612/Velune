@@ -309,6 +309,9 @@ fun HomeScreen(
                 state = lazylistState,
                 contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
             ) {
+                if (!isOnline && quickPicks.isNullOrEmpty()) {
+                    item { Text(stringResource(R.string.offline_no_playable_songs), modifier = Modifier.padding(24.dp)) }
+                }
                 if (showHomeCategoryChips && isOnline) {
                     item {
                         ChipsRow(

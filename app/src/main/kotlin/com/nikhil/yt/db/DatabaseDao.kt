@@ -1112,6 +1112,10 @@ interface DatabaseDao {
     ): Flow<List<Song>>
 
     @Transaction
+    @Query("SELECT * FROM song WHERE title LIKE '%' || :query || '%'")
+    fun searchOfflineSongs(query: String): Flow<List<Song>>
+
+    @Transaction
     @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
     @Query(
         "SELECT *, (SELECT COUNT(1) FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = artist.id AND song.inLibrary IS NOT NULL) AS songCount FROM artist WHERE name LIKE '%' || :query || '%' AND songCount > 0 LIMIT :previewSize",

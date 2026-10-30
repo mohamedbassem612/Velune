@@ -18,6 +18,7 @@ import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.ComponentName
+import com.nikhil.yt.utils.isOnlineNow
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -656,7 +657,7 @@ class MusicService :
         ) { mediaMetadata, showLyrics ->
             mediaMetadata to showLyrics
         }.collectLatest(ioScope) { (mediaMetadata, showLyrics) ->
-            if (showLyrics && mediaMetadata != null && database.lyrics(mediaMetadata.id)
+            if (isOnlineNow() && showLyrics && mediaMetadata != null && database.lyrics(mediaMetadata.id)
                     .first() == null
             ) {
                 val lyrics = lyricsHelper.getLyrics(mediaMetadata)
@@ -1399,6 +1400,12 @@ class MusicService :
         }
     }
 
+    private suspend fun offlinePlayable(id: String): Boolean {
+        if (mp3Library.playableUri(id) != null) return true
+        val length = database.format(id).first()?.contentLength ?: return false
+        return length > 0 && (downloadCache.isCached(id, 0, length) || playerCache.isCached(id, 0, length))
+    }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
@@ -1476,21 +1483,32 @@ class MusicService :
         clearAutomix()
         automixSeedMediaId = null
         autoAddedMediaIds.clear()
-        queue.preloadItem?.let { preloadItem ->
+        queue.preloadItem?.takeIf { isOnlineNow() }?.let { preloadItem ->
             player.setMediaItem(preloadItem.toMediaItem())
             player.prepare()
             player.playWhenReady = playWhenReady
         }
         scope.launch(SilentHandler) {
-            val initialStatus =
+            var initialStatus =
                 withContext(Dispatchers.IO) {
                     queue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false)).filterVideo(dataStore.get(HideVideoKey, false))
                 }
+            if (!isOnlineNow()) {
+                val selected = initialStatus.items.getOrNull(initialStatus.mediaItemIndex)?.mediaId
+                val available = withContext(Dispatchers.IO) {
+                    initialStatus.items.filter { offlinePlayable(it.mediaId) }
+                }
+                initialStatus = initialStatus.copy(items = available,
+                    mediaItemIndex = available.indexOfFirst { it.mediaId == selected }.coerceAtLeast(0))
+            }
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
             }
-            if (initialStatus.items.isEmpty()) return@launch
-            if (queue.preloadItem != null) {
+            if (initialStatus.items.isEmpty()) {
+                if (!isOnlineNow()) { player.stop(); player.clearMediaItems() }
+                return@launch
+            }
+            if (queue.preloadItem != null && isOnlineNow()) {
                 player.addMediaItems(
                     0,
                     initialStatus.items.subList(0, initialStatus.mediaItemIndex)
@@ -3452,7 +3470,7 @@ class MusicService :
     scrobbleManager?.onSongStop()
 
     if (!timelineEmpty &&
-        dataStore.get(AutoLoadMoreKey, true) &&
+        isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.repeatMode == REPEAT_MODE_OFF
     ) {
@@ -3473,7 +3491,7 @@ class MusicService :
 
     if (!suppressAutoPlayback &&
         !timelineEmpty &&
-        dataStore.get(AutoLoadMoreKey, true) &&
+        isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
         currentQueue.hasNextPage() &&
@@ -3492,7 +3510,7 @@ class MusicService :
     
     if (!suppressAutoPlayback &&
         !timelineEmpty &&
-        dataStore.get(AutoLoadMoreKey, true) &&
+        isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.repeatMode == REPEAT_MODE_OFF &&
         player.mediaItemCount - player.currentMediaItemIndex <= 3 &&
@@ -3573,7 +3591,7 @@ class MusicService :
 
     if (!suppressAutoPlayback &&
         playbackState == Player.STATE_ENDED &&
-        dataStore.get(AutoLoadMoreKey, true) &&
+        isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         player.repeatMode == REPEAT_MODE_OFF &&
         player.currentMediaItem != null
     ) {
@@ -3940,6 +3958,18 @@ class MusicService :
         val isConnectionError = (error.cause?.cause is PlaybackException) &&
                 (error.cause?.cause as PlaybackException).errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
 
+        if (!isOnlineNow()) {
+            scope.launch {
+                val candidates = ((player.currentMediaItemIndex + 1) until player.mediaItemCount)
+                    .map { it to player.getMediaItemAt(it).mediaId }
+                val next = withContext(Dispatchers.IO) {
+                    candidates.firstOrNull { offlinePlayable(it.second) }?.first
+                }
+                if (next != null) { player.seekToDefaultPosition(next); player.prepare(); player.play() }
+                else { player.pause() }
+            }
+            return
+        }
         if (!isNetworkConnected.value || isConnectionError) {
             waitOnNetworkError()
             return
@@ -4155,6 +4185,8 @@ class MusicService :
                     return@Factory dataSpec
                 }
             }
+
+            if (!isOnlineNow()) throw java.io.IOException("Song is not fully available offline")
 
             playbackUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
                 android.util.Log.i("StreamTiming", "$mediaId url served from cache (no resolve)")

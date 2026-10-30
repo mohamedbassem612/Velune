@@ -30,6 +30,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
@@ -55,31 +58,35 @@ constructor(
             if (query.isEmpty()) {
                 flowOf(LocalSearchResult("", filter, emptyMap()))
             } else {
-                (if (!online) {
-                    if (filter == LocalFilter.ALL || filter == LocalFilter.SONG) database.searchSongs(query)
-                    else flowOf(emptyList())
-                } else when (filter) {
+                (when (filter) {
                     LocalFilter.ALL ->
                         combine(
-                            database.searchSongs(query, PREVIEW_SIZE),
-                            database.searchAlbums(query, PREVIEW_SIZE),
-                            database.searchArtists(query, PREVIEW_SIZE),
-                            database.searchPlaylists(query, PREVIEW_SIZE),
+                            if (online) database.searchSongs(query, PREVIEW_SIZE) else database.searchOfflineSongs(query),
+                            database.searchAlbums(query, if (online) PREVIEW_SIZE else Int.MAX_VALUE),
+                            database.searchArtists(query, if (online) PREVIEW_SIZE else Int.MAX_VALUE),
+                            database.searchPlaylists(query, if (online) PREVIEW_SIZE else Int.MAX_VALUE),
                         ) { songs, albums, artists, playlists ->
                             songs + albums + artists + playlists
                         }
 
-                    LocalFilter.SONG -> database.searchSongs(query)
+                    LocalFilter.SONG -> if (online) database.searchSongs(query) else database.searchOfflineSongs(query)
                     LocalFilter.ALBUM -> database.searchAlbums(query)
                     LocalFilter.ARTIST -> database.searchArtists(query)
                     LocalFilter.PLAYLIST -> database.searchPlaylists(query)
                 }).map { list ->
-                    val visible = if (online) list else list.filter { item ->
-                        val song = item as? Song ?: return@filter false
+                    fun playable(song: Song): Boolean {
                         val id = song.song.id
                         val length = song.format?.contentLength ?: 0L
-                        mp3Library.playableUri(id) != null || (length > 0 &&
+                        return mp3Library.playableUri(id) != null || (length > 0 &&
                             (downloadCache.isCached(id, 0, length) || playerCache.isCached(id, 0, length)))
+                    }
+                    val visible = if (online) list else list.filter { item ->
+                        when (item) {
+                            is Song -> playable(item)
+                            is Album -> database.albumWithSongs(item.id).first()?.songs?.any(::playable) == true
+                            is Artist -> database.artistSongsByCreateDateAsc(item.id).first().any(::playable)
+                            is Playlist -> database.playlistSongs(item.id).first().any { playable(it.song) }
+                        }
                     }
                     LocalSearchResult(
                         query = query,
@@ -96,7 +103,7 @@ constructor(
                     )
                 }
             }
-        }.stateIn(
+        }.flowOn(Dispatchers.IO).stateIn(
             viewModelScope,
             SharingStarted.Lazily,
             LocalSearchResult("", filter.value, emptyMap())

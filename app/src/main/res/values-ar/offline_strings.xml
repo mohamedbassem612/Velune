@@ -1,0 +1,5 @@
+<resources>
+    <string name="offline_mode_label">وضع عدم الاتصال</string>
+    <string name="offline_back_online">عاد الاتصال بالإنترنت</string>
+    <string name="offline_no_playable_songs">لا توجد أغانٍ محفوظة يمكن تشغيلها. نزّل الأغاني أثناء الاتصال للاستماع إليها بدون إنترنت.</string>
+</resources>

@@ -273,7 +273,7 @@ object YouTube {
     }
 
     suspend fun album(browseId: String, withSongs: Boolean = true): Result<AlbumPage> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, browseId).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, browseId)
         val contents = response.contents ?: throw IllegalStateException("Missing browse contents for $browseId")
         val twoColumn = contents.twoColumnBrowseResultsRenderer
             ?: throw IllegalStateException("Missing twoColumnBrowseResultsRenderer for $browseId")
@@ -331,7 +331,7 @@ object YouTube {
     }
 
     suspend fun albumSongs(playlistId: String, album: AlbumItem? = null): Result<List<SongItem>> = runCatching {
-        var response = innerTube.browse(WEB_REMIX, "VL$playlistId").body<BrowseResponse>()
+        var response = cachedBrowse(WEB_REMIX, "VL$playlistId")
         val songs = response.contents?.twoColumnBrowseResultsRenderer
             ?.secondaryContents?.sectionListRenderer
             ?.contents?.firstOrNull()
@@ -354,10 +354,10 @@ object YouTube {
             seenContinuations.add(continuation)
             requestCount++
             
-            response = innerTube.browse(
+            response = cachedBrowse(
                 client = WEB_REMIX,
                 continuation = continuation,
-            ).body<BrowseResponse>()
+            )
             
             val newSongs = response.onResponseReceivedActions?.firstOrNull()?.appendContinuationItemsAction?.continuationItems?.getItems()?.mapNotNull {
                 AlbumPage.getSong(it, album)
@@ -377,7 +377,7 @@ object YouTube {
     }
 
     suspend fun artist(browseId: String): Result<ArtistPage> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, browseId).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, browseId)
 
         ArtistPage(
             artist = ArtistItem(
@@ -406,7 +406,7 @@ object YouTube {
     }
 
     suspend fun artistItems(endpoint: BrowseEndpoint): Result<ArtistItemsPage> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, endpoint.browseId, endpoint.params).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, endpoint.browseId, endpoint.params)
         val gridRenderer = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
             ?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()
             ?.gridRenderer
@@ -435,7 +435,7 @@ object YouTube {
     }
 
     suspend fun artistItemsContinuation(continuation: String): Result<ArtistItemsContinuationPage> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, continuation = continuation).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, continuation = continuation)
 
         when {
             response.continuationContents?.gridContinuation != null -> {
@@ -498,11 +498,11 @@ object YouTube {
     }
 
     suspend fun playlist(playlistId: String): Result<PlaylistPage> = runCatching {
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             browseId = "VL$playlistId",
             setLogin = true
-        ).body<BrowseResponse>()
+        )
         val base = response.contents?.twoColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()
         val header = base?.musicResponsiveHeaderRenderer ?: base?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicResponsiveHeaderRenderer
         if (header == null) throw IllegalStateException("PLAYLIST_PRIVATE")
@@ -549,12 +549,12 @@ object YouTube {
 
 
     suspend fun playlistContinuation(continuation: String): Result<PlaylistContinuationPage> = runCatching {
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             continuation = continuation,
             browseId = "",
             setLogin = true
-        ).body<BrowseResponse>()
+        )
 
         val mainContents: List<MusicShelfRenderer.Content> = buildList {
             response.continuationContents?.sectionListContinuation?.contents
@@ -600,6 +600,99 @@ object YouTube {
             songs = songs,
             continuation = nextContinuation
         )
+    }
+
+
+    /** Connectivity is supplied by the Android app; JVM callers retain network behavior. */
+    var networkAvailable: () -> Boolean = { true }
+    private val offlineMutex = kotlinx.coroutines.sync.Mutex()
+    private fun offlineIdentity(): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest("${innerTube.cookie.orEmpty()}|${innerTube.dataSyncId.orEmpty()}|${innerTube.locale}".toByteArray())
+        .joinToString("") { "%02x".format(it) }
+
+    private fun offlineDirectory(): File? = homeCacheDir?.resolve("pages_${offlineIdentity()}")?.also { it.mkdirs() }
+
+    private suspend fun cachedBrowse(
+        client: YouTubeClient,
+        browseId: String? = null,
+        params: String? = null,
+        continuation: String? = null,
+        setLogin: Boolean = false,
+    ): BrowseResponse = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val key = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(homeCacheJson.encodeToString(listOf(client.clientId.toString(), browseId, params, continuation, setLogin.toString())).toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val file = offlineDirectory()?.resolve("$key.json")
+        if (!networkAvailable()) {
+            return@withContext file?.takeIf { it.isFile }?.let {
+                homeCacheJson.decodeFromString<BrowseResponse>(it.readText())
+            } ?: throw java.io.IOException("This page has not been saved for offline use")
+        }
+        try {
+            val text = innerTube.browse(client, browseId, params, continuation, setLogin).bodyAsText()
+            val response = homeCacheJson.decodeFromString<BrowseResponse>(text)
+            if (file != null) runCatching {
+                val tmp = File.createTempFile("page", ".tmp", file.parentFile)
+                tmp.writeText(text)
+                java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                val pages = file.parentFile.listFiles()?.filter { it.name != "pending.json" && it.extension == "json" }.orEmpty()
+                var bytes = pages.sumOf { it.length() }
+                for (old in pages.sortedBy { it.lastModified() }) {
+                    if (bytes <= 64L * 1024 * 1024) break
+                    val size = old.length()
+                    if (old.delete()) bytes -= size
+                }
+            }
+            response
+        } catch (e: java.io.IOException) {
+            throw e
+        }
+    }
+
+    private suspend fun pendingMutation(command: List<String>, send: suspend () -> Unit) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        offlineMutex.lock()
+        try {
+            if (networkAvailable()) {
+                flushPendingMutationsLocked()
+                send()
+            } else {
+                val file = offlineDirectory()?.resolve("pending.json") ?: throw java.io.IOException("Offline storage unavailable")
+                val pending = if (file.exists()) homeCacheJson.decodeFromString<List<List<String>>>(file.readText()) else emptyList()
+                writePending(file, pending + listOf(command))
+            }
+        } finally { offlineMutex.unlock() }
+    }
+
+    private fun writePending(file: File, commands: List<List<String>>) {
+        val tmp = File(file.parentFile, "pending.tmp")
+        tmp.writeText(homeCacheJson.encodeToString(commands))
+        java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    suspend fun flushPendingMutations() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        offlineMutex.lock()
+        try { flushPendingMutationsLocked() } finally { offlineMutex.unlock() }
+    }
+
+    private suspend fun flushPendingMutationsLocked() {
+        val identity = offlineIdentity()
+        val file = offlineDirectory()?.resolve("pending.json") ?: return
+        if (!file.exists()) return
+        val pending = homeCacheJson.decodeFromString<List<List<String>>>(file.readText()).toMutableList()
+        while (pending.isNotEmpty() && networkAvailable() && identity == offlineIdentity()) {
+            val c = pending.first()
+            when (c[0]) {
+                "likeVideo" -> if (c[2].toBoolean()) innerTube.likeVideo(WEB_REMIX, c[1]) else innerTube.unlikeVideo(WEB_REMIX, c[1])
+                "likePlaylist" -> if (c[2].toBoolean()) innerTube.likePlaylist(WEB_REMIX, c[1]) else innerTube.unlikePlaylist(WEB_REMIX, c[1])
+                "renamePlaylist" -> innerTube.renamePlaylist(WEB_REMIX, c[1], c[2])
+                "addToPlaylist" -> innerTube.addToPlaylist(WEB_REMIX, c[1], c[2])
+                "removeFromPlaylist" -> innerTube.removeFromPlaylist(WEB_REMIX, c[1], c[2], c[3])
+                "moveSongPlaylist" -> innerTube.moveSongPlaylist(WEB_REMIX, c[1], c[2], c[3].ifEmpty { null })
+                else -> throw java.io.IOException("Unsupported pending operation")
+            }
+            pending.removeAt(0)
+            writePending(file, pending)
+        }
     }
 
     // Folder for the saved Home feed. Set by the app at startup. Null means no disk cache.
@@ -692,7 +785,7 @@ object YouTube {
     }
 
     suspend fun explore(): Result<ExplorePage> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_explore").body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, browseId = "FEmusic_explore")
         ExplorePage(
             newReleaseAlbums = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.find {
                 it.musicCarouselShelfRenderer?.header?.musicCarouselShelfBasicHeaderRenderer?.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint?.browseId == "FEmusic_new_releases_albums"
@@ -709,7 +802,7 @@ object YouTube {
     }
 
     suspend fun newReleaseAlbums(): Result<List<AlbumItem>> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_new_releases_albums").body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, browseId = "FEmusic_new_releases_albums")
         val contents =
             response.contents
                 ?.singleColumnBrowseResultsRenderer
@@ -746,7 +839,7 @@ object YouTube {
     }
 
     suspend fun moodAndGenres(): Result<List<MoodAndGenres>> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_moods_and_genres").body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, browseId = "FEmusic_moods_and_genres")
         val sectionListRender = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer
             ?: response.contents?.sectionListRenderer
         sectionListRender?.contents.orEmpty()
@@ -754,7 +847,7 @@ object YouTube {
     }
 
     suspend fun browse(browseId: String, params: String?): Result<BrowseResult> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, browseId = browseId, params = params).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, browseId = browseId, params = params)
         BrowseResult(
             title = response.header?.musicHeaderRenderer?.title?.runs?.firstOrNull()?.text,
             items = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents?.mapNotNull { content ->
@@ -784,11 +877,11 @@ object YouTube {
     }
 
     suspend fun library(browseId: String, tabIndex: Int = 0) = runCatching {
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             browseId = browseId,
             setLogin = true
-        ).body<BrowseResponse>()
+        )
 
         val tabs = response.contents?.singleColumnBrowseResultsRenderer?.tabs
 
@@ -827,11 +920,11 @@ object YouTube {
     }
 
     suspend fun libraryContinuation(continuation: String) = runCatching {
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             continuation = continuation,
             setLogin = true
-        ).body<BrowseResponse>()
+        )
 
         val contents = response.continuationContents
 
@@ -868,11 +961,11 @@ object YouTube {
     suspend fun libraryRecentActivity(): Result<LibraryPage> = runCatching {
         val continuation = LibraryFilter.FILTER_RECENT_ACTIVITY.value
 
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             continuation = continuation,
             setLogin = true
-        ).body<BrowseResponse>()
+        )
 
         val gridItems = response.continuationContents?.sectionListContinuation?.contents?.firstOrNull()
             ?.gridRenderer?.items
@@ -913,12 +1006,12 @@ object YouTube {
     }
 
     suspend fun getChartsPage(continuation: String? = null): Result<ChartsPage> = runCatching {
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             browseId = "FEmusic_charts",
             params = "ggMGCgQIgAQ%3D",
             continuation = continuation
-        ).body<BrowseResponse>()
+        )
 
         val sections = mutableListOf<ChartsPage.ChartSection>()
     
@@ -1081,11 +1174,11 @@ object YouTube {
     }
 
     suspend fun musicHistory() = runCatching {
-        val response = innerTube.browse(
+        val response = cachedBrowse(
             client = WEB_REMIX,
             browseId = "FEmusic_history",
             setLogin = true
-        ).body<BrowseResponse>()
+        )
 
         HistoryPage(
             sections = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
@@ -1099,17 +1192,23 @@ object YouTube {
     }
 
     suspend fun likeVideo(videoId: String, like: Boolean) = runCatching {
+        pendingMutation(listOf("likeVideo", videoId, like.toString())) {
         if (like)
             innerTube.likeVideo(WEB_REMIX, videoId)
         else
             innerTube.unlikeVideo(WEB_REMIX, videoId)
+            Unit
+        }
     }
 
     suspend fun likePlaylist(playlistId: String, like: Boolean) = runCatching {
+        pendingMutation(listOf("likePlaylist", playlistId, like.toString())) {
         if (like)
             innerTube.likePlaylist(WEB_REMIX, playlistId)
         else
             innerTube.unlikePlaylist(WEB_REMIX, playlistId)
+            Unit
+        }
     }
 
     suspend fun subscribeChannel(channelId: String, subscribe: Boolean) = runCatching {
@@ -1127,7 +1226,10 @@ object YouTube {
     }
 
     suspend fun addToPlaylist(playlistId: String, videoId: String) = runCatching {
+        pendingMutation(listOf("addToPlaylist", playlistId, videoId)) {
         innerTube.addToPlaylist(WEB_REMIX, playlistId, videoId)
+            Unit
+        }
     }
 
     suspend fun addPlaylistToPlaylist(playlistId: String, addPlaylistId: String) = runCatching {
@@ -1135,11 +1237,17 @@ object YouTube {
     }
 
     suspend fun removeFromPlaylist(playlistId: String, videoId: String, setVideoId: String) = runCatching {
+        pendingMutation(listOf("removeFromPlaylist", playlistId, videoId, setVideoId)) {
         innerTube.removeFromPlaylist(WEB_REMIX, playlistId, videoId, setVideoId)
+            Unit
+        }
     }
 
     suspend fun moveSongPlaylist(playlistId: String, setVideoId: String, successorSetVideoId: String?) = runCatching {
+        pendingMutation(listOf("moveSongPlaylist", playlistId, setVideoId, successorSetVideoId.orEmpty())) {
         innerTube.moveSongPlaylist(WEB_REMIX, playlistId, setVideoId, successorSetVideoId)
+            Unit
+        }
     }
 
     suspend fun createPlaylist(title: String) = runCatching {
@@ -1147,7 +1255,10 @@ object YouTube {
     }
 
     suspend fun renamePlaylist(playlistId: String, name: String) = runCatching {
+        pendingMutation(listOf("renamePlaylist", playlistId, name)) {
         innerTube.renamePlaylist(WEB_REMIX, playlistId, name)
+            Unit
+        }
     }
 
     suspend fun deletePlaylist(playlistId: String) = runCatching {
@@ -1222,12 +1333,12 @@ object YouTube {
     }
 
     suspend fun lyrics(endpoint: BrowseEndpoint): Result<String?> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, endpoint.browseId, endpoint.params).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, endpoint.browseId, endpoint.params)
         response.contents?.sectionListRenderer?.contents?.firstOrNull()?.musicDescriptionShelfRenderer?.description?.runs?.firstOrNull()?.text
     }
 
     suspend fun related(endpoint: BrowseEndpoint): Result<RelatedPage> = runCatching {
-        val response = innerTube.browse(WEB_REMIX, endpoint.browseId).body<BrowseResponse>()
+        val response = cachedBrowse(WEB_REMIX, endpoint.browseId)
         val songs = mutableListOf<SongItem>()
         val albums = mutableListOf<AlbumItem>()
         val artists = mutableListOf<ArtistItem>()

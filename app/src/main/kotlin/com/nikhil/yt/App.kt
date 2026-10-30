@@ -19,6 +19,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
+import com.nikhil.yt.utils.isOnlineNow
 import coil3.disk.directory
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
@@ -127,6 +128,15 @@ class App : Application(), SingletonImageLoader.Factory {
         val locale = Locale.getDefault()
         val languageTag = locale.toLanguageTag().replace("-Hant", "")
         YouTube.homeCacheDir = filesDir.resolve("home_cache")
+        YouTube.networkAvailable = { applicationContext.isOnlineNow() }
+        applicationScope.launch(Dispatchers.IO) {
+            while (true) {
+                try { if (isOnlineNow() && dataStore.data.first()[YtmSyncKey] != false) YouTube.flushPendingMutations() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { Timber.w(e, "Pending offline edits will retry") }
+                kotlinx.coroutines.delay(30_000)
+            }
+        }
         YouTube.locale = YouTubeLocale(
             gl = locale.country.takeIf { it in CountryCodeToName } ?: "US",
             hl = locale.language.takeIf { it in LanguageCodeToName }

@@ -80,6 +80,8 @@ class SyncUtils @Inject constructor(
     }
     
     suspend fun performFullSync() = withContext(Dispatchers.IO) {
+        if (!context.isOnlineNow()) return@withContext
+        YouTube.flushPendingMutations()
         if (!isSyncing.compareAndSet(false, true)) {
             Timber.d("Sync already in progress, skipping")
             return@withContext
@@ -184,6 +186,8 @@ class SyncUtils @Inject constructor(
     }
 
     suspend fun syncLikedSongs() = coroutineScope {
+        if (!context.isOnlineNow()) return@coroutineScope
+        YouTube.flushPendingMutations()
         if (!isLoggedIn()) {
             Timber.w("Skipping syncLikedSongs - user not logged in")
             return@coroutineScope
@@ -226,6 +230,8 @@ class SyncUtils @Inject constructor(
     }
 
     suspend fun syncLibrarySongs() = coroutineScope {
+        if (!context.isOnlineNow()) return@coroutineScope
+        YouTube.flushPendingMutations()
         if (!isLoggedIn()) {
             Timber.w("Skipping syncLibrarySongs - user not logged in")
             return@coroutineScope
@@ -272,6 +278,8 @@ class SyncUtils @Inject constructor(
     }
 
     suspend fun syncLikedAlbums() = coroutineScope {
+        if (!context.isOnlineNow()) return@coroutineScope
+        YouTube.flushPendingMutations()
         if (!isLoggedIn()) {
             Timber.w("Skipping syncLikedAlbums - user not logged in")
             return@coroutineScope
@@ -327,6 +335,8 @@ class SyncUtils @Inject constructor(
     }
 
     suspend fun syncArtistsSubscriptions() = coroutineScope {
+        if (!context.isOnlineNow()) return@coroutineScope
+        YouTube.flushPendingMutations()
         if (!isLoggedIn()) {
             Timber.w("Skipping syncArtistsSubscriptions - user not logged in")
             return@coroutineScope
@@ -390,6 +400,8 @@ class SyncUtils @Inject constructor(
     }
 
     suspend fun syncSavedPlaylists() = playlistSyncMutex.withLock {
+        if (!context.isOnlineNow()) return@withLock
+        YouTube.flushPendingMutations()
         if (!isLoggedIn()) {
             Timber.w("Skipping syncSavedPlaylists - user not logged in")
             return@withLock
@@ -461,6 +473,8 @@ class SyncUtils @Inject constructor(
     }
 
     suspend fun syncAutoSyncPlaylists() = coroutineScope {
+        if (!context.isOnlineNow()) return@coroutineScope
+        YouTube.flushPendingMutations()
         if (!isLoggedIn()) {
             Timber.w("Skipping syncAutoSyncPlaylists - user not logged in")
             return@coroutineScope
@@ -504,6 +518,8 @@ class SyncUtils @Inject constructor(
     }
 
     private suspend fun syncPlaylist(browseId: String, playlistId: String) = coroutineScope {
+        if (!context.isOnlineNow()) return@coroutineScope
+        YouTube.flushPendingMutations()
         if (!isYtmSyncEnabled()) {
             Timber.w("syncPlaylist: Skipping - sync disabled")
             return@coroutineScope

@@ -6,6 +6,8 @@
 
 package com.nikhil.yt.playback
 
+import com.nikhil.yt.utils.onlineFlow
+import com.nikhil.yt.models.toMediaMetadata
 import android.content.Context
 import android.media.MediaCodecList
 import android.net.ConnectivityManager
@@ -60,6 +62,7 @@ constructor(
     @PlayerCache val playerCache: Cache,
     private val mp3Converter: Mp3Converter,
     private val mp3Library: Mp3Library,
+    private val lyricsHelper: com.nikhil.yt.lyrics.LyricsHelper,
 ) {
     private val appContext: Context = context
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
@@ -211,6 +214,7 @@ constructor(
             dataSourceFactory,
             downloadExecutor
         ).apply {
+            minRetryCount = 3
             maxParallelDownloads = currentMaxParallelDownloads
             addListener(
                 object : DownloadManager.Listener {
@@ -223,6 +227,24 @@ constructor(
                             registerThrottleSignal(finalException)
                         } else if (download.state == Download.STATE_COMPLETED) {
                             clearThrottleSignal()
+                            appContext.getSharedPreferences("offline_download_retries", Context.MODE_PRIVATE)
+                                .edit().remove(download.request.id).apply()
+                            CoroutineScope(Dispatchers.IO).launch {
+                                try {
+                                    val song = database.getSongsByIds(listOf(download.request.id)).firstOrNull() ?: return@launch
+                                    song.song.thumbnailUrl?.let { url ->
+                                        coil3.SingletonImageLoader.get(appContext).execute(
+                                            coil3.request.ImageRequest.Builder(appContext).data(url).build())
+                                    }
+                                    if (database.lyrics(song.song.id).first() == null) {
+                                        val text = lyricsHelper.getLyrics(song.toMediaMetadata())
+                                        if (text != com.nikhil.yt.db.entities.LyricsEntity.LYRICS_NOT_FOUND && text.isNotBlank()) {
+                                            database.query { upsert(com.nikhil.yt.db.entities.LyricsEntity(id = song.song.id, lyrics = text)) }
+                                        }
+                                    }
+                                } catch (e: CancellationException) { throw e }
+                                catch (e: Exception) { timber.log.Timber.w(e, "Could not save download artwork or lyrics") }
+                            }
                             // Finished download: convert it to mp3 in the background
                             mp3Converter.enqueue(download.request.id)
                         }
@@ -246,6 +268,24 @@ constructor(
         }
 
     init {
+        CoroutineScope(Dispatchers.IO).launch {
+            appContext.onlineFlow().collect { online ->
+                if (online) {
+                    val attempts = appContext.getSharedPreferences("offline_download_retries", Context.MODE_PRIVATE)
+                    downloadManager.downloadIndex.getDownloads(Download.STATE_FAILED).use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val request = cursor.download.request
+                            val count = attempts.getInt(request.id, 0)
+                            if (count < 3) {
+                                attempts.edit().putInt(request.id, count + 1).commit()
+                                androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                                    appContext, ExoDownloadService::class.java, request, false)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         CoroutineScope(Dispatchers.IO).launch {
             val result = mutableMapOf<String, Download>()
             val cursor = downloadManager.downloadIndex.getDownloads()

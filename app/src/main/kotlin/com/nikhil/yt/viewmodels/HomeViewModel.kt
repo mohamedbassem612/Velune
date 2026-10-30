@@ -419,7 +419,7 @@ class HomeViewModel @Inject constructor(
         val songs = ids.chunked(500).flatMap { database.getSongsByIds(it) }
         val playable = songs.filter { song ->
             val length = song.format?.contentLength ?: 0L
-            song.song.id in mp3Ids ||
+            mp3Library.playableUri(song.song.id) != null ||
                 (length > 0 && (downloadCache.isCached(song.song.id, 0, length) || playerCache.isCached(song.song.id, 0, length)))
         }.filterExplicitSongs(hideExplicit)
         val ranked = playable.sortedByDescending { it.song.totalPlayTime }
@@ -493,6 +493,7 @@ class HomeViewModel @Inject constructor(
                                     section.copy(items = section.items.filterExplicit(hideExplicit).filterVideo(hideVideo))
                                 }
                             )
+                            lastHomeFetchAt = savedAt
                             feedAgeMs = now - savedAt
                         }
                     }
@@ -568,6 +569,7 @@ class HomeViewModel @Inject constructor(
             reportException(e)
         } finally {
             isLoading.value = false
+            if (!isOnline.value) loadOfflineHome()
         }
     }
 
@@ -744,6 +746,16 @@ class HomeViewModel @Inject constructor(
         }
 
         watchConnectivity()
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                kotlinx.coroutines.delay(5000)
+                if (!isOnline.value) {
+                    try { loadOfflineHome() }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { reportException(e) }
+                }
+            }
+        }
 
         // After a reinstall the liked songs arrive a few seconds later from the account sync.
         // When the first likes show up, rebuild the Quick picks with them.

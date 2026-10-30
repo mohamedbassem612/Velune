@@ -17,6 +17,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.nikhil.yt.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -70,7 +72,7 @@ fun OfflineModeBanner(
             tonalElevation = 2.dp,
         ) {
             Text(
-                text = if (mode == BANNER_BACK_ONLINE) "Back online" else "Offline mode",
+                text = stringResource(if (mode == BANNER_BACK_ONLINE) R.string.offline_back_online else R.string.offline_mode_label),
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
             )

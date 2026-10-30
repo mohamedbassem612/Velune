@@ -1,0 +1,5 @@
+<resources>
+    <string name="offline_mode_label">Offline mode</string>
+    <string name="offline_back_online">Back online</string>
+    <string name="offline_no_playable_songs">No playable songs saved. Download songs while online to listen here without internet.</string>
+</resources>
