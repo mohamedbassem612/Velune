@@ -121,6 +121,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.nikhil.yt.innertube.toHighResThumbnail
 import com.nikhil.yt.viewmodels.HomeViewModel
+import com.nikhil.yt.utils.isOnlineNow
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -135,6 +136,7 @@ fun QuickPicksSection(
     modifier: Modifier = Modifier
 ) {
     val distinctQuickPicks = remember(quickPicks) { quickPicks.distinctBy { it.id } }
+    val context = LocalContext.current
 
     HorizontalUncontainedCarousel(
         state = rememberCarouselState { distinctQuickPicks.size },
@@ -161,7 +163,10 @@ fun QuickPicksSection(
                         if (isActive) {
                             playerConnection.player.togglePlayPause()
                         } else {
-                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                            playerConnection.playQueue(
+                                if (context.isOnlineNow()) YouTubeQueue.radio(song.toMediaMetadata())
+                                else ListQueue(title = "Quick picks", items = listOf(song.toMediaItem()))
+                            )
                         }
                     },
                     onLongClick = {
@@ -1011,6 +1016,7 @@ fun QuickPicksListSection(
     modifier: Modifier = Modifier
 ) {
     val songs = remember(quickPicks) { quickPicks.distinctBy { it.id } }
+    val context = LocalContext.current
 
     QuickPicksPager(
         itemCount = songs.size,
@@ -1059,7 +1065,10 @@ fun QuickPicksListSection(
                         if (isActive) {
                             playerConnection.player.togglePlayPause()
                         } else {
-                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                            playerConnection.playQueue(
+                                if (context.isOnlineNow()) YouTubeQueue.radio(song.toMediaMetadata())
+                                else ListQueue(title = "Quick picks", items = listOf(song.toMediaItem()))
+                            )
                         }
                     },
                     onLongClick = {

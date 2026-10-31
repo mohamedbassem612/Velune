@@ -54,6 +54,7 @@ import com.nikhil.yt.di.DownloadCache
 import com.nikhil.yt.di.PlayerCache
 import com.nikhil.yt.extensions.filterExplicit as filterExplicitSongs
 import com.nikhil.yt.utils.isOnlineNow
+import com.nikhil.yt.playback.CacheAvailability
 import com.nikhil.yt.utils.onlineFlow
 import javax.inject.Inject
 
@@ -422,9 +423,10 @@ class HomeViewModel @Inject constructor(
         val ids = (downloadCache.keys + playerCache.keys + mp3Ids).toList()
         val songs = ids.chunked(500).flatMap { database.getSongsByIds(it) }
         val playable = songs.filter { song ->
-            val length = song.format?.contentLength ?: 0L
+            val length = song.format?.contentLength
             mp3Library.playableUri(song.song.id) != null ||
-                (length > 0 && (downloadCache.isCached(song.song.id, 0, length) || playerCache.isCached(song.song.id, 0, length)))
+                CacheAvailability.isCached(downloadCache, song.song.id, fallbackContentLength = length) ||
+                CacheAvailability.isCached(playerCache, song.song.id, fallbackContentLength = length)
         }.filterExplicitSongs(hideExplicit)
         val ranked = playable.sortedByDescending { it.song.totalPlayTime }
         val header = ranked.take(5)
