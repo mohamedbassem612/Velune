@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import timber.log.Timber
+import kotlinx.coroutines.flow.debounce
 import androidx.media3.datasource.cache.Cache
 import com.nikhil.yt.di.DownloadCache
 import com.nikhil.yt.di.PlayerCache
@@ -65,7 +66,10 @@ class HomeViewModel @Inject constructor(
     @PlayerCache private val playerCache: Cache,
     @DownloadCache private val downloadCache: Cache,
     private val mp3Library: com.nikhil.yt.playback.Mp3Library,
+    private val downloadUtil: com.nikhil.yt.playback.DownloadUtil,
 ) : ViewModel() {
+    // Same seed for the whole offline session, so the Quick picks do not reshuffle on every refresh.
+    @Volatile private var offlineSeed = System.nanoTime()
     // False while the phone has no working internet. The Home then shows offline mode.
     val isOnline = MutableStateFlow(context.isOnlineNow())
 
@@ -425,9 +429,27 @@ class HomeViewModel @Inject constructor(
         val ranked = playable.sortedByDescending { it.song.totalPlayTime }
         val header = ranked.take(5)
         quickPicks.value = header
-        quickPicksFallback.value = ranked.drop(5).shuffled().take(20).ifEmpty { header }
+        quickPicksFallback.value = ranked.drop(5).shuffled(kotlin.random.Random(offlineSeed)).take(20).ifEmpty { header }
         allLocalItems.value = ranked.take(25)
         allYtItems.value = emptyList()
+    }
+
+    // While offline, refresh the list when a download finishes, fails or is removed.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun watchOfflineAvailability() {
+        viewModelScope.launch(Dispatchers.IO) {
+            downloadUtil.downloads.debounce(500).collect {
+                if (!isOnline.value) {
+                    try {
+                        loadOfflineHome()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        reportException(e)
+                    }
+                }
+            }
+        }
     }
 
     private fun watchConnectivity() {
@@ -435,6 +457,7 @@ class HomeViewModel @Inject constructor(
             context.onlineFlow().collect { online ->
                 if (isOnline.value == online) return@collect
                 isOnline.value = online
+                if (!online) offlineSeed = System.nanoTime()
                 viewModelScope.launch(Dispatchers.IO) {
                     if (online) load() else loadOfflineHome()
                 }
@@ -746,16 +769,7 @@ class HomeViewModel @Inject constructor(
         }
 
         watchConnectivity()
-        viewModelScope.launch(Dispatchers.IO) {
-            while (true) {
-                kotlinx.coroutines.delay(5000)
-                if (!isOnline.value) {
-                    try { loadOfflineHome() }
-                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                    catch (e: Exception) { reportException(e) }
-                }
-            }
-        }
+        watchOfflineAvailability()
 
         // After a reinstall the liked songs arrive a few seconds later from the account sync.
         // When the first likes show up, rebuild the Quick picks with them.

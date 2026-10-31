@@ -635,7 +635,7 @@ object YouTube {
                 val tmp = File.createTempFile("page", ".tmp", file.parentFile)
                 tmp.writeText(text)
                 java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                val pages = file.parentFile.listFiles()?.filter { it.name != "pending.json" && it.extension == "json" }.orEmpty()
+                val pages = file.parentFile.listFiles()?.filter { it.name != "pending.json" && it.name != "rejected.json" && it.extension == "json" }.orEmpty()
                 var bytes = pages.sumOf { it.length() }
                 for (old in pages.sortedBy { it.lastModified() }) {
                     if (bytes <= 64L * 1024 * 1024) break
@@ -644,21 +644,39 @@ object YouTube {
                 }
             }
             response
-        } catch (e: java.io.IOException) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (e: Exception) {
+            // Online but the request failed (weak signal, timeout, server error): show the saved page if there is one.
+            val saved = if (e is java.io.IOException || e is io.ktor.client.plugins.ServerResponseException) {
+                file?.takeIf { it.isFile }?.let {
+                    runCatching { homeCacheJson.decodeFromString<BrowseResponse>(it.readText()) }.getOrNull()
+                }
+            } else null
+            saved ?: throw e
         }
     }
 
     private suspend fun pendingMutation(command: List<String>, send: suspend () -> Unit) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         offlineMutex.lock()
         try {
-            if (networkAvailable()) {
-                flushPendingMutationsLocked()
-                send()
-            } else {
+            var queueIt = !networkAvailable()
+            if (!queueIt) {
+                try {
+                    flushPendingMutationsLocked()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+                // Older edits that could not be sent yet stay first, so the new one waits behind them.
+                queueIt = pendingFile()?.let { it.isFile && it.length() > 2 } == true
+            }
+            if (queueIt) {
                 val file = offlineDirectory()?.resolve("pending.json") ?: throw java.io.IOException("Offline storage unavailable")
                 val pending = if (file.exists()) homeCacheJson.decodeFromString<List<List<String>>>(file.readText()) else emptyList()
                 writePending(file, pending + listOf(command))
+            } else {
+                send()
             }
         } finally { offlineMutex.unlock() }
     }
@@ -669,9 +687,32 @@ object YouTube {
         java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 
+    private fun pendingFile(): File? =
+        homeCacheDir?.resolve("pages_${offlineIdentity()}")?.resolve("pending.json")
+
     suspend fun flushPendingMutations() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        // Nothing waiting: return without taking the lock, so calling this often costs almost nothing.
+        if (pendingFile()?.isFile != true) return@withContext
         offlineMutex.lock()
         try { flushPendingMutationsLocked() } finally { offlineMutex.unlock() }
+    }
+
+    // Network trouble, server trouble or an expired login: the edit is still valid, so try it again later.
+    private fun shouldRetryLater(e: Throwable): Boolean = when (e) {
+        is java.io.IOException -> true
+        is io.ktor.client.plugins.ServerResponseException -> true
+        is io.ktor.client.plugins.ClientRequestException -> e.response.status.value in intArrayOf(401, 403, 408, 429)
+        else -> false
+    }
+
+    // An edit the server refuses for good (for example the song was deleted) is moved here,
+    // so it does not block the edits behind it.
+    private fun saveRejectedMutation(dir: File, command: List<String>) {
+        runCatching {
+            val file = File(dir, "rejected.json")
+            val old = if (file.exists()) homeCacheJson.decodeFromString<List<List<String>>>(file.readText()) else emptyList()
+            file.writeText(homeCacheJson.encodeToString((old + listOf(command)).takeLast(50)))
+        }
     }
 
     private suspend fun flushPendingMutationsLocked() {
@@ -681,14 +722,21 @@ object YouTube {
         val pending = homeCacheJson.decodeFromString<List<List<String>>>(file.readText()).toMutableList()
         while (pending.isNotEmpty() && networkAvailable() && identity == offlineIdentity()) {
             val c = pending.first()
-            when (c[0]) {
-                "likeVideo" -> if (c[2].toBoolean()) innerTube.likeVideo(WEB_REMIX, c[1]) else innerTube.unlikeVideo(WEB_REMIX, c[1])
-                "likePlaylist" -> if (c[2].toBoolean()) innerTube.likePlaylist(WEB_REMIX, c[1]) else innerTube.unlikePlaylist(WEB_REMIX, c[1])
-                "renamePlaylist" -> innerTube.renamePlaylist(WEB_REMIX, c[1], c[2])
-                "addToPlaylist" -> innerTube.addToPlaylist(WEB_REMIX, c[1], c[2])
-                "removeFromPlaylist" -> innerTube.removeFromPlaylist(WEB_REMIX, c[1], c[2], c[3])
-                "moveSongPlaylist" -> innerTube.moveSongPlaylist(WEB_REMIX, c[1], c[2], c[3].ifEmpty { null })
-                else -> throw java.io.IOException("Unsupported pending operation")
+            try {
+                when (c[0]) {
+                    "likeVideo" -> if (c[2].toBoolean()) innerTube.likeVideo(WEB_REMIX, c[1]) else innerTube.unlikeVideo(WEB_REMIX, c[1])
+                    "likePlaylist" -> if (c[2].toBoolean()) innerTube.likePlaylist(WEB_REMIX, c[1]) else innerTube.unlikePlaylist(WEB_REMIX, c[1])
+                    "renamePlaylist" -> innerTube.renamePlaylist(WEB_REMIX, c[1], c[2])
+                    "addToPlaylist" -> innerTube.addToPlaylist(WEB_REMIX, c[1], c[2])
+                    "removeFromPlaylist" -> innerTube.removeFromPlaylist(WEB_REMIX, c[1], c[2], c[3])
+                    "moveSongPlaylist" -> innerTube.moveSongPlaylist(WEB_REMIX, c[1], c[2], c[3].ifEmpty { null })
+                    else -> throw IllegalArgumentException("Unsupported pending operation")
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (shouldRetryLater(e)) return
+                saveRejectedMutation(file.parentFile, c)
             }
             pending.removeAt(0)
             writePending(file, pending)
