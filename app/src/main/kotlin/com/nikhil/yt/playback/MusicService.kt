@@ -62,7 +62,6 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
-import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -1373,14 +1372,15 @@ class MusicService :
         } ?: return
         val duration = song?.song?.duration?.takeIf { it != -1 }
             ?: mediaMetadata.duration.takeIf { it != -1 }
-            ?: (playbackData?.videoDetails ?: YTPlayerUtils.playerResponseForMetadata(mediaId)
-                .getOrNull()?.videoDetails)?.lengthSeconds?.toInt()
+            ?: (playbackData?.videoDetails ?: if (isOnlineNow()) {
+                YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()?.videoDetails
+            } else null)?.lengthSeconds?.toInt()
             ?: -1
         database.query {
             if (song == null) insert(mediaMetadata.copy(duration = duration))
             else if (song.song.duration == -1) update(song.song.copy(duration = duration))
         }
-        if (!database.hasRelatedSongs(mediaId)) {
+        if (isOnlineNow() && !database.hasRelatedSongs(mediaId)) {
             val relatedEndpoint =
                 YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()?.relatedEndpoint
                     ?: return
@@ -1402,8 +1402,9 @@ class MusicService :
 
     private suspend fun offlinePlayable(id: String): Boolean {
         if (mp3Library.playableUri(id) != null) return true
-        val length = database.format(id).first()?.contentLength ?: return false
-        return length > 0 && (downloadCache.isCached(id, 0, length) || playerCache.isCached(id, 0, length))
+        val length = database.format(id).first()?.contentLength
+        return CacheAvailability.isCached(downloadCache, id, fallbackContentLength = length) ||
+            CacheAvailability.isCached(playerCache, id, fallbackContentLength = length)
     }
 
     fun playQueue(
@@ -4154,36 +4155,14 @@ class MusicService :
                     .build()
             }
 
-            val requiredCachedLength =
-                if (dataSpec.length >= 0) {
-                    dataSpec.length
-                } else {
-                    val contentLength =
-                        runBlocking(Dispatchers.IO) {
-                            database.format(mediaId).first()?.contentLength
-                        } ?: runCatching {
-                            downloadCache
-                                .getContentMetadata(mediaId)
-                                .get(ContentMetadata.KEY_CONTENT_LENGTH, -1L)
-                        }.getOrNull()?.takeIf { it > 0L } ?: runCatching {
-                            playerCache
-                                .getContentMetadata(mediaId)
-                                .get(ContentMetadata.KEY_CONTENT_LENGTH, -1L)
-                        }.getOrNull()?.takeIf { it > 0L }
-
-                    contentLength?.let { nonNullContentLength ->
-                        (nonNullContentLength - dataSpec.position).takeIf { it > 0L }
-                    }
-                }
-
-            if (requiredCachedLength != null) {
-                val isFullyCached =
-                    downloadCache.isCached(mediaId, dataSpec.position, requiredCachedLength) ||
-                        playerCache.isCached(mediaId, dataSpec.position, requiredCachedLength)
-                if (isFullyCached) {
-                    scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
-                    return@Factory dataSpec
-                }
+            val contentLength = runBlocking(Dispatchers.IO) {
+                database.format(mediaId).first()?.contentLength
+            }
+            if (CacheAvailability.isCached(downloadCache, mediaId, dataSpec.position, dataSpec.length, contentLength) ||
+                CacheAvailability.isCached(playerCache, mediaId, dataSpec.position, dataSpec.length, contentLength)
+            ) {
+                scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                return@Factory dataSpec
             }
 
             if (!isOnlineNow()) throw java.io.IOException("Song is not fully available offline")
@@ -4192,7 +4171,7 @@ class MusicService :
                 android.util.Log.i("StreamTiming", "$mediaId url served from cache (no resolve)")
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
                 val length = if (dataSpec.length >= 0) minOf(dataSpec.length, CHUNK_LENGTH) else CHUNK_LENGTH
-                return@Factory dataSpec.withUri(it.first.toUri()).subrange(dataSpec.uriPositionOffset, length)
+                return@Factory dataSpec.withUri(it.first.toUri()).subrange(0, length)
             }
 
             val resolveStartMs = android.os.SystemClock.elapsedRealtime()
@@ -4273,7 +4252,7 @@ class MusicService :
                 playbackUrlCache[mediaId] =
                     streamUrl to System.currentTimeMillis() + (nonNullPlayback.streamExpiresInSeconds * 1000L)
                 val length = if (dataSpec.length >= 0) minOf(dataSpec.length, CHUNK_LENGTH) else CHUNK_LENGTH
-                return@Factory dataSpec.withUri(streamUrl.toUri()).subrange(dataSpec.uriPositionOffset, length)
+                return@Factory dataSpec.withUri(streamUrl.toUri()).subrange(0, length)
             }
         }
     }

@@ -68,7 +68,7 @@ constructor(
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
     private val preferredStreamClient by enumPreference(context, PlayerStreamClientKey, PlayerStreamClient.ANDROID_VR)
-    private val songUrlCache = HashMap<String, Pair<String, Long>>()
+    private val songUrlCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
     // Anti-Bot & Throttling Fields
     private val downloadExecutor = Executors.newFixedThreadPool(3)
@@ -113,28 +113,10 @@ constructor(
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 
-    private val dataSourceFactory =
-        ResolvingDataSource.Factory(
-            CacheDataSource
-                .Factory()
-                .setCache(downloadCache)
-                .setUpstreamDataSourceFactory(
-                    CacheDataSource
-                        .Factory()
-                        .setCache(playerCache)
-                        .setUpstreamDataSourceFactory(
-                            OkHttpDataSource.Factory(mediaOkHttpClient),
-                        )
-                        .setCacheWriteDataSinkFactory(null)
-                        .setFlags(FLAG_IGNORE_CACHE_ON_ERROR),
-                )
-                .setFlags(FLAG_IGNORE_CACHE_ON_ERROR),
-        ) { dataSpec ->
+    // Resolve a fresh URL only when both caches miss the requested bytes.
+    private val resolvingNetworkFactory =
+        ResolvingDataSource.Factory(OkHttpDataSource.Factory(mediaOkHttpClient)) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
-
-            if (dataSpec.length >= 0 && downloadCache.isCached(mediaId, dataSpec.position, dataSpec.length)) {
-                return@Factory dataSpec
-            }
 
             val cachedUrl = songUrlCache[mediaId]
             if (cachedUrl != null && cachedUrl.second > System.currentTimeMillis()) {
@@ -194,7 +176,7 @@ constructor(
 
             val totalLength = format.contentLength ?: C.LENGTH_UNSET.toLong()
             val streamUrlWithRange = if (totalLength > 0) {
-                "${playbackData.streamUrl}&range=0-$totalLength"
+                "${playbackData.streamUrl}&range=0-${totalLength - 1}"
             } else {
                 playbackData.streamUrl
             }
@@ -202,6 +184,17 @@ constructor(
             songUrlCache[mediaId] = streamUrlWithRange to (System.currentTimeMillis() + (60 * 60 * 1000L))
             dataSpec.withUri(streamUrlWithRange.toUri())
         }
+
+    private val dataSourceFactory = CacheDataSource.Factory()
+        .setCache(downloadCache)
+        .setUpstreamDataSourceFactory(
+            CacheDataSource.Factory()
+                .setCache(playerCache)
+                .setCacheWriteDataSinkFactory(null)
+                .setUpstreamDataSourceFactory(resolvingNetworkFactory)
+                .setFlags(FLAG_IGNORE_CACHE_ON_ERROR),
+        )
+        .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
 
     val downloadNotificationHelper =
         DownloadNotificationHelper(context, ExoDownloadService.CHANNEL_ID)
@@ -224,6 +217,7 @@ constructor(
                         finalException: Exception?,
                     ) {
                         if (download.state == Download.STATE_FAILED) {
+                            songUrlCache.remove(download.request.id)
                             registerThrottleSignal(finalException)
                         } else if (download.state == Download.STATE_COMPLETED) {
                             clearThrottleSignal()
@@ -261,6 +255,8 @@ constructor(
                         download: Download,
                     ) {
                         // Download removed by the user: delete the mp3 file too
+                        downloads.update { it - download.request.id }
+                        songUrlCache.remove(download.request.id)
                         removeMp3(download.request.id)
                     }
                 }
@@ -288,11 +284,12 @@ constructor(
         }
         CoroutineScope(Dispatchers.IO).launch {
             val result = mutableMapOf<String, Download>()
-            val cursor = downloadManager.downloadIndex.getDownloads()
-            while (cursor.moveToNext()) {
-                result[cursor.download.request.id] = cursor.download
+            downloadManager.downloadIndex.getDownloads().use { cursor ->
+                while (cursor.moveToNext()) {
+                    result[cursor.download.request.id] = cursor.download
+                }
             }
-            downloads.value = result
+            downloads.update { current -> result + current }
 
             // Songs already saved as mp3 (also after a reinstall) count as downloaded
             mp3Library.restoreFromFolder()

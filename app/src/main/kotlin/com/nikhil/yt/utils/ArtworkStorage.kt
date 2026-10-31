@@ -26,50 +26,64 @@ object ArtworkStorage {
     private const val FILENAME = "velune_saved_artworks.json"
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
-    private fun fileFor(context: Context): File = File(context.filesDir, FILENAME)
+    private fun fileFor(context: Context) = android.util.AtomicFile(File(context.filesDir, FILENAME))
 
-    fun loadAll(context: Context): List<SavedArtwork> {
+    private fun read(context: Context): List<SavedArtwork> {
+        val file = fileFor(context)
+        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return emptyList()
+        return json.decodeFromString(file.openRead().bufferedReader().use { it.readText() })
+    }
+
+    private fun write(context: Context, items: List<SavedArtwork>) {
+        val bytes = json.encodeToString(items).toByteArray(Charsets.UTF_8)
+        val file = fileFor(context)
+        val stream = file.startWrite()
         try {
-            val f = fileFor(context)
-            if (!f.exists()) return emptyList()
-            val text = f.readText()
-            if (text.isBlank()) return emptyList()
-            return json.decodeFromString(text)
-        } catch (_: Exception) {
-            return emptyList()
+            stream.write(bytes)
+            file.finishWrite(stream)
+        } catch (e: Exception) {
+            file.failWrite(stream)
+            throw e
         }
     }
 
-    fun findBySongId(context: Context, songId: String): SavedArtwork? = loadAll(context).firstOrNull { it.songId == songId }
+    @Synchronized
+    fun loadAll(context: Context): List<SavedArtwork> = try {
+        read(context)
+    } catch (e: Exception) {
+        timber.log.Timber.w(e, "Could not read saved artwork metadata")
+        emptyList()
+    }
 
+    fun findBySongId(context: Context, songId: String): SavedArtwork? =
+        loadAll(context).firstOrNull { it.songId == songId }
+
+    @Synchronized
     fun saveOrUpdate(context: Context, artwork: SavedArtwork) {
         try {
-            val list = loadAll(context).toMutableList()
-            val idx = list.indexOfFirst { it.songId == artwork.songId }
-            if (idx >= 0) list[idx] = artwork else list.add(artwork)
-            fileFor(context).writeText(json.encodeToString(list))
-        } catch (_: Exception) {
-            // ignore write errors
+            // Do not replace a corrupt index with a single new entry.
+            val items = read(context).filterNot { it.songId == artwork.songId } + artwork
+            write(context, items)
+        } catch (e: Exception) {
+            timber.log.Timber.w(e, "Could not save artwork metadata")
         }
     }
 
+    @Synchronized
     fun clear(context: Context) {
         try {
-            val f = fileFor(context)
-            if (f.exists()) f.writeText("[]")
-        } catch (_: Exception) {
+            write(context, emptyList())
+        } catch (e: Exception) {
+            timber.log.Timber.w(e, "Could not clear artwork metadata")
         }
     }
 
+    @Synchronized
     fun removeBySongId(context: Context, songId: String) {
         try {
-            val list = loadAll(context).toMutableList()
-            val idx = list.indexOfFirst { it.songId == songId }
-            if (idx >= 0) {
-                list.removeAt(idx)
-                fileFor(context).writeText(json.encodeToString(list))
-            }
-        } catch (_: Exception) {
+            write(context, read(context).filterNot { it.songId == songId })
+        } catch (e: Exception) {
+            timber.log.Timber.w(e, "Could not remove artwork metadata")
         }
     }
 }

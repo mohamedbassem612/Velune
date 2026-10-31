@@ -73,9 +73,16 @@ constructor(
     fun playableUri(id: String): Uri? {
         val stored = prefs.getString(id, null) ?: return null
         val uri = stored.toUri()
-        val exists = runCatching {
+        val exists = try {
             context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length != 0L } ?: false
-        }.getOrDefault(false)
+        } catch (e: SecurityException) {
+            // Permission can be restored; keep the index so the song becomes available again.
+            Timber.tag(TAG).w(e, "No permission to read mp3 for $id")
+            return null
+        } catch (e: IOException) {
+            Timber.tag(TAG).w(e, "Could not open mp3 for $id; retaining index for retry")
+            return null
+        }
         if (!exists) {
             Timber.tag(TAG).w("mp3 file for $id is missing, falling back to streaming")
             prefs.edit().remove(id).apply()
@@ -174,8 +181,9 @@ constructor(
         }.onFailure { Timber.tag(TAG).w(it, "Could not write the video id inside the mp3 of $id") }
     }
 
+    @Synchronized
     fun save(id: String, displayName: String, source: File): Uri? {
-        val safeName = sanitize(displayName).take(100) + ".mp3"
+        val safeName = sanitize(displayName).take(80) + "-" + sanitize(id) + ".mp3"
         val uri = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 saveToMediaStore(safeName, source)
@@ -183,7 +191,10 @@ constructor(
                 saveToAppMusicDir(safeName, source)
             }
         }.onFailure { Timber.tag(TAG).e(it, "Saving mp3 failed for $id") }.getOrNull()
-        if (uri != null) prefs.edit().putString(id, uri.toString()).commit()
+        if (uri != null && !prefs.edit().putString(id, uri.toString()).commit()) {
+            Timber.tag(TAG).e("Could not persist mp3 index for $id; retaining original download")
+            return null
+        }
         return uri
     }
 
@@ -228,7 +239,9 @@ constructor(
             out.use { stream -> source.inputStream().use { it.copyTo(stream) } }
             values.clear()
             values.put(MediaStore.Audio.Media.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
+            if (resolver.update(uri, values, null, null) != 1) {
+                throw IOException("Could not publish completed mp3")
+            }
             return uri
         } catch (e: Exception) {
             runCatching { resolver.delete(uri, null, null) }
@@ -240,7 +253,15 @@ constructor(
     private fun saveToAppMusicDir(fileName: String, source: File): Uri? {
         val dir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: return null
         val target = File(dir, "$FOLDER_NAME/$fileName").apply { parentFile?.mkdirs() }
-        source.copyTo(target, overwrite = true)
+        val atomic = android.util.AtomicFile(target)
+        val stream = atomic.startWrite()
+        try {
+            source.inputStream().use { it.copyTo(stream) }
+            atomic.finishWrite(stream)
+        } catch (e: Exception) {
+            atomic.failWrite(stream)
+            throw e
+        }
         return Uri.fromFile(target)
     }
 

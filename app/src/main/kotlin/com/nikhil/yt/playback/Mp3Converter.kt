@@ -60,7 +60,7 @@ constructor(
     private val httpClient by lazy { OkHttpClient() }
 
     fun enqueue(id: String) {
-        if (mp3Library.has(id) || !queued.add(id)) return
+        if (mp3Library.playableUri(id) != null || !queued.add(id)) return
         scope.launch {
             try {
                 convert(id)
@@ -75,8 +75,8 @@ constructor(
     }
 
     private fun convert(id: String) {
-        val hasData = runCatching { downloadCache.getCachedSpans(id).isNotEmpty() }.getOrDefault(false)
-        if (!hasData) return
+        val contentLength = runBlocking { database.format(id).first()?.contentLength }
+        if (!CacheAvailability.isCached(downloadCache, id, fallbackContentLength = contentLength)) return
 
         val workDir = File(context.cacheDir, "mp3_convert").apply { mkdirs() }
         val input = File(workDir, "$id.src")

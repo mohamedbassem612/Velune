@@ -26,7 +26,7 @@ import javax.inject.Inject
 import com.nikhil.yt.di.PlayerCache
 import com.nikhil.yt.di.DownloadCache
 import androidx.media3.datasource.cache.Cache
-import java.time.LocalDateTime
+import com.nikhil.yt.playback.CacheAvailability
 import kotlinx.coroutines.Dispatchers
 
 @HiltViewModel
@@ -56,22 +56,10 @@ class CachePlaylistViewModel @Inject constructor(
                 }
 
                 val completeSongs = songs.filter {
-                    val contentLength = it.format?.contentLength
-                    contentLength != null && contentLength > 0 && playerCache.isCached(it.song.id, 0, contentLength)
-                }
-
-                if (completeSongs.isNotEmpty()) {
-                    database.query {
-                        completeSongs.forEach {
-                            if (it.song.dateDownload == null) {
-                                update(it.song.copy(dateDownload = LocalDateTime.now()))
-                            }
-                        }
-                    }
+                    CacheAvailability.isCached(playerCache, it.song.id, fallbackContentLength = it.format?.contentLength)
                 }
 
                 _cachedSongs.value = completeSongs
-                    .filter { it.song.dateDownload != null }
                     .sortedByDescending { it.song.dateDownload }
                     .filterExplicit(hideExplicit)
 

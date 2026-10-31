@@ -177,8 +177,6 @@ abstract class InternalDatabase : RoomDatabase() {
                         *universalMigrations,
                     )
                     .addCallback(DatabaseCallback())
-                    .fallbackToDestructiveMigration()
-                    .fallbackToDestructiveMigrationOnDowngrade()
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .setTransactionExecutor(java.util.concurrent.Executors.newFixedThreadPool(4))
                     .setQueryExecutor(java.util.concurrent.Executors.newFixedThreadPool(4))
@@ -202,16 +200,14 @@ abstract class InternalDatabase : RoomDatabase() {
 
                 val repaired =
                     runCatching { SchemaTools.repairDatabaseFile(context = context, name = DB_NAME) }
-                        .onFailure { Log.e(TAG, "Schema repair failed, recreating database", it) }
+                        .onFailure { Log.e(TAG, "Schema repair failed; retaining database for recovery", it) }
                         .isSuccess
 
                 db = build()
                 runCatching { db.openHelper.writableDatabase }.getOrElse { openError ->
-                    Log.e(TAG, "Database still failed to open after schema repair=$repaired, recreating database", openError)
+                    Log.e(TAG, "Database still failed to open after schema repair=$repaired; retaining user data", openError)
                     runCatching { db.close() }
-                    runCatching { context.deleteDatabase(DB_NAME) }
-                    db = build()
-                    db.openHelper.writableDatabase
+                    throw openError
                 }
             }
 

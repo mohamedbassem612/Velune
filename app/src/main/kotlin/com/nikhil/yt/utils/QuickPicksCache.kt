@@ -21,8 +21,9 @@ import java.io.File
 object QuickPicksCache {
     private const val FILE_NAME = "quick_picks_cache.json"
 
-    private fun file(context: Context) = File(context.filesDir, FILE_NAME)
+    private fun file(context: Context) = android.util.AtomicFile(File(context.filesDir, FILE_NAME))
 
+    @Synchronized
     fun save(context: Context, songs: List<SongItem>) {
         try {
             val array = JSONArray()
@@ -52,21 +53,24 @@ object QuickPicksCache {
                 )
             }
             val target = file(context)
-            val temp = File(target.parentFile, "$FILE_NAME.tmp")
-            temp.writeText(array.toString())
-            if (!temp.renameTo(target)) {
-                target.writeText(array.toString())
-                temp.delete()
+            val stream = target.startWrite()
+            try {
+                stream.write(array.toString().toByteArray(Charsets.UTF_8))
+                target.finishWrite(stream)
+            } catch (e: Exception) {
+                target.failWrite(stream)
+                throw e
             }
         } catch (_: Exception) {
         }
     }
 
+    @Synchronized
     fun load(context: Context): List<SongItem>? {
         return try {
             val target = file(context)
-            if (!target.exists()) return null
-            val array = JSONArray(target.readText())
+            if (!target.baseFile.exists() && !File(target.baseFile.path + ".bak").exists()) return null
+            val array = JSONArray(target.openRead().bufferedReader().use { it.readText() })
             val result = ArrayList<SongItem>(array.length())
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
