@@ -71,6 +71,32 @@ Interface and integrations
 - Discord Rich Presence
 - Last.fm scrobbling
 
+## Offline and download updates
+
+The offline work merged into `main` improves browsing, playback and the safety of downloaded music:
+
+- Offline Home and local search focus on songs that can be played from an accessible MP3 or a complete audio cache. Offline Quick Picks start the selected song locally; online clicks continue to start a radio queue.
+- Previously visited albums, artists, playlists, library and browse pages can use saved responses offline. Page snapshots are separated by account/session and locale, with a 64 MiB limit per partition. Pages that were never saved are unavailable offline.
+- Likes and supported changes to existing remote playlists can be queued while offline and replayed in order when the app is running and a connection is available. Creating a new remote playlist still requires a connection.
+- Downloads check the download cache and playback cache before resolving a network URL. Failed downloads can be retried after connectivity returns; completion clears the recorded retry count. Artwork and lyrics are prefetched when possible.
+- MP3 conversion checks that the source cache is complete. Saved filenames include the song ID, older Android file writes use an atomic operation, and the original download is retained if saving or indexing the MP3 fails.
+- Playback checks the cached byte range before treating a song as available offline, avoids fetching related songs when disconnected, and skips unavailable queued songs or pauses when none remain.
+- Artwork metadata and Quick Picks snapshots use atomic file writes. The app no longer intentionally deletes the library database after a failed schema repair or uses Room's destructive migration fallback.
+- GitHub Actions runs on pushes to `main` and `velune-offline-fixes`. The signed Universal Release APK is uploaded as an artifact; tagged releases can also be published through the workflow.
+
+### Challenges and trade-offs
+
+| Challenge | Approach and remaining limits |
+|-----------|-------------------------------|
+| A cached song could still trigger a network request | The download resolver now runs after the cache layers, and offline playback verifies local availability. A partial cache is not treated as a complete song. |
+| Quick Picks used a network-backed radio queue offline | Offline clicks now create a local queue for the selected song. The radio queue remains available online. |
+| Interrupted writes or failed library migrations could lose data | Atomic writes protect selected metadata files and older Android MP3 exports; destructive Room fallback and the final automatic database deletion were removed. The existing schema repair still requires migration testing, and a database that cannot be repaired may fail to open. |
+| Offline playlist edits need to survive disconnection | Supported operations are persisted and replayed in order while the app is running. Delivery is at least once, so a crash after server success and before local acknowledgement can replay an operation; permanent server rejection stops replay. |
+| Cached audio can have an unknown length or different formats | Cache metadata provides a fallback for the content length. Cache keys still use the song ID, so format changes can share a key and need further work. Temporary player and image caches can also be evicted. |
+| Decompilation and test coverage have limits | The YouTube Music reference was decompiled Android client code with incomplete and obfuscated sections. The changes apply observed ideas through Media3 and Velune code; they do not reproduce Google's server backend. Android device tests are still needed for airplane mode, storage permissions, interrupted downloads and database migrations. |
+
+For the detailed investigation and removed behavior, see [the offline and cache audit](docs/BACKEND_OFFLINE_AUDIT_AR.md) and [offline support notes](docs/OFFLINE_MODE.md).
+
 ## Tech stack
 
 | Area | Libraries |
