@@ -1,6 +1,12 @@
 package com.nikhil.yt.utils
 
+import java.io.IOException
+import java.net.Proxy
 import java.net.URI
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.text.Normalizer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
@@ -17,6 +23,15 @@ object SpotifyLinkResolver {
 
     private val trackIdPattern = Regex("[A-Za-z0-9]{22}")
     private val shortHosts = setOf("spotify.link", "spotify.app.link")
+    private val client by lazy {
+        OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS).build()
+    }
+
+    internal data class Response(val status: Int, val body: String, val location: String? = null)
+    class MetadataException(val reason: String, cause: Throwable? = null) : IOException(reason, cause)
+
 
     fun isSpotifyLink(url: String): Boolean = runCatching {
         val uri = URI(url)
@@ -42,37 +57,82 @@ object SpotifyLinkResolver {
         }
     }.getOrNull()
 
-    /** Blocking network calls; callers must use Dispatchers.IO. Redirects stay on Spotify hosts. */
-    fun resolve(url: String): Track {
+    /** Blocking network calls; callers must use Dispatchers.IO. */
+    fun resolve(url: String, proxy: Proxy? = null): Track {
+        val transport = if (proxy == null) client else client.newBuilder().proxy(proxy).build()
+        return resolve(url) { request(it, transport) }
+    }
+
+    // A transport boundary lets tests exercise real fallback and redirect behavior.
+    internal fun resolve(url: String, fetch: (String) -> Response): Track {
         require(isSpotifyLink(url)) { "Unsupported Spotify link" }
         var current = url
         var id = trackId(current)
         for (attempt in 0 until 5) {
             if (id != null) break
             require(URI(current).host?.lowercase() in shortHosts) { "Expected a Spotify track link" }
-            val response = Jsoup.connect(current).followRedirects(false).ignoreHttpErrors(true)
-                .timeout(15_000).maxBodySize(512_000).execute()
-            check(response.statusCode() in 300..399) { "Spotify short link did not redirect" }
-            val location = requireNotNull(response.header("Location")) { "Missing Spotify redirect" }
+            val response = fetch(current)
+            if (response.status !in 300..399) throw MetadataException("HTTP ${response.status}")
+            val location = response.location ?: throw MetadataException("Missing redirect")
             current = URI(current).resolve(location).toString()
             require(isSpotifyLink(current)) { "Unexpected Spotify redirect" }
             id = trackId(current)
         }
-        val trackId = requireNotNull(id) { "Expected a Spotify track link" }
-        // Spotify can serve an unavailable/consent page for the embed in some regions.
-        // The regular public track page provides an independent metadata fallback.
-        val embedded = runCatching {
-            parseMetadata(fetchPage("https://open.spotify.com/embed/track/$trackId"))
+        val trackId = id ?: throw MetadataException("Not a Spotify track link")
+        val failures = mutableListOf<Exception>()
+        for (path in listOf("embed/track/$trackId", "track/$trackId")) {
+            try {
+                return parseMetadata(fetchBody("https://open.spotify.com/$path", fetch))
+            } catch (error: Exception) {
+                failures += error
+            }
         }
-        return embedded.getOrElse {
-            parseMetadata(fetchPage("https://open.spotify.com/track/$trackId"))
+        // oEmbed can still supply the title when HTML metadata is blocked or changed.
+        // With no artist, show song search results instead of autoplaying an uncertain match.
+        try {
+            val encoded = URLEncoder.encode("https://open.spotify.com/track/$trackId", "UTF-8")
+            return parseOEmbed(fetchBody("https://open.spotify.com/oembed?url=$encoded", fetch))
+        } catch (error: Exception) {
+            failures += error
+        }
+        val diagnostic = failures.filterIsInstance<MetadataException>().firstOrNull()?.reason
+            ?: if (failures.any { it is IOException }) "Network request failed" else "Track data unavailable"
+        throw MetadataException(diagnostic, failures.lastOrNull()).also { combined ->
+            failures.dropLast(1).forEach(combined::addSuppressed)
         }
     }
 
-    private fun fetchPage(url: String): String = Jsoup.connect(url)
-        .userAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36")
-        .header("Accept-Language", "en-US,en;q=0.9")
-        .timeout(15_000).maxBodySize(1_000_000).get().html()
+    private fun request(url: String, transport: OkHttpClient): Response {
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36")
+            .header("Accept-Language", "en-US,en;q=0.9").build()
+        return transport.newCall(request).execute().use { response ->
+            Response(response.code, response.body?.string().orEmpty(), response.header("Location"))
+        }
+    }
+
+    private fun fetchBody(url: String, fetch: (String) -> Response): String {
+        var current = url
+        repeat(5) {
+            val response = fetch(current)
+            if (response.status in 200..299) return response.body
+            if (response.status !in 300..399) throw MetadataException("HTTP ${response.status}")
+            val location = response.location ?: throw MetadataException("Missing redirect")
+            current = URI(current).resolve(location).toString()
+            if (!isSpotifyLink(current) || URI(current).scheme?.lowercase() !in setOf("http", "https")) {
+                throw MetadataException("Spotify redirected away from track data")
+            }
+        }
+        throw MetadataException("Too many redirects")
+    }
+
+    internal fun parseOEmbed(body: String): Track {
+        val data = Json.parseToJsonElement(body).jsonObject
+        require(data["provider_name"]?.jsonPrimitive?.contentOrNull == "Spotify")
+        val title = data["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        require(title.isNotEmpty()) { "Spotify title unavailable" }
+        return Track(title, emptyList())
+    }
 
     internal fun parseMetadata(html: String): Track {
         val page = Jsoup.parse(html)
@@ -96,8 +156,8 @@ object SpotifyLinkResolver {
         require(meta("og:type") == "music.song") { "Spotify track metadata unavailable" }
         val title = meta("og:title")
         val description = meta("og:description").split('·').map(String::trim)
-        // Public descriptions are "artist · album · Song · year"; do not guess from other pages.
-        require(title.isNotBlank() && description.size >= 3 && "Song" in description) {
+        // The music.song type identifies a track; the Song label itself may be localized.
+        require(title.isNotBlank() && description.size >= 2) {
             "Missing Spotify song title or artist"
         }
         val artist = description.first()

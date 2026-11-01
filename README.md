@@ -60,6 +60,9 @@ Share a Spotify track link to **Velune**, or enable `open.spotify.com`, `spotify
 and `spotify.app.link` in **Settings → System → Open supported links**.
 Velune reads the public song title and artists, searches YouTube Music, and plays a
 close match. If no close match is found, it opens the search results for you to choose.
+If only the title is available through Spotify’s public sharing endpoint, Velune
+opens song search results for you to choose. Metadata requests use the app’s configured
+proxy when one is set.
 Spotify login is not required. Playback is from YouTube Music; Spotify albums,
 playlists, and podcasts are not supported. Metadata lookup requires an internet
 connection and depends on Spotify keeping its public track metadata available.

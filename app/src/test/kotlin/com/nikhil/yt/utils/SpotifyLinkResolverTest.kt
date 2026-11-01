@@ -108,6 +108,75 @@ class SpotifyLinkResolverTest {
         assertEquals("Roberto Cairokee", parsed.query)
     }
 
+    @Test fun blockedEmbedFallsBackToRegularTrackPage() {
+        val requested = mutableListOf<String>()
+        val result = SpotifyLinkResolver.resolve("https://open.spotify.com/track/$id") { url ->
+            requested += url
+            if ("/embed/" in url) SpotifyLinkResolver.Response(403, "blocked") else
+                SpotifyLinkResolver.Response(200, page("""
+                    {"type":"track","name":"Roberto","artists":[{"name":"Cairokee"}]}
+                """))
+        }
+        assertEquals("Roberto Cairokee", result.query)
+        assertEquals(2, requested.size)
+    }
+
+    @Test fun unavailableHtmlFallsBackToOEmbedTitleWithoutAutoplay() {
+        val result = SpotifyLinkResolver.resolve("https://open.spotify.com/track/$id") { url ->
+            if ("/oembed?" in url) SpotifyLinkResolver.Response(200,
+                """{"provider_name":"Spotify","title":"Roberto"}""")
+            else SpotifyLinkResolver.Response(200, "<html>Consent required</html>")
+        }
+        assertEquals("Roberto", result.query)
+        assertTrue(result.artists.isEmpty())
+        assertEquals(0.0, SpotifyLinkResolver.matchScore(result, "Roberto", listOf("Cairokee")), 0.0)
+    }
+
+    @Test fun allBlockedResponsesReportHttpStatusInsteadOfBlamingLinkFormat() {
+        try {
+            SpotifyLinkResolver.resolve("https://open.spotify.com/track/$id") {
+                SpotifyLinkResolver.Response(403, "blocked")
+            }
+            fail("Blocked metadata should be reported")
+        } catch (error: SpotifyLinkResolver.MetadataException) {
+            assertEquals("HTTP 403", error.reason)
+            assertEquals(2, error.suppressed.size)
+        }
+    }
+
+    @Test fun shortLinkRedirectIsResolvedBeforeMetadataLookup() {
+        val result = SpotifyLinkResolver.resolve("https://spotify.link/example") { url ->
+            if (url.startsWith("https://spotify.link/"))
+                SpotifyLinkResolver.Response(302, "", "https://open.spotify.com/track/$id?si=shared")
+            else SpotifyLinkResolver.Response(200, page("""
+                {"type":"track","name":"Roberto","artists":[{"name":"Cairokee"}]}
+            """))
+        }
+        assertEquals("Roberto Cairokee", result.query)
+    }
+
+    @Test fun localizedPublicMetadataDoesNotRequireEnglishSongLabel() {
+        val parsed = SpotifyLinkResolver.parseMetadata("""
+            <meta property="og:type" content="music.song">
+            <meta property="og:title" content="روبرتو">
+            <meta property="og:description" content="كايروكي · روما · أغنية · ٢٠٢٢">
+        """)
+        assertEquals("روبرتو كايروكي", parsed.query)
+    }
+
+    @Test fun unexpectedRedirectDoesNotFetchAnUnrelatedSite() {
+        var calls = 0
+        try {
+            SpotifyLinkResolver.resolve("https://spotify.link/example") {
+                calls++
+                SpotifyLinkResolver.Response(302, "", "https://example.com/")
+            }
+            fail("Unexpected redirect must be rejected")
+        } catch (_: IllegalArgumentException) {
+            assertEquals(1, calls)
+        }
+    }
+
     private fun page(entity: String) = """
         <html><script id="__NEXT_DATA__" type="application/json">
         {"props":{"pageProps":{"state":{"data":{"entity":$entity}}}}}

@@ -1772,12 +1772,17 @@ class MainActivity : ComponentActivity() {
         deepLinkJob = lifecycleScope.launch {
             Toast.makeText(this@MainActivity, R.string.spotify_link_searching, Toast.LENGTH_SHORT).show()
             val track = try {
-                withContext(Dispatchers.IO) { SpotifyLinkResolver.resolve(url) }
+                withContext(Dispatchers.IO) { SpotifyLinkResolver.resolve(url, YouTube.proxy) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 reportException(error)
-                Toast.makeText(this@MainActivity, R.string.spotify_metadata_failed, Toast.LENGTH_LONG).show()
+                val reason = when (error) {
+                    is SpotifyLinkResolver.MetadataException -> error.reason
+                    is java.io.IOException -> "Network request failed"
+                    else -> "Track data unavailable"
+                }
+                Toast.makeText(this@MainActivity, getString(R.string.spotify_metadata_failed, reason), Toast.LENGTH_LONG).show()
                 return@launch
             }
             val songs = try {
