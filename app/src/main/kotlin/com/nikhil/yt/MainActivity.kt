@@ -1663,7 +1663,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLinkIntent(intent: Intent, navController: NavHostController) {
-        val uri = intent.data ?: intent.extras?.getString(Intent.EXTRA_TEXT)?.toUri() ?: return
+        // Share sheets can send a title and other text alongside the actual URL.
+        val uri = intent.data ?: intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
+            ?.let { text ->
+                Regex("""(?:https?://|velune://|vnd\.youtube(?:\.launch)?://)[^\s<>"]+""", RegexOption.IGNORE_CASE)
+                    .findAll(text)
+                    .map { it.value.toUri() }
+                    .firstOrNull { candidate ->
+                        candidate.host?.lowercase() in setOf(
+                            "youtube.com", "www.youtube.com", "m.youtube.com",
+                            "music.youtube.com", "youtu.be",
+                        ) || (candidate.scheme.equals("velune", ignoreCase = true) &&
+                            candidate.host.equals("together", ignoreCase = true))
+                    }
+            } ?: return
         val coroutineScope = lifecycleScope
 
         val authority = uri.authority?.lowercase()
@@ -1673,6 +1686,13 @@ class MainActivity : ComponentActivity() {
             joinPendingTogetherIfReady()
             return
         }
+
+        val host = uri.host?.lowercase()
+        val isYouTubeScheme = uri.scheme?.lowercase() in setOf("vnd.youtube", "vnd.youtube.launch")
+        if (!isYouTubeScheme &&
+            (uri.scheme?.lowercase() !in setOf("http", "https") ||
+                host !in setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"))
+        ) return
 
         when (val path = uri.pathSegments.firstOrNull()) {
             "playlist" -> uri.getQueryParameter("list")?.let { playlistId ->
@@ -1700,13 +1720,17 @@ class MainActivity : ComponentActivity() {
             else -> {
                 val videoId = when {
                     path == "watch" -> uri.getQueryParameter("v")
-                    uri.host == "youtube" -> uri.pathSegments.firstOrNull()
+                    host == "youtu.be" -> uri.pathSegments.firstOrNull()
+                    path in setOf("v", "embed", "shorts", "live") -> uri.pathSegments.getOrNull(1)
+                    isYouTubeScheme -> uri.getQueryParameter("v")
+                        ?: uri.pathSegments.firstOrNull()
+                        ?: uri.host
                     else -> null
                 }
 
                 val playlistId = uri.getQueryParameter("list")
 
-                videoId?.let { vid ->
+                videoId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }?.let { vid ->
                     coroutineScope.launch {
                         val result = withContext(Dispatchers.IO) {
                             YouTube.queue(listOf(vid), playlistId)

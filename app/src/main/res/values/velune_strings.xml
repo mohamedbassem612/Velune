@@ -279,4 +279,5 @@
     <string name="restore_step_restoring_settings">Restoring settings</string>
     <string name="restore_step_restoring_file">Restoring %1$s</string>
     <string name="restore_step_restarting">Restarting app</string>
+    <string name="youtube_links_setup">Enable Open supported links, then select music.youtube.com and youtu.be in Android settings.</string>
 </resources>

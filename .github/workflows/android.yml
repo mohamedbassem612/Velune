@@ -11,7 +11,7 @@ on:
       release_version:
         description: APK version for this manual build
         required: true
-        default: "1.3.6"
+        default: "1.3.7"
         type: string
 
 permissions:

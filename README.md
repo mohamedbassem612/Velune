@@ -39,6 +39,18 @@ You can also follow releases with [Obtainium](https://apps.obtainium.imranr.dev/
 
 Updates: release builds check GitHub for a newer version when the app is opened (at most every 12 hours). If one is found, the app offers to download it and hands the APK to the Android installer. You still tap Install yourself, and the update must be signed with the same key as the installed app.
 
+## Open YouTube Music links
+
+In Velune, open **Settings → System → Open supported links** (Android 12 or newer).
+Enable **Open supported links**, then select `music.youtube.com`, `youtu.be`, and any
+other YouTube domains you want Velune to open. Android requires you to enable these
+manually because Velune does not own the YouTube domains. If YouTube Music already
+opens the links, disable its supported links for the same domains first.
+
+You can also use **Share → Velune** from YouTube Music or a message containing a
+song link. Velune plays the linked song, including when the app is already open.
+On older Android versions, choose Velune in the **Open with** dialog.
+
 ## Features
 
 Playback

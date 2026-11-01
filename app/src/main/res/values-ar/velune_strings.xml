@@ -250,4 +250,5 @@
     <string name="theme_seed_tertiary">ثالثي</string>
     <string name="theme_seed_neutral">محايد</string>
     <string name="theme_editor_title">اللون %1$s</string>
+    <string name="youtube_links_setup">فعّل فتح الروابط المدعومة، ثم اختَر music.youtube.com وyoutu.be من إعدادات أندرويد.</string>
 </resources>
