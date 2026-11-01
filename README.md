@@ -51,6 +51,16 @@ You can also use **Share → Velune** from YouTube Music or a message containing
 song link. Velune plays the linked song, including when the app is already open.
 On older Android versions, choose Velune in the **Open with** dialog.
 
+## Open Spotify song links
+
+Share a Spotify track link to **Velune**, or enable `open.spotify.com`, `spotify.link`,
+and `spotify.app.link` in **Settings → System → Open supported links**.
+Velune reads the public song title and artists, searches YouTube Music, and plays a
+close match. If no close match is found, it opens the search results for you to choose.
+Spotify login is not required. Playback is from YouTube Music; Spotify albums,
+playlists, and podcasts are not supported. Metadata lookup requires an internet
+connection and depends on Spotify keeping its public track metadata available.
+
 ## Features
 
 Playback

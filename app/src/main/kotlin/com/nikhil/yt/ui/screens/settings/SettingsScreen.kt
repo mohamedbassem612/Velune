@@ -482,13 +482,14 @@ fun SettingsScreen(
                             PremiumSettingsItem(
                                 icon = painterResource(R.drawable.link),
                                 title = stringResource(R.string.default_links),
-                                subtitle = stringResource(R.string.youtube_links_setup),
+                                subtitle = stringResource(R.string.spotify_links_setup),
                                 accentColor = MaterialTheme.colorScheme.primary,
                                 keywords = listOf(
                                     "links",
                                     "deeplink",
                                     "default",
                                     "supported links",
+                                    "Spotify",
                                     "YouTube Music",
                                     "YouTube",
                                     "روابط",

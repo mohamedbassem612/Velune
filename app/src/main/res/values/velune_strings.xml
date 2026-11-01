@@ -280,4 +280,8 @@
     <string name="restore_step_restoring_file">Restoring %1$s</string>
     <string name="restore_step_restarting">Restarting app</string>
     <string name="youtube_links_setup">Enable Open supported links, then select music.youtube.com and youtu.be in Android settings.</string>
+    <string name="spotify_link_searching">Finding this Spotify song on YouTube Music…</string>
+    <string name="spotify_link_choose_result">No close match found. Choose a song from the search results.</string>
+    <string name="spotify_link_failed">Could not open this Spotify song. Check your connection and share a track link.</string>
+    <string name="spotify_links_setup">Enable Open supported links and select the YouTube and Spotify domains you want Velune to open.</string>
 </resources>

@@ -132,6 +132,34 @@
                 <data android:scheme="vnd.youtube.launch" />
             </intent-filter>
 
+            <!-- Spotify tracks are matched and played through YouTube Music. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="open.spotify.com" />
+                <data android:pathPrefix="/track/" />
+                <data android:pathPattern="/intl-.*/track/.*" />
+                <data android:pathPrefix="/embed/track/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="spotify.link" />
+                <data android:host="spotify.app.link" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="spotify" />
+            </intent-filter>
+
             <!-- Share filter -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
