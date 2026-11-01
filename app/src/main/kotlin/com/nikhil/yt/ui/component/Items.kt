@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.MutableState
@@ -99,6 +100,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import com.nikhil.yt.utils.ArtworkConnectivity
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.innertube.models.SongItem
 import com.nikhil.yt.innertube.models.AlbumItem
@@ -1180,6 +1182,17 @@ fun ItemThumbnail(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val online by remember(context) { ArtworkConnectivity.online(context) }.collectAsState()
+    var imageFailed by remember(thumbnailUrl) { mutableStateOf(false) }
+    var retryGeneration by remember(thumbnailUrl) { androidx.compose.runtime.mutableIntStateOf(0) }
+
+    // Retry failed visible images once when connectivity is restored; cached images stay intact.
+    LaunchedEffect(online, thumbnailUrl) {
+        if (online && imageFailed) {
+            imageFailed = false
+            retryGeneration++
+        }
+    }
 
     BoxWithConstraints(
         contentAlignment = Alignment.Center,
@@ -1207,14 +1220,18 @@ fun ItemThumbnail(
                         }
                         .build()
                 }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = if (shouldApplySquareCrop) ContentScale.Crop else ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .let { if (shouldApplySquareCrop) it.aspectRatio(1f) else it }
-                )
+                key(retryGeneration) {
+                    AsyncImage(
+                        model = request,
+                        contentDescription = null,
+                        onSuccess = { imageFailed = false },
+                        onError = { imageFailed = true },
+                        contentScale = if (shouldApplySquareCrop) ContentScale.Crop else ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .let { if (shouldApplySquareCrop) it.aspectRatio(1f) else it }
+                    )
+                }
             } else {
                 Box(
                     modifier = Modifier
