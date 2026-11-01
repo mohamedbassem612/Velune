@@ -80,6 +80,34 @@ class SpotifyLinkResolverTest {
         assertTrue(exact > alternate)
     }
 
+    @Test fun readsReportedRobertoTrackMetadata() {
+        val parsed = SpotifyLinkResolver.parseMetadata(page("""
+            {"type":"track","name":"Roberto","artists":[{"name":"Cairokee"}]}
+        """))
+        assertEquals("Roberto Cairokee", parsed.query)
+        assertEquals("64UXkp5qVMJduPib0auZnn", SpotifyLinkResolver.trackId(
+            "https://open.spotify.com/track/64UXkp5qVMJduPib0auZnn?si=PaKTd_yeSpeSOwr7PCL1Tg&utm_source=whatsapp"))
+    }
+
+    @Test fun fallsBackToPublicSongMetadataWhenEmbedIsMissing() {
+        val parsed = SpotifyLinkResolver.parseMetadata("""
+            <meta property="og:type" content="music.song">
+            <meta property="og:title" content="Roberto">
+            <meta property="og:description" content="Cairokee · Roma · Song · 2022">
+        """)
+        assertEquals(SpotifyLinkResolver.Track("Roberto", listOf("Cairokee")), parsed)
+    }
+
+    @Test fun malformedEmbedDoesNotHideValidPublicSongMetadata() {
+        val parsed = SpotifyLinkResolver.parseMetadata("""
+            <script id="__NEXT_DATA__">{invalid json}</script>
+            <meta property="og:type" content="music.song">
+            <meta property="og:title" content="Roberto">
+            <meta property="og:description" content="Cairokee · Roma · Song · 2022">
+        """)
+        assertEquals("Roberto Cairokee", parsed.query)
+    }
+
     private fun page(entity: String) = """
         <html><script id="__NEXT_DATA__" type="application/json">
         {"props":{"pageProps":{"state":{"data":{"entity":$entity}}}}}

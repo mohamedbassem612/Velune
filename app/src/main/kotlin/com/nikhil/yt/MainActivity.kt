@@ -143,6 +143,7 @@ import com.valentinilk.shimmer.LocalShimmerTheme
 import dagger.hilt.android.AndroidEntryPoint
 import android.widget.Toast
 import kotlinx.coroutines.CancellationException
+import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.Job
 import com.nikhil.yt.utils.SpotifyLinkResolver
 import kotlinx.coroutines.Dispatchers
@@ -252,7 +253,7 @@ class MainActivity : ComponentActivity() {
     private var pendingIntent: Intent? = null
     private var pendingDeepLinkSong: PendingDeepLinkSong? = null
     private var pendingTogetherJoinLink: String? = null
-    private var spotifyLinkJob: Job? = null
+    private var deepLinkJob: Job? = null
 
     private var playerConnection by mutableStateOf<PlayerConnection?>(null)
     private var isMusicServiceBound = false
@@ -695,6 +696,7 @@ class MainActivity : ComponentActivity() {
                         .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
                     val navController = rememberNavController()
+                    SideEffect { this@MainActivity.navController = navController }
                     val homeViewModel: HomeViewModel = hiltViewModel()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val (_) = rememberSaveable { mutableStateOf("home") }
@@ -1671,20 +1673,20 @@ class MainActivity : ComponentActivity() {
         // Share sheets can send a title and other text alongside the actual URL.
         val uri = intent.data ?: intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
             ?.let { text ->
-                Regex("""(?:https?://|spotify:|velune://|vnd\.youtube(?:\.launch)?://)[^\s<>"]+""", RegexOption.IGNORE_CASE)
+                Regex("""(?:https?://|spotify:|velune://)[^\s<>"]+""", RegexOption.IGNORE_CASE)
                     .findAll(text)
                     .map { it.value.toUri() }
                     .firstOrNull { candidate ->
                         SpotifyLinkResolver.isSpotifyLink(candidate.toString()) ||
                         candidate.host?.lowercase() in setOf(
-                            "youtube.com", "www.youtube.com", "m.youtube.com",
                             "music.youtube.com", "youtu.be",
                         ) || (candidate.scheme.equals("velune", ignoreCase = true) &&
                             candidate.host.equals("together", ignoreCase = true))
                     }
             } ?: return
         val coroutineScope = lifecycleScope
-        spotifyLinkJob?.cancel()
+        deepLinkJob?.cancel()
+        pendingDeepLinkSong = null
         if (SpotifyLinkResolver.isSpotifyLink(uri.toString())) {
             openSpotifySong(uri.toString(), navController)
             return
@@ -1699,16 +1701,14 @@ class MainActivity : ComponentActivity() {
         }
 
         val host = uri.host?.lowercase()
-        val isYouTubeScheme = uri.scheme?.lowercase() in setOf("vnd.youtube", "vnd.youtube.launch")
-        if (!isYouTubeScheme &&
-            (uri.scheme?.lowercase() !in setOf("http", "https") ||
-                host !in setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"))
+        if (uri.scheme?.lowercase() !in setOf("http", "https") ||
+            host !in setOf("music.youtube.com", "youtu.be")
         ) return
 
         when (val path = uri.pathSegments.firstOrNull()) {
             "playlist" -> uri.getQueryParameter("list")?.let { playlistId ->
                 if (playlistId.startsWith("OLAK5uy_")) {
-                    coroutineScope.launch {
+                    deepLinkJob = coroutineScope.launch {
                         YouTube.albumSongs(playlistId).onSuccess { songs ->
                             songs.firstOrNull()?.album?.id?.let { browseId ->
                                 navController.navigate("album/$browseId")
@@ -1730,19 +1730,15 @@ class MainActivity : ComponentActivity() {
 
             else -> {
                 val videoId = when {
-                    path == "watch" -> uri.getQueryParameter("v")
-                    host == "youtu.be" -> uri.pathSegments.firstOrNull()
-                    path in setOf("v", "embed", "shorts", "live") -> uri.pathSegments.getOrNull(1)
-                    isYouTubeScheme -> uri.getQueryParameter("v")
-                        ?: uri.pathSegments.firstOrNull()
-                        ?: uri.host
+                    host == "music.youtube.com" && path == "watch" -> uri.getQueryParameter("v")
+                    host == "youtu.be" && uri.pathSegments.size == 1 -> uri.pathSegments.firstOrNull()
                     else -> null
                 }
 
                 val playlistId = uri.getQueryParameter("list")
 
                 videoId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }?.let { vid ->
-                    coroutineScope.launch {
+                    deepLinkJob = coroutineScope.launch {
                         val result = withContext(Dispatchers.IO) {
                             YouTube.queue(listOf(vid), playlistId)
                         }
@@ -1773,30 +1769,43 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openSpotifySong(url: String, navController: NavHostController) {
-        spotifyLinkJob = lifecycleScope.launch {
+        deepLinkJob = lifecycleScope.launch {
             Toast.makeText(this@MainActivity, R.string.spotify_link_searching, Toast.LENGTH_SHORT).show()
-            try {
-                val track = withContext(Dispatchers.IO) { SpotifyLinkResolver.resolve(url) }
-                val songs = withContext(Dispatchers.IO) {
-                    YouTube.search(track.query, YouTube.SearchFilter.FILTER_SONG).getOrThrow()
-                        .items.filterIsInstance<SongItem>()
-                }
-                val match = songs.map { song ->
-                    song to SpotifyLinkResolver.matchScore(track, song.title, song.artists.map { it.name })
-                }.filter { it.second > 0 }.maxByOrNull { it.second }?.first
-                if (match == null) {
-                    Toast.makeText(this@MainActivity, R.string.spotify_link_choose_result, Toast.LENGTH_LONG).show()
-                    navController.navigate("search/${URLEncoder.encode(track.query, "UTF-8")}")
-                } else {
-                    pendingDeepLinkSong = PendingDeepLinkSong(mediaItem = match.toMediaItem())
-                    startMusicServiceSafely()
-                    playPendingDeepLinkSongIfReady()
+            val track = try {
+                withContext(Dispatchers.IO) { SpotifyLinkResolver.resolve(url) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                reportException(error)
+                Toast.makeText(this@MainActivity, R.string.spotify_metadata_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val songs = try {
+                withContext(Dispatchers.IO) {
+                    val filtered = YouTube.search(track.query, YouTube.SearchFilter.FILTER_SONG)
+                        .getOrNull()?.items?.filterIsInstance<SongItem>().orEmpty()
+                    if (filtered.isNotEmpty()) filtered else {
+                        YouTube.searchSummary(track.query).getOrThrow().summaries
+                            .flatMap { it.items }.filterIsInstance<SongItem>().distinctBy { it.id }
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 reportException(error)
-                Toast.makeText(this@MainActivity, R.string.spotify_link_failed, Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, R.string.spotify_search_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val match = songs.map { song ->
+                song to SpotifyLinkResolver.matchScore(track, song.title, song.artists.map { it.name })
+            }.filter { it.second > 0 }.maxByOrNull { it.second }?.first
+            if (match == null) {
+                navController.navigate("search/${URLEncoder.encode(track.query, "UTF-8")}")
+                Toast.makeText(this@MainActivity, R.string.spotify_link_choose_result, Toast.LENGTH_LONG).show()
+            } else {
+                pendingDeepLinkSong = PendingDeepLinkSong(mediaItem = match.toMediaItem())
+                startMusicServiceSafely()
+                playPendingDeepLinkSongIfReady()
             }
         }
     }

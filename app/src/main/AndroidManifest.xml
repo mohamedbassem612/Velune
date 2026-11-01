@@ -85,15 +85,8 @@
 
                 <data android:scheme="http" />
                 <data android:scheme="https" />
-                <data android:host="youtube.com" />
-                <data android:host="m.youtube.com" />
-                <data android:host="www.youtube.com" />
                 <data android:host="music.youtube.com" />
-                <!-- video prefix -->
-                <data android:pathPrefix="/v/" />
-                <data android:pathPrefix="/embed/" />
-                <data android:pathPrefix="/shorts/" />
-                <data android:pathPrefix="/live/" />
+                <!-- YouTube Music song URLs use /watch?v=... -->
                 <data android:pathPrefix="/watch" />
                 <!-- channel prefix -->
                 <data android:pathPrefix="/channel/" />
@@ -120,18 +113,6 @@
                 <data android:host="youtu.be" />
                 <data android:pathPrefix="/" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
-                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-
-                <data android:scheme="vnd.youtube" />
-                <data android:scheme="vnd.youtube.launch" />
-            </intent-filter>
-
             <!-- Spotify tracks are matched and played through YouTube Music. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

@@ -253,6 +253,7 @@
     <string name="youtube_links_setup">فعّل فتح الروابط المدعومة، ثم اختَر music.youtube.com وyoutu.be من إعدادات أندرويد.</string>
     <string name="spotify_link_searching">جاري البحث عن أغنية Spotify على YouTube Music…</string>
     <string name="spotify_link_choose_result">لم نجد نتيجة مطابقة بوضوح. اختَر الأغنية من نتائج البحث.</string>
-    <string name="spotify_link_failed">تعذّر فتح أغنية Spotify. تحقّق من الإنترنت وشارك رابط أغنية.</string>
     <string name="spotify_links_setup">فعّل فتح الروابط المدعومة واختَر نطاقات YouTube وSpotify التي تريد فتحها في Velune.</string>
+    <string name="spotify_metadata_failed">تعذّر قراءة بيانات أغنية Spotify. جرّب مشاركة رابط الأغنية الكامل من Spotify.</string>
+    <string name="spotify_search_failed">تعذّر البحث على YouTube Music. حاول مرة أخرى.</string>
 </resources>

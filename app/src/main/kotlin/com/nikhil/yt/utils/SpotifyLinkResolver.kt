@@ -59,24 +59,50 @@ object SpotifyLinkResolver {
             id = trackId(current)
         }
         val trackId = requireNotNull(id) { "Expected a Spotify track link" }
-        val page = Jsoup.connect("https://open.spotify.com/embed/track/$trackId")
-            .timeout(15_000).maxBodySize(1_000_000).get()
-        return parseMetadata(page.html())
+        // Spotify can serve an unavailable/consent page for the embed in some regions.
+        // The regular public track page provides an independent metadata fallback.
+        val embedded = runCatching {
+            parseMetadata(fetchPage("https://open.spotify.com/embed/track/$trackId"))
+        }
+        return embedded.getOrElse {
+            parseMetadata(fetchPage("https://open.spotify.com/track/$trackId"))
+        }
     }
 
+    private fun fetchPage(url: String): String = Jsoup.connect(url)
+        .userAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .timeout(15_000).maxBodySize(1_000_000).get().html()
+
     internal fun parseMetadata(html: String): Track {
-        val script = Jsoup.parse(html).selectFirst("script#__NEXT_DATA__")?.data()
-        require(!script.isNullOrBlank()) { "Spotify track metadata unavailable" }
-        val entity = requireNotNull(Json.parseToJsonElement(script).jsonObject["props"]?.jsonObject
-            ?.get("pageProps")?.jsonObject?.get("state")?.jsonObject
-            ?.get("data")?.jsonObject?.get("entity")?.jsonObject) { "Spotify track metadata unavailable" }
-        require(entity["type"]?.jsonPrimitive?.contentOrNull == "track") { "Expected a Spotify track" }
-        val title = entity["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        val artists = entity["artists"]?.jsonArray?.mapNotNull {
-            it.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
-        }.orEmpty()
-        require(title.isNotEmpty() && artists.isNotEmpty()) { "Missing Spotify song title or artist" }
-        return Track(title, artists)
+        val page = Jsoup.parse(html)
+        val script = page.selectFirst("script#__NEXT_DATA__")?.data()
+        if (!script.isNullOrBlank()) {
+            val embedded = runCatching {
+                val entity = requireNotNull(Json.parseToJsonElement(script).jsonObject["props"]?.jsonObject
+                    ?.get("pageProps")?.jsonObject?.get("state")?.jsonObject
+                    ?.get("data")?.jsonObject?.get("entity")?.jsonObject)
+                require(entity["type"]?.jsonPrimitive?.contentOrNull == "track")
+                val title = entity["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val artists = entity["artists"]?.jsonArray?.mapNotNull {
+                    it.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+                }.orEmpty()
+                require(title.isNotEmpty() && artists.isNotEmpty())
+                Track(title, artists)
+            }.getOrNull()
+            if (embedded != null) return embedded
+        }
+        fun meta(property: String) = page.selectFirst("meta[property=$property]")?.attr("content")?.trim().orEmpty()
+        require(meta("og:type") == "music.song") { "Spotify track metadata unavailable" }
+        val title = meta("og:title")
+        val description = meta("og:description").split('·').map(String::trim)
+        // Public descriptions are "artist · album · Song · year"; do not guess from other pages.
+        require(title.isNotBlank() && description.size >= 3 && "Song" in description) {
+            "Missing Spotify song title or artist"
+        }
+        val artist = description.first()
+        require(artist.isNotBlank()) { "Missing Spotify artist" }
+        return Track(title, listOf(artist))
     }
 
     // Requiring both title and artist avoids autoplaying an unrelated song or a cover.

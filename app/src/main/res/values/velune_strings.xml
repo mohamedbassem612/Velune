@@ -282,6 +282,7 @@
     <string name="youtube_links_setup">Enable Open supported links, then select music.youtube.com and youtu.be in Android settings.</string>
     <string name="spotify_link_searching">Finding this Spotify song on YouTube Music…</string>
     <string name="spotify_link_choose_result">No close match found. Choose a song from the search results.</string>
-    <string name="spotify_link_failed">Could not open this Spotify song. Check your connection and share a track link.</string>
     <string name="spotify_links_setup">Enable Open supported links and select the YouTube and Spotify domains you want Velune to open.</string>
+    <string name="spotify_metadata_failed">Could not read this Spotify track. Try sharing the full song link from Spotify.</string>
+    <string name="spotify_search_failed">YouTube Music search failed. Please try again.</string>
 </resources>
