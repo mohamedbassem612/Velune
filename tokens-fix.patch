@@ -1,0 +1,42 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -1028,7 +1028,7 @@
+                     isPausedProvider = { !player.isPlaying },
+                     intervalProvider = { getPresenceIntervalMillis(this@MusicService) }
+                 )
+-                Timber.tag("MusicService").d("Presence manager started with token=$key")
++                Timber.tag("MusicService").d("Presence manager started")
+                 lastPresenceToken = key
+             } catch (ex: Exception) {
+                 Timber.tag("MusicService").e(ex, "Failed to start presence manager")
+@@ -2131,7 +2131,7 @@
+                 return@launch
+             }
+ 
+-            val togetherToken = "VeluneAdminToken"
++            val togetherToken = com.nikhil.yt.BuildConfig.TOGETHER_BEARER_TOKEN.trim().takeIf { it.isNotBlank() }
+             if (togetherToken == null) {
+                 scope.launch(SilentHandler) {
+                     togetherSessionState.value =
+@@ -2466,7 +2466,7 @@
+                 return@launch
+             }
+ 
+-            val togetherToken ="velune_server_token"
++            val togetherToken = com.nikhil.yt.BuildConfig.TOGETHER_BEARER_TOKEN.trim().takeIf { it.isNotBlank() }
+             if (togetherToken == null) {
+                 scope.launch(SilentHandler) {
+                     togetherSessionState.value =
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/DiscordLoginScreen.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/DiscordLoginScreen.kt
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/DiscordLoginScreen.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/settings/DiscordLoginScreen.kt
+@@ -85,7 +85,7 @@
+                 addJavascriptInterface(object {
+                     @JavascriptInterface
+                     fun onRetrieveToken(token: String) {
+-                        Log.d("DiscordWebView", "Token: $token")
++                        Log.d("DiscordWebView", "Token retrieved")
+                         scope.launch(Dispatchers.Main) { completeLogin(token) }
+                     }
+                 }, "Android")

@@ -1,0 +1,216 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+index 6c56e9e..16d2cf7 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -558,6 +558,7 @@ class MusicService :
+                 }
+ 
+         com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
++        ioScope.launch { runCatching { YTPlayerUtils.warmUp() } }
+         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+         setupAudioFocusRequest()
+ 
+@@ -3384,6 +3385,7 @@ class MusicService :
+     )
+ 
+     crossfadeAudio?.onMediaItemTransition(mediaItem, reason)
++    prefetchNextStream()
+ 
+     val currentIndex = player.currentMediaItemIndex
+     val queue = player.mediaItems.mapNotNull { it.metadata }
+@@ -4116,11 +4118,13 @@ class MusicService :
+             }
+ 
+             playbackUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
++                android.util.Log.i("StreamTiming", "$mediaId url served from cache (no resolve)")
+                 scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                 val length = if (dataSpec.length >= 0) minOf(dataSpec.length, CHUNK_LENGTH) else CHUNK_LENGTH
+                 return@Factory dataSpec.withUri(it.first.toUri()).subrange(dataSpec.uriPositionOffset, length)
+             }
+ 
++            val resolveStartMs = android.os.SystemClock.elapsedRealtime()
+             val playbackData = runBlocking(Dispatchers.IO) {
+                 YTPlayerUtils.playerResponseForPlayback(
+                     mediaId,
+@@ -4129,6 +4133,11 @@ class MusicService :
+                     preferredStreamClient = preferredStreamClient,
+                     avoidCodecs = avoidStreamCodecs,
+                 )
++            }.also {
++                android.util.Log.i(
++                    "StreamTiming",
++                    "$mediaId RESOLVER TOTAL ${android.os.SystemClock.elapsedRealtime() - resolveStartMs}ms (ok=${it.isSuccess})"
++                )
+             }.getOrElse { throwable ->
+                 when (throwable) {
+                     is PlaybackException -> throw throwable
+@@ -4198,6 +4207,62 @@ class MusicService :
+         }
+     }
+ 
++    private val prefetchInFlight = ConcurrentHashMap.newKeySet<String>()
++
++    /**
++     * Resolves the stream URL of the next song in the background so skipping or auto-advancing
++     * starts instantly instead of waiting for the URL work. Must be called on the main thread.
++     */
++    private fun prefetchNextStream() {
++        val nextIndex = player.nextMediaItemIndex
++        if (nextIndex == C.INDEX_UNSET || nextIndex !in 0 until player.mediaItemCount) return
++        val nextId = player.getMediaItemAt(nextIndex).mediaId.trim().takeIf { it.isNotBlank() } ?: return
++        if (nextId == player.currentMediaItem?.mediaId) return
++        if (playbackUrlCache[nextId]?.second?.let { it > System.currentTimeMillis() } == true) return
++        if (!prefetchInFlight.add(nextId)) return
++
++        ioScope.launch {
++            try {
++                if (runCatching { downloadCache.getCachedSpans(nextId).isNotEmpty() }.getOrDefault(false)) return@launch
++                val t0 = android.os.SystemClock.elapsedRealtime()
++                val data = YTPlayerUtils.playerResponseForPlayback(
++                    nextId,
++                    audioQuality = audioQuality,
++                    connectivityManager = connectivityManager,
++                    preferredStreamClient = preferredStreamClient,
++                    avoidCodecs = avoidStreamCodecs,
++                ).getOrNull() ?: return@launch
++                val format = data.format
++                database.query {
++                    upsert(
++                        FormatEntity(
++                            id = nextId,
++                            itag = format.itag,
++                            mimeType = format.mimeType.split(";")[0],
++                            codecs = format.mimeType.split("codecs=").getOrElse(1) { "" }.removeSurrounding("\""),
++                            bitrate = format.bitrate,
++                            sampleRate = format.audioSampleRate,
++                            contentLength = format.contentLength ?: C.LENGTH_UNSET.toLong(),
++                            loudnessDb = data.audioConfig?.loudnessDb,
++                            perceptualLoudnessDb = data.audioConfig?.perceptualLoudnessDb,
++                            playbackUrl = data.playbackTracking?.videostatsPlaybackUrl?.baseUrl
++                        )
++                    )
++                }
++                playbackUrlCache[nextId] =
++                    data.streamUrl to System.currentTimeMillis() + (data.streamExpiresInSeconds * 1000L)
++                android.util.Log.i(
++                    "StreamTiming",
++                    "$nextId PREFETCH done in ${android.os.SystemClock.elapsedRealtime() - t0}ms"
++                )
++            } catch (e: Exception) {
++                if (e is kotlinx.coroutines.CancellationException) throw e
++            } finally {
++                prefetchInFlight.remove(nextId)
++            }
++        }
++    }
++
+     fun retryCurrentFromFreshStream() {
+         val mediaId = player.currentMediaItem?.mediaId ?: return
+         clearStreamRefreshGuards(mediaId)
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt b/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt
+index ca93270..a7bce20 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt
+@@ -101,6 +101,21 @@ object YTPlayerUtils {
+     private val validatedStreamClientsUntil = ConcurrentHashMap<String, Long>()
+     private const val VALIDATED_CLIENT_TTL_MS = 30 * 60 * 1000L
+ 
++    fun warmUp() {
++        val t0 = android.os.SystemClock.elapsedRealtime()
++        NewPipeUtils.warmUp()
++        android.util.Log.i("StreamTiming", "warmUp done in ${android.os.SystemClock.elapsedRealtime() - t0}ms")
++    }
++
++    private inline fun <T> timed(label: String, videoId: String, block: () -> T): T {
++        val t0 = android.os.SystemClock.elapsedRealtime()
++        try {
++            return block()
++        } finally {
++            android.util.Log.i("StreamTiming", "$videoId $label ${android.os.SystemClock.elapsedRealtime() - t0}ms")
++        }
++    }
++
+     fun invalidateCachedStreamUrls(videoId: String) {
+         val prefix = "$videoId:"
+         streamUrlCache.keys.removeIf { it.startsWith(prefix) }
+@@ -199,7 +214,7 @@ object YTPlayerUtils {
+         avoidCodecs: Set<String>,
+     ): PlaybackData {
+         Timber.tag(logTag).i("Fetching player response for videoId: $videoId, playlistId: $playlistId")
+-        val signatureTimestamp = getSignatureTimestampOrNull(videoId)
++        val signatureTimestamp = timed("signatureTimestamp", videoId) { getSignatureTimestampOrNull(videoId) }
+         Timber.tag(logTag).v("Signature timestamp: $signatureTimestamp")
+ 
+         val isLoggedIn = YouTube.cookie != null
+@@ -234,8 +249,10 @@ object YTPlayerUtils {
+             preferredYouTubeClient.takeIf { preferredStreamClient == PlayerStreamClient.ANDROID_VR } ?: MAIN_CLIENT
+ 
+         Timber.tag(logTag).i("Fetching metadata response using client: ${metadataClient.clientName}")
+-        val metadataPlayerResponse = runCatching {
+-            YouTube.player(videoId, playlistId, metadataClient, signatureTimestamp).getOrThrow()}.getOrNull()
++        val metadataPlayerResponse = timed("metadata(${metadataClient.clientName})", videoId) {
++            runCatching {
++                YouTube.player(videoId, playlistId, metadataClient, signatureTimestamp).getOrThrow()}.getOrNull()
++        }
+         val audioConfig = metadataPlayerResponse?.playerConfig?.audioConfig
+         val videoDetails = metadataPlayerResponse?.videoDetails
+         val playbackTracking = metadataPlayerResponse?.playbackTracking
+@@ -276,7 +293,9 @@ object YTPlayerUtils {
+                     metadataPlayerResponse
+                 } else {
+                     Timber.tag(logTag).i("Fetching player response for fallback client: ${client.clientName}")
+-                    YouTube.player(videoId, playlistId, client, signatureTimestamp).getOrNull()
++                    timed("fallbackPlayer(${client.clientName})", videoId) {
++                        YouTube.player(videoId, playlistId, client, signatureTimestamp).getOrNull()
++                    }
+                 }
+ 
+             if (streamPlayerResponse == null) continue
+@@ -319,7 +338,9 @@ object YTPlayerUtils {
+                     if (cached != null && cached.expiresAtMs > System.currentTimeMillis()) {
+                         cached.url
+                     } else {
+-                        findUrlOrNull(candidate, videoId, client)
++                        timed("findUrl(${client.clientName},itag=${candidate.itag})", videoId) {
++                            findUrlOrNull(candidate, videoId, client)
++                        }
+                     } ?: continue
+                 selectedFormat = candidate
+                 selectedUrl = candidateUrl
+@@ -343,7 +364,9 @@ object YTPlayerUtils {
+             val clientKey = normalizeStreamClientKey(client.clientName)
+             val now = System.currentTimeMillis()
+             val recentlyValidated = (validatedStreamClientsUntil[clientKey] ?: 0L) > now
+-            val valid = recentlyValidated || validateStatus(streamUrl, client.userAgent)
++            val valid = recentlyValidated || timed("validateStatus(${client.clientName})", videoId) {
++                validateStatus(streamUrl, client.userAgent)
++            }
+             if (valid) {
+                 if (!recentlyValidated) {
+                     validatedStreamClientsUntil[clientKey] = now + VALIDATED_CLIENT_TTL_MS
+diff --git a/innertube/src/main/kotlin/com/nikhil/yt/innertube/pages/NewPipe.kt b/innertube/src/main/kotlin/com/nikhil/yt/innertube/pages/NewPipe.kt
+index 0535fb4..61f592b 100644
+--- a/innertube/src/main/kotlin/com/nikhil/yt/innertube/pages/NewPipe.kt
++++ b/innertube/src/main/kotlin/com/nikhil/yt/innertube/pages/NewPipe.kt
+@@ -90,6 +90,21 @@ object NewPipeUtils {
+         NewPipe.init(NewPipeDownloaderImpl(YouTube.proxy))
+     }
+ 
++    /**
++     * Downloads and prepares the YouTube JS player ahead of time so the first song does not
++     * pay for it. Safe to call from a background thread; failures are ignored.
++     */
++    fun warmUp() {
++        val warmVideoId = "dQw4w9WgXcQ"
++        runCatching { YoutubeJavaScriptPlayerManager.getSignatureTimestamp(warmVideoId) }
++        runCatching {
++            YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(
++                warmVideoId,
++                "https://rr1---sn-warmup.googlevideo.com/videoplayback?n=abcdefghijklmnop",
++            )
++        }
++    }
++
+     fun getSignatureTimestamp(videoId: String): Result<Int> = runCatching {
+         YoutubeJavaScriptPlayerManager.getSignatureTimestamp(videoId)
+     }

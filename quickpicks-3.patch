@@ -1,0 +1,255 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt
+index 2383882..1182034 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt
+@@ -339,8 +339,10 @@ fun HomeScreen(
+ 
+ 
+             val moodSongs = moodQuickPicks
+-            if (moodSongs != null) {
+-                if (moodSongs.isNotEmpty()) {
++            run {
++                // While the new songs are still loading (null) the local picks are shown
++                // instead of an empty space.
++                if (!moodSongs.isNullOrEmpty()) {
+                     item {
+                         MoodQuickPicksListSection(
+                             songs = moodSongs,
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/QuickPicksCache.kt b/app/src/main/kotlin/com/nikhil/yt/utils/QuickPicksCache.kt
+new file mode 100644
+index 0000000..50a2473
+--- /dev/null
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/QuickPicksCache.kt
+@@ -0,0 +1,100 @@
++/*
++ * Velune - by Nikhil
++ * Nikhil
++ * Licensed Under GPL-3.0
++ */
++
++package com.nikhil.yt.utils
++
++import android.content.Context
++import com.nikhil.yt.innertube.models.Album
++import com.nikhil.yt.innertube.models.Artist
++import com.nikhil.yt.innertube.models.SongItem
++import org.json.JSONArray
++import org.json.JSONObject
++import java.io.File
++
++/**
++ * Keeps the last Quick picks on disk so the list shows right away when the app opens,
++ * before the network answers.
++ */
++object QuickPicksCache {
++    private const val FILE_NAME = "quick_picks_cache.json"
++
++    private fun file(context: Context) = File(context.filesDir, FILE_NAME)
++
++    fun save(context: Context, songs: List<SongItem>) {
++        try {
++            val array = JSONArray()
++            songs.forEach { song ->
++                array.put(
++                    JSONObject().apply {
++                        put("id", song.id)
++                        put("title", song.title)
++                        put("thumbnail", song.thumbnail)
++                        put("explicit", song.explicit)
++                        put("duration", song.duration ?: -1)
++                        put("artists", JSONArray().also { list ->
++                            song.artists.forEach { artist ->
++                                list.put(JSONObject().apply {
++                                    put("name", artist.name)
++                                    put("id", artist.id ?: JSONObject.NULL)
++                                })
++                            }
++                        })
++                        song.album?.let {
++                            put("album", JSONObject().apply {
++                                put("name", it.name)
++                                put("id", it.id)
++                            })
++                        }
++                    }
++                )
++            }
++            val target = file(context)
++            val temp = File(target.parentFile, "$FILE_NAME.tmp")
++            temp.writeText(array.toString())
++            if (!temp.renameTo(target)) {
++                target.writeText(array.toString())
++                temp.delete()
++            }
++        } catch (_: Exception) {
++        }
++    }
++
++    fun load(context: Context): List<SongItem>? {
++        return try {
++            val target = file(context)
++            if (!target.exists()) return null
++            val array = JSONArray(target.readText())
++            val result = ArrayList<SongItem>(array.length())
++            for (i in 0 until array.length()) {
++                val obj = array.getJSONObject(i)
++                val artistsJson = obj.optJSONArray("artists") ?: JSONArray()
++                val artists = (0 until artistsJson.length()).map { index ->
++                    val artist = artistsJson.getJSONObject(index)
++                    Artist(
++                        name = artist.getString("name"),
++                        id = if (artist.isNull("id")) null else artist.getString("id"),
++                    )
++                }
++                val album = obj.optJSONObject("album")?.let {
++                    Album(name = it.getString("name"), id = it.getString("id"))
++                }
++                val duration = obj.optInt("duration", -1)
++                result += SongItem(
++                    id = obj.getString("id"),
++                    title = obj.getString("title"),
++                    artists = artists,
++                    album = album,
++                    duration = if (duration >= 0) duration else null,
++                    thumbnail = obj.getString("thumbnail"),
++                    explicit = obj.optBoolean("explicit", false),
++                )
++            }
++            result
++        } catch (_: Exception) {
++            null
++        }
++    }
++}
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+index 174325b..78ced30 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+@@ -36,6 +36,8 @@ import com.nikhil.yt.utils.dataStore
+ import com.nikhil.yt.utils.get
+ import com.nikhil.yt.utils.SyncUtils
+ import com.nikhil.yt.utils.reportException
++import com.nikhil.yt.ui.utils.resize
++import com.nikhil.yt.utils.QuickPicksCache
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import kotlinx.coroutines.Dispatchers
+@@ -70,6 +72,10 @@ class HomeViewModel @Inject constructor(
+     val moodQuickPicks = MutableStateFlow<List<SongItem>?>(null)
+     // Used by the Quick picks list when new songs cannot be loaded.
+     val quickPicksFallback = MutableStateFlow<List<Song>?>(null)
++    // True while the list on screen came from the disk cache. In that case the fresh result
++    // is only saved for the next start, so the list does not change under the user's finger.
++    private var moodShownFromCache = false
++    private var forceMoodRefresh = false
+     val forgottenFavorites = MutableStateFlow<List<Song>?>(null)
+     val keepListening = MutableStateFlow<List<LocalItem>?>(null)
+     val similarRecommendations = MutableStateFlow<List<SimilarRecommendation>?>(null)
+@@ -119,12 +125,53 @@ class HomeViewModel @Inject constructor(
+             null
+         }
+         if (!result.isNullOrEmpty()) {
+-            moodQuickPicks.value = result
++            QuickPicksCache.save(context, result)
++            if (!moodShownFromCache || forceMoodRefresh) {
++                moodQuickPicks.value = result
++                moodShownFromCache = false
++            }
+         } else if (moodQuickPicks.value == null) {
+             moodQuickPicks.value = emptyList()
+         }
++        forceMoodRefresh = false
+     }
+ 
++    /**
++     * When there is no listening history yet (a new install, or the app data was cleared),
++     * fill the carousel and the Quick picks list from the YouTube Music home feed so the
++     * Home screen looks the same as it does with history.
++     */
++    private fun fillStarterPicksIfNeeded() {
++        if (!quickPicks.value.isNullOrEmpty()) return
++        val songs = homePage.value?.sections.orEmpty()
++            .flatMap { it.items }
++            .filterIsInstance<SongItem>()
++            .distinctBy { it.id }
++        if (songs.size < 4) return
++
++        val carousel = songs.take(12)
++        quickPicks.value = carousel.map { it.toLocalSong() }
++        if (moodQuickPicks.value.isNullOrEmpty()) {
++            moodQuickPicks.value = songs.drop(carousel.size).ifEmpty { songs }.take(20)
++            moodShownFromCache = false
++        }
++    }
++
++    private fun SongItem.toLocalSong() = Song(
++        song = SongEntity(
++            id = id,
++            title = title,
++            duration = duration ?: -1,
++            thumbnailUrl = thumbnail.resize(544, 544),
++            albumId = album?.id,
++            albumName = album?.name,
++            explicit = explicit,
++        ),
++        artists = artists.map {
++            ArtistEntity(id = it.id ?: ArtistEntity.generateArtistId(), name = it.name)
++        },
++    )
++
+     /**
+      * New songs for the current mood. The mood is the vibe of the songs played lately:
+      * we ask YouTube Music for songs related to the last few songs played (the latest
+@@ -297,6 +344,8 @@ class HomeViewModel @Inject constructor(
+                 }
+             }
+ 
++            fillStarterPicksIfNeeded()
++
+             allLocalItems.value = (quickPicks.value.orEmpty() + forgottenFavorites.value.orEmpty() + keepListening.value.orEmpty())
+                 .filter { it is Song || it is Album }
+ 
+@@ -437,6 +486,7 @@ class HomeViewModel @Inject constructor(
+ 
+     fun refresh() {
+         if (isRefreshing.value) return
++        forceMoodRefresh = true
+         viewModelScope.launch(Dispatchers.IO) {
+             isRefreshing.value = true
+             load()
+@@ -481,6 +531,16 @@ class HomeViewModel @Inject constructor(
+     }
+ 
+     init {
++        // Show the last Quick picks right away; the fresh ones are saved for the next start.
++        viewModelScope.launch(Dispatchers.IO) {
++            QuickPicksCache.load(context)?.takeIf { it.isNotEmpty() }?.let { cached ->
++                if (moodQuickPicks.value == null) {
++                    moodShownFromCache = true
++                    moodQuickPicks.value = cached
++                }
++            }
++        }
++
+         viewModelScope.launch(Dispatchers.IO) {
+             load()
+         }
+diff --git a/report.md b/report.md
+index 1102e07..2987d20 100644
+--- a/report.md
++++ b/report.md
+@@ -385,6 +385,14 @@ Any value placed inside an APK (BuildConfig included) can be extracted by someon
+ | New files | 1 (StartupTrace.kt) |
+ | Main files touched | YTPlayerUtils.kt, MusicService.kt, NewPipe.kt, HomeViewModel.kt, App.kt, MainActivity.kt, GlobalLog.kt, DatabaseDao.kt |
+ 
++## 17b. Home Quick Picks: Empty History and Cold Start (patch quickpicks-3)
++
++- Cause of the "design is gone after reinstall" problem: the carousel and the Quick picks list are built from the local listening history. Uninstalling the app deletes the database (history, likes, play counts), so after a fresh install both sections had nothing to show and were hidden. The design code itself was still in the app.
++- Fix: with no history, the carousel and the Quick picks list are filled from the YouTube Music home feed, so Home looks the same.
++- Cold start: the new-songs list needed network calls, so it appeared late. The last result is now saved on disk (`QuickPicksCache`) and shown immediately on the next start. The fresh result is saved for the following start so the list does not change while the user looks at it. Pull to refresh still replaces the list. While the very first list loads, the local picks are shown instead of empty space.
++
++Modified: `HomeViewModel.kt`, `HomeScreen.kt`. New: `utils/QuickPicksCache.kt`.
++
+ ## 18. Still To Do
+ 
+ - Rotate the Together server token (the old values are in public git history) and add the new one to `local.properties`.

@@ -1,0 +1,146 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+index 78ced30..d8777b7 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+@@ -75,6 +75,8 @@ class HomeViewModel @Inject constructor(
+     // True while the list on screen came from the disk cache. In that case the fresh result
+     // is only saved for the next start, so the list does not change under the user's finger.
+     private var moodShownFromCache = false
++    private var likedSnapshot: List<Song>? = null
++    private var likedSnapshotTime = 0L
+     private var forceMoodRefresh = false
+     val forgottenFavorites = MutableStateFlow<List<Song>?>(null)
+     val keepListening = MutableStateFlow<List<LocalItem>?>(null)
+@@ -106,15 +108,31 @@ class HomeViewModel @Inject constructor(
+         return chips?.filterNot { it.title.contains("podcasts", ignoreCase = true) }
+     }
+ 
++    /** Liked songs, most recently liked first. Kept for a few seconds so one load reads them once. */
++    private suspend fun likedSongsRecentFirst(): List<Song> {
++        val now = System.currentTimeMillis()
++        likedSnapshot?.let { if (now - likedSnapshotTime < 10_000) return it }
++        val list = database.likedSongsByRowIdAsc().first().asReversed()
++        likedSnapshot = list
++        likedSnapshotTime = now
++        return list
++    }
++
+     private suspend fun getQuickPicks() {
+         val recent = database.recentEvents(60).first()
+             .map { it.song }
+             .distinctBy { it.id }
+             .take(12)
++        // The carousel is filled with liked songs when there are few recent plays.
++        val recentIds = recent.map { it.id }.toHashSet()
++        val likedFill = likedSongsRecentFirst()
++            .filter { it.id !in recentIds }
++            .take(40)
++            .shuffled()
++            .take(12 - recent.size)
+         val taste = buildTasteBasedQuickPicks()
+         quickPicksFallback.value = taste
+-        // New users have no history yet, so the carousel shows the taste based picks.
+-        quickPicks.value = recent.ifEmpty { taste }
++        quickPicks.value = (recent + likedFill).ifEmpty { taste }
+     }
+ 
+     private suspend fun loadMoodQuickPicks() {
+@@ -184,12 +202,26 @@ class HomeViewModel @Inject constructor(
+         val lastSongOnly = quickPicksEnum.first() == QuickPicks.LAST_LISTEN
+ 
+         val events = database.recentEvents(400).first()
+-        val seeds = events.map { it.song }.distinctBy { it.id }.take(if (lastSongOnly) 1 else 4)
++        val liked = likedSongsRecentFirst()
++
++        // The mood comes from the songs played lately and from liked songs.
++        val recentSeeds = events.map { it.song }.distinctBy { it.id }.take(if (lastSongOnly) 1 else 3)
++        val likedSeeds = if (lastSongOnly && recentSeeds.isNotEmpty()) {
++            emptyList<Song>()
++        } else {
++            liked.filter { song -> recentSeeds.none { it.id == song.id } }
++                .take(40)
++                .shuffled()
++                .take(if (recentSeeds.isEmpty()) 4 else 2)
++        }
++        val seeds = recentSeeds + likedSeeds
+         if (seeds.isEmpty()) return emptyList()
++        // Recent plays count the most (the latest first); liked seeds count a bit less.
++        val seedWeights = recentSeeds.indices.map { 1f - it * 0.2f } + likedSeeds.map { 0.6f }
+ 
+         val known = HashSet<String>()
+         events.forEach { known += it.song.id }
+-        database.likedSongsByRowIdAsc().first().forEach { known += it.id }
++        liked.forEach { known += it.id }
+ 
+         val related = kotlinx.coroutines.coroutineScope {
+             seeds.mapIndexed { index, seed ->
+@@ -205,7 +237,7 @@ class HomeViewModel @Inject constructor(
+         val scores = HashMap<String, Float>()
+         val songsById = LinkedHashMap<String, SongItem>()
+         for ((seedIndex, songs) in related) {
+-            val seedWeight = 1f - seedIndex * 0.2f
++            val seedWeight = seedWeights[seedIndex]
+             songs.forEachIndexed { position, song ->
+                 if (song.id in known) return@forEachIndexed
+                 val positionBonus = 1f - position.toFloat() / songs.size.coerceAtLeast(1)
+@@ -250,12 +282,13 @@ class HomeViewModel @Inject constructor(
+         val now = System.currentTimeMillis()
+         val sixtyDays = 86400000L * 60
+ 
++        val liked = likedSongsRecentFirst()
+         val related = database.quickPicks().first()
+-        // New or small libraries have few related songs, so add the most played ones.
+-        val candidates = if (related.size >= 24) {
+-            related
+-        } else {
+-            related + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
++        // Related songs come first (they count as closest to recent listening), then
++        // a sample of liked songs, then the most played ones when the library is small.
++        var candidates = related + liked.take(60).shuffled().take(40)
++        if (candidates.size < 24) {
++            candidates = candidates + database.mostPlayedSongs(now - sixtyDays, limit = 30).first()
+         }
+ 
+         val topArtists = database.mostPlayedArtists(now - sixtyDays, limit = 15).first()
+@@ -266,6 +299,15 @@ class HomeViewModel @Inject constructor(
+             affinity[artist.id] = (rankWeight + followBonus).coerceAtMost(1f)
+         }
+ 
++        // Artists of liked songs count too: the more likes, the stronger the taste.
++        val likedPerArtist = HashMap<String, Int>()
++        liked.forEach { song -> song.artists.forEach { likedPerArtist[it.id] = (likedPerArtist[it.id] ?: 0) + 1 } }
++        val maxLiked = (likedPerArtist.values.maxOrNull() ?: 1).toFloat()
++        likedPerArtist.forEach { (artistId, count) ->
++            val likeWeight = 0.3f + 0.7f * count / maxLiked
++            affinity[artistId] = maxOf(affinity[artistId] ?: 0f, likeWeight)
++        }
++
+         val recentIds = database.recentEvents(10).first().map { it.song.id }.toSet()
+ 
+         return com.nikhil.yt.utils.QuickPicksRanker.rank(
+@@ -545,6 +587,25 @@ class HomeViewModel @Inject constructor(
+             load()
+         }
+ 
++        // After a reinstall the liked songs arrive a few seconds later from the account sync.
++        // When the first likes show up, rebuild the Quick picks with them.
++        viewModelScope.launch(Dispatchers.IO) {
++            var hadLikes: Boolean? = null
++            database.likedSongsCount().map { it > 0 }.distinctUntilChanged().collect { hasLikes ->
++                if (hadLikes == false && hasLikes) {
++                    likedSnapshot = null
++                    forceMoodRefresh = true
++                    try {
++                        getQuickPicks()
++                        loadMoodQuickPicks()
++                    } catch (e: Exception) {
++                        reportException(e)
++                    }
++                }
++                hadLikes = hasLikes
++            }
++        }
++
+         viewModelScope.launch(Dispatchers.IO) {
+             kotlinx.coroutines.delay(3000)
+             

@@ -1,0 +1,133 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/App.kt b/app/src/main/kotlin/com/nikhil/yt/App.kt
+index 89ff322..eb0fdb0 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/App.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/App.kt
+@@ -37,7 +37,11 @@ import com.nikhil.yt.innertube.models.YouTubeLocale
+ import com.nikhil.yt.kugou.KuGou
+ import com.nikhil.yt.lastfm.LastFM
+ import com.nikhil.yt.ui.player.CanvasArtworkPlaybackCache
++import dagger.hilt.EntryPoint
++import dagger.hilt.InstallIn
++import dagger.hilt.android.EntryPointAccessors
+ import dagger.hilt.android.HiltAndroidApp
++import dagger.hilt.components.SingletonComponent
+ import kotlinx.coroutines.DelicateCoroutinesApi
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.GlobalScope
+@@ -58,6 +62,12 @@ import java.net.Proxy
+ import java.util.*
+ import java.util.concurrent.atomic.AtomicBoolean
+ 
++@EntryPoint
++@InstallIn(SingletonComponent::class)
++interface StartupEntryPoint {
++    fun database(): com.nikhil.yt.db.MusicDatabase
++}
++
+ @HiltAndroidApp
+ class App : Application(), SingletonImageLoader.Factory {
+     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+@@ -90,6 +100,16 @@ class App : Application(), SingletonImageLoader.Factory {
+             Timber.plant(com.nikhil.yt.utils.GlobalLogTree())
+         } catch (_: Exception) {}
+ 
++        com.nikhil.yt.utils.StartupTrace.mark("App.onCreate start")
++
++        // Open the database on a background thread right away. Before, it was first opened on the
++        // main thread while the first screen was loading, which delayed the app opening.
++        Thread({
++            runCatching {
++                EntryPointAccessors.fromApplication(this, StartupEntryPoint::class.java).database()
++            }.onFailure { Timber.e(it, "Database warm-up failed") }
++        }, "db-warmup").start()
++
+         initializeCriticalSync()
+         initializeDeferredAsync()
+     }
+diff --git a/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt b/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt
+index 577edc7..acebbc4 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/MainActivity.kt
+@@ -407,6 +407,16 @@ class MainActivity : ComponentActivity() {
+     @OptIn(ExperimentalMaterial3Api::class)
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
++        com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate")
++        window.decorView.viewTreeObserver.addOnPreDrawListener(
++            object : android.view.ViewTreeObserver.OnPreDrawListener {
++                override fun onPreDraw(): Boolean {
++                    window.decorView.viewTreeObserver.removeOnPreDrawListener(this)
++                    com.nikhil.yt.utils.StartupTrace.mark("MainActivity first frame")
++                    return true
++                }
++            }
++        )
+         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LTR
+         WindowCompat.setDecorFitsSystemWindows(window, false)
+ 
+diff --git a/app/src/main/kotlin/com/nikhil/yt/db/MusicDatabase.kt b/app/src/main/kotlin/com/nikhil/yt/db/MusicDatabase.kt
+index 885a324..6b17924 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/db/MusicDatabase.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/db/MusicDatabase.kt
+@@ -215,6 +215,7 @@ abstract class InternalDatabase : RoomDatabase() {
+                 }
+             }
+ 
++            com.nikhil.yt.utils.StartupTrace.mark("database opened")
+             return MusicDatabase(delegate = db)
+         }
+     }
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+index b1c34d4..2e5f7c8 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -556,6 +556,7 @@ class MusicService :
+                     setOffloadEnabled(false)
+                 }
+ 
++        com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
+         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+         setupAudioFocusRequest()
+ 
+@@ -912,6 +913,13 @@ class MusicService :
+                         )
+                     }
+                     awaitRestoredItems()
++                    // The UI only needs the queue items to decide whether to show the mini player.
++                    // Tell it now instead of waiting for the automix / player state restore below,
++                    // which includes a fixed 1 second delay.
++                    withContext(Dispatchers.Main) {
++                        queueRestoreCompleted.value = true
++                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: items ready")
++                    }
+                 }
+                 readPersistentObject<PersistQueue>(PERSISTENT_AUTOMIX_FILE)
+                     ?.let { persistedAutomix ->
+@@ -4480,7 +4488,7 @@ class MusicService :
+     private suspend fun awaitRestoredItems(timeoutMs: Long = 5_000L) {
+         val finished = withTimeoutOrNull(timeoutMs) {
+             while (withContext(Dispatchers.Main) { player.mediaItemCount } == 0) {
+-                delay(100)
++                delay(25)
+             }
+             true
+         }
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/StartupTrace.kt b/app/src/main/kotlin/com/nikhil/yt/utils/StartupTrace.kt
+new file mode 100644
+index 0000000..9a38b81
+--- /dev/null
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/StartupTrace.kt
+@@ -0,0 +1,13 @@
++package com.nikhil.yt.utils
++
++import android.os.Process
++import android.os.SystemClock
++import timber.log.Timber
++
++/** Logs how many milliseconds passed since the app process started. Used to find slow startup steps. */
++object StartupTrace {
++    fun mark(name: String) {
++        val sinceStart = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()
++        Timber.tag("StartupTrace").i("$name +${sinceStart}ms since process start (thread=${Thread.currentThread().name})")
++    }
++}

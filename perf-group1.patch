@@ -1,0 +1,156 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/db/DatabaseDao.kt b/app/src/main/kotlin/com/nikhil/yt/db/DatabaseDao.kt
+index af7ac7a..0a88f10 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/db/DatabaseDao.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/db/DatabaseDao.kt
+@@ -1144,6 +1144,10 @@ interface DatabaseDao {
+     @Query("SELECT * FROM event ORDER BY rowId DESC")
+     fun events(): Flow<List<EventWithSong>>
+ 
++    @Transaction
++    @Query("SELECT * FROM event ORDER BY rowId DESC LIMIT :limit")
++    fun recentEvents(limit: Int): Flow<List<EventWithSong>>
++
+     @Transaction
+     @Query("SELECT * FROM event ORDER BY rowId ASC LIMIT 1")
+     fun firstEvent(): Flow<EventWithSong?>
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/ForYouSuggestionEngine.kt b/app/src/main/kotlin/com/nikhil/yt/utils/ForYouSuggestionEngine.kt
+index 8d6a80b..b84ee76 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/utils/ForYouSuggestionEngine.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/ForYouSuggestionEngine.kt
+@@ -106,7 +106,7 @@ class ForYouSuggestionEngine @Inject constructor(
+         val allSongs = database.mostPlayedSongs(fromTimeStamp, limit = 100).first()
+         val likedSongs = database.likedSongsByPlayTimeAsc().first()
+         val skips = database.getAllSkips().first()
+-        val recentEvents = database.events().first().take(20)
++        val recentEvents = database.recentEvents(20).first()
+ 
+         val likedIds = likedSongs.map { it.id }.toSet()
+         val recentIds = recentEvents.mapNotNull { it.song?.id }.toSet()
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/GlobalLog.kt b/app/src/main/kotlin/com/nikhil/yt/utils/GlobalLog.kt
+index fd26f12..7f4c39b 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/utils/GlobalLog.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/GlobalLog.kt
+@@ -8,8 +8,14 @@
+ 
+ package com.nikhil.yt.utils
+ 
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import java.util.concurrent.atomic.AtomicBoolean
+ import timber.log.Timber
+ import java.text.SimpleDateFormat
+ import java.util.*
+@@ -18,18 +24,40 @@ data class LogEntry(val time: Long, val level: Int, val tag: String?, val messag
+ 
+ object GlobalLog {
+     private const val MAX_ENTRIES = 500
++    private const val PUBLISH_INTERVAL_MS = 250L
++
+     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
+     val logs = _logs.asStateFlow()
+ 
++    // Ring buffer: adding a log line is O(1). The list shown in the UI is rebuilt at most
++    // a few times per second instead of copying 500 entries for every single log line.
++    private val buffer = java.util.ArrayDeque<LogEntry>(MAX_ENTRIES + 1)
++    private val lock = Any()
++    private val publishPending = AtomicBoolean(false)
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
++
+     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+ 
+     fun append(level: Int, tag: String?, message: String) {
+         val entry = LogEntry(System.currentTimeMillis(), level, tag, message)
+-        val new = (_logs.value + entry).takeLast(MAX_ENTRIES)
+-        _logs.value = new
++        synchronized(lock) {
++            buffer.addLast(entry)
++            while (buffer.size > MAX_ENTRIES) buffer.removeFirst()
++        }
++        schedulePublish()
++    }
++
++    private fun schedulePublish() {
++        if (!publishPending.compareAndSet(false, true)) return
++        scope.launch {
++            delay(PUBLISH_INTERVAL_MS)
++            publishPending.set(false)
++            _logs.value = synchronized(lock) { buffer.toList() }
++        }
+     }
+ 
+     fun clear() {
++        synchronized(lock) { buffer.clear() }
+         _logs.value = emptyList()
+     }
+ 
+diff --git a/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt b/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt
+index ad68afa..ca93270 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/utils/YTPlayerUtils.kt
+@@ -96,6 +96,11 @@ object YTPlayerUtils {
+     private val streamUrlCache = ConcurrentHashMap<String, CachedStreamUrl>()
+     private val failedStreamClientsUntil = ConcurrentHashMap<String, Long>()
+ 
++    // Clients whose stream URLs already passed the probe recently. For these we skip the extra
++    // HTTP probe so playback starts faster. Any 403/429 or bot detection removes the client again.
++    private val validatedStreamClientsUntil = ConcurrentHashMap<String, Long>()
++    private const val VALIDATED_CLIENT_TTL_MS = 30 * 60 * 1000L
++
+     fun invalidateCachedStreamUrls(videoId: String) {
+         val prefix = "$videoId:"
+         streamUrlCache.keys.removeIf { it.startsWith(prefix) }
+@@ -107,6 +112,7 @@ object YTPlayerUtils {
+         if (normalizedClientKey.isEmpty()) return
+         failedStreamClientsUntil[normalizedClientKey] =
+             System.currentTimeMillis() + FAILED_CLIENT_BACKOFF_MS
++        validatedStreamClientsUntil.remove(normalizedClientKey)
+     }
+ 
+     private fun isStreamClientTemporarilyBlocked(videoId: String, clientKey: String?): Boolean {
+@@ -286,6 +292,7 @@ object YTPlayerUtils {
+ 
+                     failedStreamClientsUntil[normalizeStreamClientKey(client.clientName)] =
+                         System.currentTimeMillis() + FAILED_CLIENT_BACKOFF_MS
++                    validatedStreamClientsUntil.remove(normalizeStreamClientKey(client.clientName))
+                 }
+                 continue
+             }
+@@ -333,11 +340,18 @@ object YTPlayerUtils {
+             Timber.tag(logTag).i("Format found: ${format.mimeType}, bitrate: ${format.bitrate}")
+             Timber.tag(logTag).v("Stream expires in: $streamExpiresInSeconds seconds")
+ 
+-            val valid = validateStatus(streamUrl, client.userAgent)
++            val clientKey = normalizeStreamClientKey(client.clientName)
++            val now = System.currentTimeMillis()
++            val recentlyValidated = (validatedStreamClientsUntil[clientKey] ?: 0L) > now
++            val valid = recentlyValidated || validateStatus(streamUrl, client.userAgent)
+             if (valid) {
+-                Timber.tag(logTag).i("Stream validated successfully with client: ${client.clientName}")
++                if (!recentlyValidated) {
++                    validatedStreamClientsUntil[clientKey] = now + VALIDATED_CLIENT_TTL_MS
++                }
++                Timber.tag(logTag).i("Stream validated successfully with client: ${client.clientName} (probeSkipped=$recentlyValidated)")
+                 break
+             }
++            validatedStreamClientsUntil.remove(clientKey)
+ 
+             Timber.tag(logTag).w("Stream validation failed with client: ${client.clientName}, trying next fallback")
+             format = null
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+index 5b40c0a..c4ef69e 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+@@ -236,7 +236,7 @@ class HomeViewModel @Inject constructor(
+     }
+ 
+     private suspend fun songLoad() {
+-        val song = database.events().first().firstOrNull()?.song
++        val song = database.recentEvents(1).first().firstOrNull()?.song
+         if (song != null) {
+             if (database.hasRelatedSongs(song.id)) {
+                 val relatedSongs = database.getRelatedSongs(song.id).first().shuffled().take(20)

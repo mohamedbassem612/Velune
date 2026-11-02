@@ -1,0 +1,163 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt
+index 2cd6df3..dd67958 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/Mp3Converter.kt
+@@ -7,6 +7,8 @@
+ package com.nikhil.yt.playback
+ 
+ import android.content.Context
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
+ import androidx.core.net.toUri
+ import androidx.media3.common.util.UnstableApi
+ import androidx.media3.datasource.DataSourceInputStream
+@@ -22,7 +24,9 @@ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.SupervisorJob
+ import kotlinx.coroutines.asCoroutineDispatcher
++import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.runBlocking
+ import okhttp3.OkHttpClient
+ import okhttp3.Request
+ import timber.log.Timber
+@@ -85,12 +89,18 @@ constructor(
+             val title = song?.song?.title?.takeIf { it.isNotBlank() } ?: id
+             val artist = song?.artists?.joinToString(", ") { it.name }.orEmpty()
+             val album = song?.song?.albumName.orEmpty()
+-            val hasCover = song?.song?.thumbnailUrl?.let { downloadCover(it, cover) } == true
+-
+-            var ok = runFfmpeg(input, if (hasCover) cover else null, output, title, artist, album)
++            val albumId = song?.song?.albumId ?: song?.album?.id
++            val albumInfo = albumId?.let { runCatching { runBlocking { database.album(it).first() } }.getOrNull() }
++            val albumArtist = (albumInfo?.artists ?: song?.artists)?.firstOrNull()?.name.orEmpty()
++            val year = song?.song?.year ?: albumInfo?.album?.year ?: song?.album?.year
++            val coverUrl = song?.song?.thumbnailUrl ?: albumInfo?.album?.thumbnailUrl
++            val hasCover = coverUrl?.let { downloadCover(it, cover) } == true
++            val info = TrackInfo(title, artist, album, albumArtist, year)
++
++            var ok = runFfmpeg(input, if (hasCover) cover else null, output, info)
+             if (!ok && hasCover) {
+                 output.delete()
+-                ok = runFfmpeg(input, null, output, title, artist, album)
++                ok = runFfmpeg(input, null, output, info)
+             }
+             if (!ok || output.length() <= 0L) {
+                 Timber.tag(TAG).e("ffmpeg failed for $id, keeping the original download")
+@@ -132,23 +142,59 @@ constructor(
+         }
+     }
+ 
+-    private fun downloadCover(url: String, target: File): Boolean =
+-        runCatching {
+-            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+-                if (!response.isSuccessful) return@use false
+-                val body = response.body ?: return@use false
+-                target.outputStream().use { out -> body.byteStream().copyTo(out) }
+-                target.length() > 0L
+-            }
+-        }.getOrDefault(false)
++    /**
++     * Downloads the cover, makes it a square JPEG (any source format, including webp)
++     * and saves it in [target]. Tries a bigger version of the image first.
++     */
++    private fun downloadCover(url: String, target: File): Boolean {
++        val candidates = listOf(biggerCoverUrl(url), url).distinct()
++        for (candidate in candidates) {
++            val bytes = runCatching {
++                httpClient.newCall(Request.Builder().url(candidate).build()).execute().use { response ->
++                    if (response.isSuccessful) response.body?.bytes() else null
++                }
++            }.getOrNull() ?: continue
++
++            val bitmap = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull() ?: continue
++            val square = toSquare(bitmap)
++            val saved = runCatching {
++                target.outputStream().use { square.compress(Bitmap.CompressFormat.JPEG, COVER_QUALITY, it) }
++            }.getOrDefault(false)
++            if (square !== bitmap) bitmap.recycle()
++            square.recycle()
++            if (saved && target.length() > 0L) return true
++        }
++        return false
++    }
++
++    // Google image links end with the size, for example "=w544-h544-l90-rj"
++    private fun biggerCoverUrl(url: String): String =
++        COVER_SIZE_REGEX.replace(url, "=w$COVER_SIZE-h$COVER_SIZE-l90-rj")
++
++    private fun toSquare(source: Bitmap): Bitmap {
++        val side = minOf(source.width, source.height)
++        val x = (source.width - side) / 2
++        val y = (source.height - side) / 2
++        val cropped = if (side == source.width && side == source.height) source else Bitmap.createBitmap(source, x, y, side, side)
++        if (cropped.width <= COVER_SIZE) return cropped
++        val scaled = Bitmap.createScaledBitmap(cropped, COVER_SIZE, COVER_SIZE, true)
++        if (cropped !== source) cropped.recycle()
++        return scaled
++    }
++
++    private data class TrackInfo(
++        val title: String,
++        val artist: String,
++        val album: String,
++        val albumArtist: String,
++        val year: Int?,
++    )
+ 
+     private fun runFfmpeg(
+         input: File,
+         cover: File?,
+         output: File,
+-        title: String,
+-        artist: String,
+-        album: String,
++        info: TrackInfo,
+     ): Boolean {
+         val args = mutableListOf("-y", "-i", input.absolutePath)
+         if (cover != null) {
+@@ -158,9 +204,11 @@ constructor(
+             args += listOf("-vn", "-map", "0:a:0")
+         }
+         args += listOf("-c:a", "libmp3lame", "-q:a", "2", "-id3v2_version", "3")
+-        args += listOf("-metadata", "title=$title")
+-        if (artist.isNotBlank()) args += listOf("-metadata", "artist=$artist")
+-        if (album.isNotBlank()) args += listOf("-metadata", "album=$album")
++        args += listOf("-metadata", "title=${info.title}")
++        if (info.artist.isNotBlank()) args += listOf("-metadata", "artist=${info.artist}")
++        if (info.album.isNotBlank()) args += listOf("-metadata", "album=${info.album}")
++        if (info.albumArtist.isNotBlank()) args += listOf("-metadata", "album_artist=${info.albumArtist}")
++        if (info.year != null && info.year > 0) args += listOf("-metadata", "date=${info.year}")
+         args += "-f"
+         args += "mp3"
+         args += output.absolutePath
+@@ -175,5 +223,8 @@ constructor(
+ 
+     companion object {
+         private const val TAG = "Mp3Converter"
++        private const val COVER_SIZE = 1000
++        private const val COVER_QUALITY = 92
++        private val COVER_SIZE_REGEX = Regex("=[ws]\\d+(-h\\d+)?(-[A-Za-z0-9-]+)*$")
+     }
+ }
+diff --git a/report.md b/report.md
+index 81f1abf..07d80e3 100644
+--- a/report.md
++++ b/report.md
+@@ -462,6 +462,16 @@ Problem: after uninstalling and reinstalling, the app forgot the mp3 files in Mu
+ - New dependency in `app/build.gradle.kts` (added by hand): `io.github.darkstar085:jaudiotagger-kt:1.0.0`
+ 
+ 
++## 22. Fuller mp3 Metadata (patch mp3-metadata)
++
++- Cover: downloaded in a bigger size when the link allows it, converted to a square JPEG (up to 1000 px, quality 92) with `BitmapFactory`, then written inside the mp3. This fixes songs that came out without a cover when the source image was webp.
++- Added the year (from the song, or from its album) and the album artist (first artist of the album) to the tags.
++- Lyrics are not written into the mp3 for now.
++
++### Modified Files
++- `playback/Mp3Converter.kt`
++
++
+ ---
+ 
+ **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

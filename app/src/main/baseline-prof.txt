@@ -1,0 +1,7 @@
+# Hand-written baseline profile for Velune.
+# H = hot, S = startup, P = post startup. Wildcards are expanded by the Android Gradle Plugin.
+# This tells Android to precompile the app code so it opens faster and uses less CPU/RAM warming up.
+HSPLcom/nikhil/yt/**;->**(**)**
+Lcom/nikhil/yt/**;
+HSPLcom/my/kizzy/**;->**(**)**
+Lcom/my/kizzy/**;
