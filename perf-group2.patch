@@ -1,0 +1,240 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 6a4f531..3532874 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -164,6 +164,7 @@ dependencies {
+     implementation(libs.concurrent.futures)
+ 
+     implementation(libs.activity)
++    implementation(libs.profileinstaller)
+     implementation(libs.navigation)
+     implementation(libs.hilt.navigation)
+     implementation(libs.datastore)
+diff --git a/app/src/main/baseline-prof.txt b/app/src/main/baseline-prof.txt
+new file mode 100644
+index 0000000..5e75baf
+--- /dev/null
++++ b/app/src/main/baseline-prof.txt
+@@ -0,0 +1,7 @@
++# Hand-written baseline profile for Velune.
++# H = hot, S = startup, P = post startup. Wildcards are expanded by the Android Gradle Plugin.
++# This tells Android to precompile the app code so it opens faster and uses less CPU/RAM warming up.
++HSPLcom/nikhil/yt/**;->**(**)**
++Lcom/nikhil/yt/**;
++HSPLcom/my/kizzy/**;->**(**)**
++Lcom/my/kizzy/**;
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/player/Thumbnail.kt b/app/src/main/kotlin/com/nikhil/yt/ui/player/Thumbnail.kt
+index 2539d10..3226856 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/player/Thumbnail.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/player/Thumbnail.kt
+@@ -145,9 +145,12 @@ object CanvasArtworkPlaybackCache {
+ 
+     private val mapSerializer = MapSerializer(String.serializer(), CanvasArtwork.serializer())
+ 
++    @Volatile private var loadedFromDisk = false
++
+     fun init(context: Context) {
+         cacheFile = File(context.filesDir, PERSIST_FILE)
+-        loadFromDisk()
++        // Reading and parsing the JSON file used to block app startup on the main thread.
++        persistScope.launch { loadFromDisk() }
+     }
+ 
+     @Synchronized
+@@ -205,27 +208,36 @@ object CanvasArtworkPlaybackCache {
+ 
+     @Synchronized
+     private fun loadFromDisk() {
+-        val file = cacheFile ?: return
+-        if (!file.exists()) return
++        val file = cacheFile
++        if (file == null || !file.exists()) {
++            loadedFromDisk = true
++            return
++        }
+         try {
+             val raw = file.readText()
+             if (raw.isBlank()) return
+             val restored = json.decodeFromString(mapSerializer, raw)
+-            map.clear()
+-            map.putAll(restored)
+-            while (maxSize > 0 && map.size > maxSize) {
+-                val it = map.entries.iterator()
+-                if (it.hasNext()) {
+-                    it.next()
+-                    it.remove()
+-                } else {
+-                    break
++            synchronized(this@CanvasArtworkPlaybackCache) {
++                // Keep anything added while the file was loading; only add missing entries.
++                for ((key, value) in restored) {
++                    if (!map.containsKey(key)) map[key] = value
++                }
++                while (maxSize > 0 && map.size > maxSize) {
++                    val it = map.entries.iterator()
++                    if (it.hasNext()) {
++                        it.next()
++                        it.remove()
++                    } else {
++                        break
++                    }
+                 }
++                Timber.d("Canvas cache restored: ${map.size} entries from disk")
+             }
+-            Timber.d("Canvas cache restored: ${map.size} entries from disk")
+         } catch (e: Exception) {
+             Timber.e(e, "Failed to restore canvas cache from disk")
+             runCatching { file.delete() }
++        } finally {
++            loadedFromDisk = true
+         }
+     }
+ 
+@@ -239,6 +251,8 @@ object CanvasArtworkPlaybackCache {
+ 
+     private fun writeToDisk() {
+         val file = cacheFile ?: return
++        // Never overwrite the saved file before the old content has been loaded.
++        if (!loadedFromDisk) return
+         try {
+             val snapshot: Map<String, CanvasArtwork>
+             synchronized(this@CanvasArtworkPlaybackCache) {
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+index c4ef69e..41bd82e 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+@@ -38,6 +38,8 @@ import com.nikhil.yt.utils.reportException
+ import dagger.hilt.android.lifecycle.HiltViewModel
+ import dagger.hilt.android.qualifiers.ApplicationContext
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.awaitAll
+ import kotlinx.coroutines.flow.*
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.supervisorScope
+@@ -110,14 +112,6 @@ class HomeViewModel @Inject constructor(
+ 
+                 launch { getQuickPicks() }
+                 launch { forgottenFavorites.value = database.forgottenFavorites().first().shuffled().take(20) }
+-                launch {
+-                    try {
+-                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+-                        val hideVideo = context.dataStore.get(HideVideoKey, false)
+-                        forYouSuggestions.value = forYouEngine.getSuggestions(hideExplicit, hideVideo)
+-                    } catch (_: Exception) {}
+-                }
+-                
+                 launch {
+                     val keepListeningSongs = database.mostPlayedSongs(fromTimeStamp, limit = 15, offset = 5)
+                         .first().shuffled().take(10)
+@@ -176,6 +170,16 @@ class HomeViewModel @Inject constructor(
+                 .filter { it is Song || it is Album }
+ 
+             viewModelScope.launch(Dispatchers.IO) {
++                // Extra suggestions are not needed to show the home feed, so they wait a moment.
++                // This leaves the network free for the main feed and for a song the user taps first.
++                kotlinx.coroutines.delay(1500)
++                launch {
++                    try {
++                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
++                        val hideVideo = context.dataStore.get(HideVideoKey, false)
++                        forYouSuggestions.value = forYouEngine.getSuggestions(hideExplicit, hideVideo)
++                    } catch (_: Exception) {}
++                }
+                 loadSimilarRecommendations()
+             }
+ 
+@@ -195,39 +199,47 @@ class HomeViewModel @Inject constructor(
+         val hideVideo = context.dataStore.get(HideVideoKey, false)
+         val fromTimeStamp = System.currentTimeMillis() - 86400000 * 7 * 2
+         
+-        val artistRecommendations = database.mostPlayedArtists(fromTimeStamp, limit = 10).first()
++        val artistSeeds = database.mostPlayedArtists(fromTimeStamp, limit = 10).first()
+             .filter { it.artist.isYouTubeArtist }
+             .shuffled().take(3)
+-            .mapNotNull {
+-                val items = mutableListOf<YTItem>()
+-                YouTube.artist(it.id).onSuccess { page ->
+-                    items += page.sections.getOrNull(page.sections.size - 2)?.items.orEmpty()
+-                    items += page.sections.lastOrNull()?.items.orEmpty()
+-                }
+-                SimilarRecommendation(
+-                    title = it,
+-                    items = items.filterExplicit(hideExplicit).filterVideo(hideVideo).shuffled().ifEmpty { return@mapNotNull null }
+-                )
+-            }
+-
+-        val songRecommendations = database.mostPlayedSongs(fromTimeStamp, limit = 10).first()
++        val songSeeds = database.mostPlayedSongs(fromTimeStamp, limit = 10).first()
+             .filter { it.album != null }
+             .shuffled().take(2)
+-            .mapNotNull { song ->
+-                val endpoint = YouTube.next(WatchEndpoint(videoId = song.id)).getOrNull()?.relatedEndpoint
+-                    ?: return@mapNotNull null
+-                val page = YouTube.related(endpoint).getOrNull() ?: return@mapNotNull null
+-                SimilarRecommendation(
+-                    title = song,
+-                    items = (page.songs.shuffled().take(8) +
+-                            page.albums.shuffled().take(4) +
+-                            page.artists.shuffled().take(4) +
+-                            page.playlists.shuffled().take(4))
+-                        .filterExplicit(hideExplicit).filterVideo(hideVideo)
+-                        .shuffled()
+-                        .ifEmpty { return@mapNotNull null }
+-                )
++
++        // All requests run at the same time instead of one after another.
++        val (artistRecommendations, songRecommendations) = kotlinx.coroutines.coroutineScope {
++            val artistJobs = artistSeeds.map { artist ->
++                async<SimilarRecommendation?> {
++                    val items = mutableListOf<YTItem>()
++                    YouTube.artist(artist.id).onSuccess { page ->
++                        items += page.sections.getOrNull(page.sections.size - 2)?.items.orEmpty()
++                        items += page.sections.lastOrNull()?.items.orEmpty()
++                    }
++                    SimilarRecommendation(
++                        title = artist,
++                        items = items.filterExplicit(hideExplicit).filterVideo(hideVideo).shuffled().ifEmpty { return@async null }
++                    )
++                }
+             }
++            val songJobs = songSeeds.map { song ->
++                async<SimilarRecommendation?> {
++                    val endpoint = YouTube.next(WatchEndpoint(videoId = song.id)).getOrNull()?.relatedEndpoint
++                        ?: return@async null
++                    val page = YouTube.related(endpoint).getOrNull() ?: return@async null
++                    SimilarRecommendation(
++                        title = song,
++                        items = (page.songs.shuffled().take(8) +
++                                page.albums.shuffled().take(4) +
++                                page.artists.shuffled().take(4) +
++                                page.playlists.shuffled().take(4))
++                            .filterExplicit(hideExplicit).filterVideo(hideVideo)
++                            .shuffled()
++                            .ifEmpty { return@async null }
++                    )
++                }
++            }
++            artistJobs.awaitAll().filterNotNull() to songJobs.awaitAll().filterNotNull()
++        }
+ 
+         similarRecommendations.value = (artistRecommendations + songRecommendations).shuffled()
+         
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index cf692b1..0997944 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -1,4 +1,5 @@
+ [versions]
++profileinstaller = "1.4.1"
+ androidGradlePlugin = "9.1.1"
+ annotation = "1.9.1"
+ json = "20250517"
+@@ -45,6 +46,7 @@ concurrent-futures = { module = "androidx.concurrent:concurrent-futures-ktx", ve
+ 
+ gradle = { module = "com.android.tools.build:gradle", version.ref = "androidGradlePlugin" }
+ activity = { module = "androidx.activity:activity-compose", version.ref = "activity" }
++profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
+ navigation = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
+ hilt-navigation = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigation" }
+ datastore = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }

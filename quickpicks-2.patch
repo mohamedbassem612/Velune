@@ -1,0 +1,517 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt
+index 07d08a1..2383882 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreen.kt
+@@ -95,6 +95,8 @@ fun HomeScreen(
+     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+ 
+     val quickPicks by viewModel.quickPicks.collectAsState()
++    val moodQuickPicks by viewModel.moodQuickPicks.collectAsState()
++    val quickPicksFallback by viewModel.quickPicksFallback.collectAsState()
+     val forgottenFavorites by viewModel.forgottenFavorites.collectAsState()
+     val keepListening by viewModel.keepListening.collectAsState()
+     val homePage by viewModel.homePage.collectAsState()
+@@ -336,18 +338,36 @@ fun HomeScreen(
+             }
+ 
+ 
+-            quickPicks?.takeIf { it.isNotEmpty() }?.let { picks ->
+-                item {
+-                    QuickPicksListSection(
+-                        quickPicks = picks,
+-                        mediaMetadata = mediaMetadata,
+-                        isPlaying = isPlaying,
+-                        navController = navController,
+-                        playerConnection = playerConnection,
+-                        menuState = menuState,
+-                        haptic = haptic,
+-                        modifier = Modifier.animateItem()
+-                    )
++            val moodSongs = moodQuickPicks
++            if (moodSongs != null) {
++                if (moodSongs.isNotEmpty()) {
++                    item {
++                        MoodQuickPicksListSection(
++                            songs = moodSongs,
++                            mediaMetadata = mediaMetadata,
++                            isPlaying = isPlaying,
++                            navController = navController,
++                            playerConnection = playerConnection,
++                            menuState = menuState,
++                            haptic = haptic,
++                            modifier = Modifier.animateItem()
++                        )
++                    }
++                } else {
++                    quickPicksFallback?.takeIf { it.isNotEmpty() }?.let { picks ->
++                        item {
++                            QuickPicksListSection(
++                                quickPicks = picks,
++                                mediaMetadata = mediaMetadata,
++                                isPlaying = isPlaying,
++                                navController = navController,
++                                playerConnection = playerConnection,
++                                menuState = menuState,
++                                haptic = haptic,
++                                modifier = Modifier.animateItem()
++                            )
++                        }
++                    }
+                 }
+             }
+ 
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
+index 77db921..7b0c92b 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
+@@ -99,6 +99,7 @@ import com.nikhil.yt.ui.component.NavigationTitle
+ import com.nikhil.yt.ui.component.SongGridItem
+ import com.nikhil.yt.ui.component.SongListItem
+ import com.nikhil.yt.ui.component.YouTubeGridItem
++import com.nikhil.yt.ui.component.YouTubeListItem
+ import com.nikhil.yt.ui.component.shimmer.GridItemPlaceHolder
+ import com.nikhil.yt.ui.component.shimmer.ShimmerHost
+ import com.nikhil.yt.ui.component.shimmer.TextPlaceholder
+@@ -940,24 +941,19 @@ fun LazyListScope.SimilarRecommendationsContainer(
+ 
+ 
+ /**
+- * Quick picks: pages of 4 songs. The next page peeks from the right edge
+- * so it is clear you can swipe, like YouTube Music.
++ * Shared layout for the Quick picks list: pages of 4 rows, and the next page peeks
++ * from the right edge so it is clear you can swipe, like YouTube Music.
+  */
+ @OptIn(ExperimentalFoundationApi::class)
+ @Composable
+-fun QuickPicksListSection(
+-    quickPicks: List<Song>,
+-    mediaMetadata: MediaMetadata?,
+-    isPlaying: Boolean,
+-    navController: NavController,
+-    playerConnection: PlayerConnection,
+-    menuState: MenuState,
+-    haptic: HapticFeedback,
+-    modifier: Modifier = Modifier
++private fun QuickPicksPager(
++    itemCount: Int,
++    onPlayAll: () -> Unit,
++    modifier: Modifier = Modifier,
++    itemContent: @Composable (Int) -> Unit
+ ) {
+-    val distinctQuickPicks = remember(quickPicks) { quickPicks.distinctBy { it.id } }
+-    val pages = remember(distinctQuickPicks) { distinctQuickPicks.chunked(4) }
+-    val pagerState = androidx.compose.foundation.pager.rememberPagerState { pages.size }
++    val pageCount = (itemCount + 3) / 4
++    val pagerState = androidx.compose.foundation.pager.rememberPagerState { pageCount }
+ 
+     Column(modifier = modifier.fillMaxWidth()) {
+         Row(
+@@ -981,18 +977,7 @@ fun QuickPicksListSection(
+                         BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                         RoundedCornerShape(50)
+                     )
+-                    .combinedClickable(
+-                        onClick = {
+-                            if (distinctQuickPicks.isNotEmpty()) {
+-                                playerConnection.playQueue(
+-                                    ListQueue(
+-                                        title = "Quick picks",
+-                                        items = distinctQuickPicks.map { it.toMediaItem() }
+-                                    )
+-                                )
+-                            }
+-                        }
+-                    )
++                    .combinedClickable(onClick = onPlayAll)
+                     .padding(horizontal = 16.dp, vertical = 8.dp)
+             )
+         }
+@@ -1003,58 +988,181 @@ fun QuickPicksListSection(
+             pageSpacing = 8.dp,
+             modifier = Modifier.fillMaxWidth()
+         ) { pageIndex ->
+-            val pageSongs = pages.getOrNull(pageIndex) ?: emptyList()
++            val start = pageIndex * 4
+             Column(modifier = Modifier.fillMaxWidth()) {
+-                pageSongs.forEach { song ->
+-                    val isActive = song.id == mediaMetadata?.id
+-                    SongListItem(
+-                        song = song,
+-                        isActive = isActive,
+-                        isPlaying = isPlaying,
+-                        trailingContent = {
+-                            IconButton(
+-                                onClick = {
+-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+-                                    menuState.show {
+-                                        SongMenu(
+-                                            originalSong = song,
+-                                            navController = navController,
+-                                            onDismiss = menuState::dismiss
+-                                        )
+-                                    }
+-                                }
+-                            ) {
+-                                Icon(
+-                                    painter = painterResource(R.drawable.more_vert),
+-                                    contentDescription = null
+-                                )
+-                            }
+-                        },
+-                        modifier = Modifier
+-                            .fillMaxWidth()
+-                            .combinedClickable(
+-                                onClick = {
+-                                    if (isActive) {
+-                                        playerConnection.player.togglePlayPause()
+-                                    } else {
+-                                        playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+-                                    }
+-                                },
+-                                onLongClick = {
+-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+-                                    menuState.show {
+-                                        SongMenu(
+-                                            originalSong = song,
+-                                            navController = navController,
+-                                            onDismiss = menuState::dismiss
+-                                        )
+-                                    }
+-                                }
++                for (index in start until minOf(start + 4, itemCount)) {
++                    itemContent(index)
++                }
++            }
++        }
++    }
++}
++
++/**
++ * Quick picks made of songs from the local database (used when new songs
++ * cannot be loaded, for example without internet).
++ */
++@Composable
++fun QuickPicksListSection(
++    quickPicks: List<Song>,
++    mediaMetadata: MediaMetadata?,
++    isPlaying: Boolean,
++    navController: NavController,
++    playerConnection: PlayerConnection,
++    menuState: MenuState,
++    haptic: HapticFeedback,
++    modifier: Modifier = Modifier
++) {
++    val songs = remember(quickPicks) { quickPicks.distinctBy { it.id } }
++
++    QuickPicksPager(
++        itemCount = songs.size,
++        onPlayAll = {
++            if (songs.isNotEmpty()) {
++                playerConnection.playQueue(
++                    ListQueue(
++                        title = "Quick picks",
++                        items = songs.map { it.toMediaItem() }
++                    )
++                )
++            }
++        },
++        modifier = modifier
++    ) { index ->
++        val song = songs[index]
++        val isActive = song.id == mediaMetadata?.id
++        SongListItem(
++            song = song,
++            isActive = isActive,
++            isPlaying = isPlaying,
++            isSwipeable = false,
++            trailingContent = {
++                IconButton(
++                    onClick = {
++                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
++                        menuState.show {
++                            SongMenu(
++                                originalSong = song,
++                                navController = navController,
++                                onDismiss = menuState::dismiss
+                             )
++                        }
++                    }
++                ) {
++                    Icon(
++                        painter = painterResource(R.drawable.more_vert),
++                        contentDescription = null
+                     )
+                 }
++            },
++            modifier = Modifier
++                .fillMaxWidth()
++                .combinedClickable(
++                    onClick = {
++                        if (isActive) {
++                            playerConnection.player.togglePlayPause()
++                        } else {
++                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
++                        }
++                    },
++                    onLongClick = {
++                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
++                        menuState.show {
++                            SongMenu(
++                                originalSong = song,
++                                navController = navController,
++                                onDismiss = menuState::dismiss
++                            )
++                        }
++                    }
++                )
++        )
++    }
++}
++
++/**
++ * Quick picks made of new songs picked from the mood of the songs played lately.
++ */
++@Composable
++fun MoodQuickPicksListSection(
++    songs: List<SongItem>,
++    mediaMetadata: MediaMetadata?,
++    isPlaying: Boolean,
++    navController: NavController,
++    playerConnection: PlayerConnection,
++    menuState: MenuState,
++    haptic: HapticFeedback,
++    modifier: Modifier = Modifier
++) {
++    val picks = remember(songs) { songs.distinctBy { it.id } }
++
++    QuickPicksPager(
++        itemCount = picks.size,
++        onPlayAll = {
++            if (picks.isNotEmpty()) {
++                playerConnection.playQueue(
++                    ListQueue(
++                        title = "Quick picks",
++                        items = picks.map { it.toMediaItem() }
++                    )
++                )
+             }
+-        }
++        },
++        modifier = modifier
++    ) { index ->
++        val song = picks[index]
++        val isActive = song.id == mediaMetadata?.id
++        YouTubeListItem(
++            item = song,
++            isActive = isActive,
++            isPlaying = isPlaying,
++            isSwipeable = false,
++            trailingContent = {
++                IconButton(
++                    onClick = {
++                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
++                        menuState.show {
++                            YouTubeSongMenu(
++                                song = song,
++                                navController = navController,
++                                onDismiss = menuState::dismiss
++                            )
++                        }
++                    }
++                ) {
++                    Icon(
++                        painter = painterResource(R.drawable.more_vert),
++                        contentDescription = null
++                    )
++                }
++            },
++            modifier = Modifier
++                .fillMaxWidth()
++                .combinedClickable(
++                    onClick = {
++                        if (isActive) {
++                            playerConnection.player.togglePlayPause()
++                        } else {
++                            playerConnection.playQueue(
++                                YouTubeQueue(
++                                    song.endpoint ?: WatchEndpoint(videoId = song.id),
++                                    song.toMediaMetadata()
++                                )
++                            )
++                        }
++                    },
++                    onLongClick = {
++                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
++                        menuState.show {
++                            YouTubeSongMenu(
++                                song = song,
++                                navController = navController,
++                                onDismiss = menuState::dismiss
++                            )
++                        }
++                    }
++                )
++        )
+     }
+ }
+ 
+diff --git a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+index 6a328d0..174325b 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/viewmodels/HomeViewModel.kt
+@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import com.nikhil.yt.innertube.YouTube
+ import com.nikhil.yt.innertube.models.PlaylistItem
++import com.nikhil.yt.innertube.models.SongItem
+ import com.nikhil.yt.innertube.models.WatchEndpoint
+ import com.nikhil.yt.innertube.models.YTItem
+ import com.nikhil.yt.innertube.models.filterExplicit
+@@ -62,7 +63,13 @@ class HomeViewModel @Inject constructor(
+         it[QuickPicksKey].toEnum(QuickPicks.QUICK_PICKS)
+     }.distinctUntilChanged()
+ 
++    // Songs shown in the carousel: what was played lately.
+     val quickPicks = MutableStateFlow<List<Song>?>(null)
++    // Quick picks list: new songs picked from the mood of the songs played lately.
++    // null = still loading, empty = nothing found.
++    val moodQuickPicks = MutableStateFlow<List<SongItem>?>(null)
++    // Used by the Quick picks list when new songs cannot be loaded.
++    val quickPicksFallback = MutableStateFlow<List<Song>?>(null)
+     val forgottenFavorites = MutableStateFlow<List<Song>?>(null)
+     val keepListening = MutableStateFlow<List<LocalItem>?>(null)
+     val similarRecommendations = MutableStateFlow<List<SimilarRecommendation>?>(null)
+@@ -93,13 +100,101 @@ class HomeViewModel @Inject constructor(
+         return chips?.filterNot { it.title.contains("podcasts", ignoreCase = true) }
+     }
+ 
+-    private suspend fun getQuickPicks(){
+-        when (quickPicksEnum.first()) {
+-            QuickPicks.QUICK_PICKS -> quickPicks.value = buildTasteBasedQuickPicks()
+-            QuickPicks.LAST_LISTEN -> songLoad()
++    private suspend fun getQuickPicks() {
++        val recent = database.recentEvents(60).first()
++            .map { it.song }
++            .distinctBy { it.id }
++            .take(12)
++        val taste = buildTasteBasedQuickPicks()
++        quickPicksFallback.value = taste
++        // New users have no history yet, so the carousel shows the taste based picks.
++        quickPicks.value = recent.ifEmpty { taste }
++    }
++
++    private suspend fun loadMoodQuickPicks() {
++        val result = try {
++            kotlinx.coroutines.withTimeoutOrNull(10_000) { buildMoodQuickPicks() }
++        } catch (e: Exception) {
++            reportException(e)
++            null
++        }
++        if (!result.isNullOrEmpty()) {
++            moodQuickPicks.value = result
++        } else if (moodQuickPicks.value == null) {
++            moodQuickPicks.value = emptyList()
+         }
+     }
+ 
++    /**
++     * New songs for the current mood. The mood is the vibe of the songs played lately:
++     * we ask YouTube Music for songs related to the last few songs played (the latest
++     * counts the most), keep the ones that show up for several of them, and drop
++     * everything already heard or liked.
++     */
++    private suspend fun buildMoodQuickPicks(): List<SongItem> {
++        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
++        val hideVideo = context.dataStore.get(HideVideoKey, false)
++        val lastSongOnly = quickPicksEnum.first() == QuickPicks.LAST_LISTEN
++
++        val events = database.recentEvents(400).first()
++        val seeds = events.map { it.song }.distinctBy { it.id }.take(if (lastSongOnly) 1 else 4)
++        if (seeds.isEmpty()) return emptyList()
++
++        val known = HashSet<String>()
++        events.forEach { known += it.song.id }
++        database.likedSongsByRowIdAsc().first().forEach { known += it.id }
++
++        val related = kotlinx.coroutines.coroutineScope {
++            seeds.mapIndexed { index, seed ->
++                async {
++                    val endpoint = YouTube.next(WatchEndpoint(videoId = seed.id))
++                        .getOrNull()?.relatedEndpoint
++                    val page = endpoint?.let { YouTube.related(it).getOrNull() }
++                    index to page?.songs.orEmpty()
++                }
++            }.awaitAll()
++        }
++
++        val scores = HashMap<String, Float>()
++        val songsById = LinkedHashMap<String, SongItem>()
++        for ((seedIndex, songs) in related) {
++            val seedWeight = 1f - seedIndex * 0.2f
++            songs.forEachIndexed { position, song ->
++                if (song.id in known) return@forEachIndexed
++                val positionBonus = 1f - position.toFloat() / songs.size.coerceAtLeast(1)
++                scores[song.id] = (scores[song.id] ?: 0f) + seedWeight * (0.7f + 0.3f * positionBonus)
++                songsById.putIfAbsent(song.id, song)
++            }
++        }
++
++        val random = kotlin.random.Random.Default
++        val ranked = songsById.values.toList()
++            .filterExplicit(hideExplicit)
++            .filterVideo(hideVideo)
++            .sortedByDescending { (scores[it.id] ?: 0f) + random.nextFloat() * 0.25f }
++
++        // At most 2 songs from the same artist.
++        val perArtist = HashMap<String, Int>()
++        val result = ArrayList<SongItem>(20)
++        for (song in ranked) {
++            val key = song.artists.firstOrNull()?.name ?: song.id
++            val used = perArtist[key] ?: 0
++            if (used >= 2) continue
++            perArtist[key] = used + 1
++            result += song
++            if (result.size >= 20) break
++        }
++        if (result.size < 20) {
++            val chosen = result.map { it.id }.toHashSet()
++            for (song in ranked) {
++                if (song.id in chosen) continue
++                result += song
++                if (result.size >= 20) break
++            }
++        }
++        return result
++    }
++
+     /**
+      * Quick picks that follow the listener's taste: related songs first, ranked by how much
+      * the listener plays their artists, without repeating what was just played.
+@@ -137,7 +232,9 @@ class HomeViewModel @Inject constructor(
+     private suspend fun load() {
+         if (isLoading.value) return
+         isLoading.value = true
+-        
++
++        viewModelScope.launch(Dispatchers.IO) { loadMoodQuickPicks() }
++
+         try {
+             supervisorScope {
+                 val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+@@ -281,16 +378,6 @@ class HomeViewModel @Inject constructor(
+                 homePage.value?.sections?.flatMap { it.items }.orEmpty()
+     }
+ 
+-    private suspend fun songLoad() {
+-        val song = database.recentEvents(1).first().firstOrNull()?.song
+-        if (song != null) {
+-            if (database.hasRelatedSongs(song.id)) {
+-                val relatedSongs = database.getRelatedSongs(song.id).first().shuffled().take(20)
+-                quickPicks.value = relatedSongs
+-            }
+-        }
+-    }
+-
+     private val _isLoadingMore = MutableStateFlow(false)
+     fun loadMoreYouTubeItems(continuation: String?) {
+         if (continuation == null || _isLoadingMore.value) return

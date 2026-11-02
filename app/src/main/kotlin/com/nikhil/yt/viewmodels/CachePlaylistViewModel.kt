@@ -1,0 +1,74 @@
+/*
+ * Velune - by Nikhil
+ * Nikhil
+ * Licensed Under GPL-3.0
+ */
+
+
+
+package com.nikhil.yt.viewmodels
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.nikhil.yt.constants.HideExplicitKey
+import com.nikhil.yt.db.MusicDatabase
+import com.nikhil.yt.db.entities.Song
+import com.nikhil.yt.extensions.filterExplicit
+import com.nikhil.yt.utils.dataStore
+import com.nikhil.yt.utils.get
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+import com.nikhil.yt.di.PlayerCache
+import com.nikhil.yt.di.DownloadCache
+import androidx.media3.datasource.cache.Cache
+import com.nikhil.yt.playback.CacheAvailability
+import kotlinx.coroutines.Dispatchers
+
+@HiltViewModel
+class CachePlaylistViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val database: MusicDatabase,
+    @PlayerCache private val playerCache: Cache,
+    @DownloadCache private val downloadCache: Cache,
+    private val mp3Library: com.nikhil.yt.playback.Mp3Library,
+) : ViewModel() {
+
+    private val _cachedSongs = MutableStateFlow<List<Song>>(emptyList())
+    val cachedSongs: StateFlow<List<Song>> = _cachedSongs
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                val cachedIds = playerCache.keys.toSet()
+                val downloadedIds = downloadCache.keys.toSet() + mp3Library.ids()
+                val pureCacheIds = cachedIds.subtract(downloadedIds)
+
+                val songs = if (pureCacheIds.isNotEmpty()) {
+                    database.getSongsByIds(pureCacheIds.toList())
+                } else {
+                    emptyList()
+                }
+
+                val completeSongs = songs.filter {
+                    CacheAvailability.isCached(playerCache, it.song.id, fallbackContentLength = it.format?.contentLength)
+                }
+
+                _cachedSongs.value = completeSongs
+                    .sortedByDescending { it.song.dateDownload }
+                    .filterExplicit(hideExplicit)
+
+                delay(1000)
+            }
+        }
+    }
+
+    fun removeSongFromCache(songId: String) {
+        playerCache.removeResource(songId)
+    }
+}

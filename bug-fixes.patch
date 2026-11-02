@@ -1,0 +1,63 @@
+diff --git a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+index fc0e511..83b088b 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/playback/MusicService.kt
+@@ -1669,6 +1669,24 @@ class MusicService :
+         playNext(listOf(item))
+     }
+ 
++    fun playImmediateAutomix(
++        item: MediaItem,
++        position: Int,
++    ) {
++        automixItems.value =
++            automixItems.value.toMutableList().apply {
++                removeAt(position)
++            }
++        suppressAutoPlayback = false
++        player.addMediaItems(
++            if (player.mediaItemCount == 0) 0 else player.currentMediaItemIndex + 1,
++            listOf(item)
++        )
++        player.seekToNextMediaItem()
++        player.prepare()
++        player.play()
++    }
++
+     fun clearAutomix() {
+         automixJob?.cancel()
+         automixJob = null
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/player/Queue.kt b/app/src/main/kotlin/com/nikhil/yt/ui/player/Queue.kt
+index 0a9e491..b5806b8 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/player/Queue.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/player/Queue.kt
+@@ -842,7 +842,12 @@ fun Queue(
+                                 Modifier
+                                     .fillMaxWidth()
+                                     .combinedClickable(
+-                                        onClick = {},
++                                        onClick = {
++                                            playerConnection.service.playImmediateAutomix(
++                                                item,
++                                                index,
++                                            )
++                                        },
+                                         onLongClick = {
+                                             menuState.show {
+                                                 PlayerMenu(
+diff --git a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
+index 736ec53..f868d1a 100644
+--- a/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
++++ b/app/src/main/kotlin/com/nikhil/yt/ui/screens/HomeScreenComponents.kt
+@@ -610,10 +610,7 @@ private fun YouTubeGridItemWrapper(
+             onClick = {
+                 when (item) {
+                     is SongItem -> playerConnection.playQueue(
+-                        YouTubeQueue(
+-                            item.endpoint ?: WatchEndpoint(videoId = item.id),
+-                            item.toMediaMetadata()
+-                        )
++                        YouTubeQueue.radio(item.toMediaMetadata())
+                     )
+                     is AlbumItem -> navController.navigate("album/${item.id}")
+                     is ArtistItem -> navController.navigate("artist/${item.id}")
