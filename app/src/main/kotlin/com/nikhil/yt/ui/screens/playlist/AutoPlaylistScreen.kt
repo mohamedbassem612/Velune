@@ -8,6 +8,7 @@
 
 package com.nikhil.yt.ui.screens.playlist
 
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.VeluneLoader
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -775,7 +776,7 @@ fun AutoPlaylistScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    onClick = {
+                                    onClick = offlineSongClick(songWrapper.item.id) {
                                         if (!selection) {
                                             if (songWrapper.item.song.id == mediaMetadata?.id) {
                                                 playerConnection.player.togglePlayPause()

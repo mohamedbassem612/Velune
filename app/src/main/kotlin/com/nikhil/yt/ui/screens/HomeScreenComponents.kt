@@ -92,6 +92,7 @@ import com.nikhil.yt.playback.queues.YouTubeQueue
 import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.extensions.toMediaItem
 import androidx.compose.foundation.border
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.AlbumGridItem
 import com.nikhil.yt.ui.component.ArtistGridItem
 import com.nikhil.yt.ui.component.MenuState
@@ -161,7 +162,7 @@ fun QuickPicksSection(
                     MaterialTheme.shapes.extraLarge
                 )
                 .combinedClickable(
-                    onClick = {
+                    onClick = offlineSongClick(song.id) {
                         if (isActive) {
                             playerConnection.player.togglePlayPause()
                         } else {
@@ -370,7 +371,7 @@ fun ForgottenFavoritesSection(
                 modifier = Modifier
                     .width(horizontalLazyGridItemWidth)
                     .combinedClickable(
-                        onClick = {
+                        onClick = offlineSongClick(song.id) {
                             if (song.id == mediaMetadata?.id) {
                                 playerConnection.player.togglePlayPause()
                             } else {
@@ -618,7 +619,7 @@ private fun YouTubeGridItemWrapper(
         coroutineScope = scope,
         thumbnailRatio = 1f,
         modifier = modifier.combinedClickable(
-            onClick = {
+            onClick = offlineSongClick(item) {
                 when (item) {
                     is SongItem -> playerConnection.playQueue(
                         YouTubeQueue.radio(item.toMediaMetadata())
@@ -680,7 +681,7 @@ private fun LocalGridItem(
             modifier = modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = {
+                    onClick = offlineSongClick(item.id) {
                         if (item.id == mediaMetadata?.id) {
                             playerConnection.player.togglePlayPause()
                         } else {
@@ -1063,7 +1064,7 @@ fun QuickPicksListSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = {
+                    onClick = offlineSongClick(song.id) {
                         if (isActive) {
                             playerConnection.player.togglePlayPause()
                         } else {
@@ -1147,7 +1148,7 @@ fun MoodQuickPicksListSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = {
+                    onClick = offlineSongClick(song) {
                         if (isActive) {
                             playerConnection.player.togglePlayPause()
                         } else {

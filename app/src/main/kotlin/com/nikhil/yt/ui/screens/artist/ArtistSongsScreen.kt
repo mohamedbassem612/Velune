@@ -52,6 +52,7 @@ import com.nikhil.yt.constants.HideExplicitKey
 import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.playback.queues.ListQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.HideOnScrollFAB
 import com.nikhil.yt.ui.component.IconButton
 import com.nikhil.yt.ui.component.LocalMenuState
@@ -160,7 +161,7 @@ fun ArtistSongsScreen(
                     Modifier
                         .fillMaxWidth()
                         .combinedClickable(
-                            onClick = {
+                            onClick = offlineSongClick(song.id) {
                                 if (song.id == mediaMetadata?.id) {
                                     playerConnection.player.togglePlayPause()
                                 } else {

@@ -8,6 +8,7 @@
 
 package com.nikhil.yt.ui.screens.playlist
 
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.VeluneLoader
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
@@ -1187,7 +1188,7 @@ fun LocalPlaylistScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
-                                        onClick = {
+                                        onClick = offlineSongClick(song.song.id) {
                                             if (song.song.id == mediaMetadata?.id) {
                                                 playerConnection.player.togglePlayPause()
                                             } else {
@@ -1313,7 +1314,7 @@ fun LocalPlaylistScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
-                                        onClick = {
+                                        onClick = offlineSongClick(songWrapper.item.song.id) {
                                             if (!selection) {
                                                 if (songWrapper.item.song.id == mediaMetadata?.id) {
                                                     playerConnection.player.togglePlayPause()

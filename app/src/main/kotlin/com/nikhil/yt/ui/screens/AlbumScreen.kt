@@ -8,6 +8,7 @@
 
 package com.nikhil.yt.ui.screens
 
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.VeluneLoader
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -733,7 +734,7 @@ fun AlbumScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .combinedClickable(
-                                onClick = {
+                                onClick = offlineSongClick(songWrapper.item.id) {
                                     if (!selection) {
                                         if (songWrapper.item.id == mediaMetadata?.id) {
                                             playerConnection.player.togglePlayPause()

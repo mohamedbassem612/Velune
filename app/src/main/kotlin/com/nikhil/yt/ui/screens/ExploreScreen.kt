@@ -48,6 +48,7 @@ import com.nikhil.yt.constants.ListItemHeight
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.LocalMenuState
 import com.nikhil.yt.ui.component.NavigationTitle
 import com.nikhil.yt.ui.component.YouTubeGridItem
@@ -274,7 +275,7 @@ fun ExploreScreen(
                                     modifier = Modifier
                                         .width(horizontalLazyGridItemWidth)
                                         .combinedClickable(
-                                            onClick = {
+                                            onClick = offlineSongClick(song) {
                                                 if (song.id == mediaMetadata?.id) {
                                                     playerConnection.player.togglePlayPause()
                                                 } else {
@@ -366,7 +367,7 @@ fun ExploreScreen(
                                 coroutineScope = coroutineScope,
                                 modifier = Modifier
                                     .combinedClickable(
-                                        onClick = {
+                                        onClick = offlineSongClick(video) {
                                             if (video.id == mediaMetadata?.id) {
                                                 playerConnection.player.togglePlayPause()
                                             } else {

@@ -80,6 +80,7 @@ import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.ChipsRow
 import com.nikhil.yt.ui.component.HideOnScrollFAB
 import com.nikhil.yt.ui.component.IconButton
@@ -370,7 +371,7 @@ fun HistoryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    onClick = {
+                                    onClick = offlineSongClick(song) {
                                         if (song.id == mediaMetadata?.id) {
                                             playerConnection.player.togglePlayPause()
                                         } else {
@@ -442,7 +443,7 @@ fun HistoryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    onClick = {
+                                    onClick = offlineSongClick(event.song.id) {
                                         if (!selection) {
                                             if (event.song.id == mediaMetadata?.id) {
                                                 playerConnection.player.togglePlayPause()

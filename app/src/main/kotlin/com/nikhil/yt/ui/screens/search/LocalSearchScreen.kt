@@ -41,6 +41,7 @@ import com.nikhil.yt.db.entities.Song
 import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.playback.queues.ListQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.*
 import com.nikhil.yt.ui.menu.SongMenu
 import com.nikhil.yt.viewmodels.LocalFilter
@@ -215,7 +216,7 @@ fun LocalSearchScreen(
                             },
                             modifier = Modifier
                                 .combinedClickable(
-                                    onClick = {
+                                    onClick = offlineSongClick(item.id) {
                                         if (item.id == mediaMetadata?.id) {
                                             playerConnection.player.togglePlayPause()
                                         } else {

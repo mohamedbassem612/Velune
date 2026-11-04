@@ -77,6 +77,7 @@ import com.nikhil.yt.constants.SearchFilterHeight
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.ChipsRow
 import com.nikhil.yt.ui.component.EmptyPlaceholder
 import com.nikhil.yt.ui.component.LocalMenuState
@@ -180,7 +181,7 @@ fun OnlineSearchResult(
             modifier =
             Modifier
                 .combinedClickable(
-                    onClick = {
+                    onClick = offlineSongClick(item) {
                         when (item) {
                             is SongItem -> {
                                 if (item.id == mediaMetadata?.id) {

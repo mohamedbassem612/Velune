@@ -124,6 +124,7 @@ import com.nikhil.yt.extensions.move
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.extensions.toggleRepeatMode
 import com.nikhil.yt.models.MediaMetadata
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.ActionPromptDialog
 import com.nikhil.yt.ui.component.BottomSheet
 import com.nikhil.yt.ui.component.BottomSheetState
@@ -716,7 +717,7 @@ fun Queue(
                                         .fillMaxWidth()
                                         .background(backgroundColor)
                                         .combinedClickable(
-                                            onClick = {
+                                            onClick = offlineSongClick(windowMetadata.id) {
                                                 if (selection) {
                                                     if (windowMetadata in selectedSongs) {
                                                         selectedSongs.remove(windowMetadata)
@@ -735,13 +736,13 @@ fun Queue(
                                                         if (isGuest) {
                                                             if (joined?.roomState?.settings?.allowGuestsToControlPlayback != true) {
                                                                 Toast.makeText(context, R.string.not_allowed, Toast.LENGTH_SHORT).show()
-                                                                return@combinedClickable
+                                                                return@offlineSongClick
                                                             }
                                                             val trackId =
                                                                 window.mediaItem.metadata?.id?.trim().orEmpty().ifBlank {
                                                                     window.mediaItem.mediaId.trim()
                                                                 }
-                                                            if (trackId.isBlank()) return@combinedClickable
+                                                            if (trackId.isBlank()) return@offlineSongClick
                                                             Toast.makeText(context, R.string.together_requesting_song_change, Toast.LENGTH_SHORT).show()
                                                             playerConnection.service.requestTogetherControl(
                                                                 com.nikhil.yt.together.ControlAction.SeekToTrack(
@@ -842,7 +843,7 @@ fun Queue(
                                 Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
-                                        onClick = {
+                                        onClick = offlineSongClick(itemMetadata.id) {
                                             playerConnection.service.playImmediateAutomix(
                                                 item,
                                                 index,

@@ -102,6 +102,7 @@ import com.nikhil.yt.constants.ThumbnailCornerRadius
 import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.playback.queues.ListQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.DraggableScrollbar
 import com.nikhil.yt.ui.component.EmptyPlaceholder
 import com.nikhil.yt.ui.component.IconButton
@@ -604,7 +605,7 @@ fun CachePlaylistScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .combinedClickable(
-                                onClick = {
+                                onClick = offlineSongClick(songWrapper.item.id) {
                                     if (!selection) {
                                         if (songWrapper.item.id == mediaMetadata?.id) {
                                             playerConnection.player.togglePlayPause()

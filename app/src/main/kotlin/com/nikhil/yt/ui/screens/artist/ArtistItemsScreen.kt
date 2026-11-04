@@ -51,6 +51,7 @@ import com.nikhil.yt.constants.GridThumbnailHeight
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.IconButton
 import com.nikhil.yt.ui.component.LocalMenuState
 import com.nikhil.yt.ui.component.YouTubeGridItem
@@ -174,7 +175,7 @@ fun ArtistItemsScreen(
                     },
                     modifier =
                     Modifier
-                        .clickable {
+                        .clickable(onClick = offlineSongClick(item) {
                             when (item) {
                                 is SongItem -> {
                                     if (item.id == mediaMetadata?.id) {
@@ -193,7 +194,7 @@ fun ArtistItemsScreen(
                                 is ArtistItem -> navController.navigate("artist/${item.id}")
                                 is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
                             }
-                        },
+                        }),
                 )
             }
 
@@ -229,7 +230,7 @@ fun ArtistItemsScreen(
                     coroutineScope = coroutineScope,
                     modifier = Modifier
                         .combinedClickable(
-                            onClick = {
+                            onClick = offlineSongClick(item) {
                                 when (item) {
                                     is SongItem -> playerConnection.playQueue(
                                         YouTubeQueue(

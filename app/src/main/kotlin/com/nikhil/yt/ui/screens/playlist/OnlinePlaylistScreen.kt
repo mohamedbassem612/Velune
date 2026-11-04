@@ -121,6 +121,7 @@ import com.nikhil.yt.innertube.models.SongItem
 import com.nikhil.yt.innertube.models.WatchEndpoint
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.DraggableScrollbar
 import com.nikhil.yt.ui.component.IconButton
 import com.nikhil.yt.ui.component.LocalMenuState
@@ -889,7 +890,7 @@ fun OnlinePlaylistScreen(
                             modifier =
                                 Modifier.combinedClickable(
                                         enabled = !hideExplicit || !song.item.second.explicit,
-                                        onClick = {
+                                        onClick = offlineSongClick(song.item.second) {
                                             if (!selection) {
                                                 if (song.item.second.id == mediaMetadata?.id) {
                                                     playerConnection.player.togglePlayPause()

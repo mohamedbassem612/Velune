@@ -7,6 +7,7 @@
 
 package com.nikhil.yt.ui.screens.playlist
 
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.VeluneLoader
 import android.widget.Toast
 import androidx.compose.foundation.clickable
@@ -203,8 +204,8 @@ fun PlaylistSuggestionsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.medium)
-                        .clickable {
-                            if (playerConnection == null) return@clickable
+                        .clickable(onClick = offlineSongClick(item) {
+                            if (playerConnection == null) return@offlineSongClick
                             if (item.id == mediaMetadata?.id) {
                                 playerConnection.player.togglePlayPause()
                             } else {
@@ -222,7 +223,7 @@ fun PlaylistSuggestionsSection(
                                     }
                                 }
                             }
-                        }
+                        })
                 )
             }
             

@@ -119,6 +119,7 @@ import com.nikhil.yt.innertube.models.WatchEndpoint
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.AlbumGridItem
 import com.nikhil.yt.ui.component.HideOnScrollFAB
 import com.nikhil.yt.ui.component.IconButton
@@ -771,7 +772,7 @@ fun ArtistScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
-                                        onClick = {
+                                        onClick = offlineSongClick(song.id) {
                                             if (song.id == mediaMetadata?.id) {
                                                 playerConnection.player.togglePlayPause()
                                             } else {
@@ -928,7 +929,7 @@ fun ArtistScreen(
                                     },
                                     modifier = Modifier
                                         .combinedClickable(
-                                            onClick = {
+                                            onClick = offlineSongClick(song) {
                                                 if (song.id == mediaMetadata?.id) {
                                                     playerConnection.player.togglePlayPause()
                                                 } else {
@@ -985,7 +986,7 @@ fun ArtistScreen(
                                             coroutineScope = coroutineScope,
                                             modifier = Modifier
                                                 .combinedClickable(
-                                                    onClick = {
+                                                    onClick = offlineSongClick(item) {
                                                         when (item) {
                                                             is SongItem ->
                                                                 playerConnection.playQueue(

@@ -1710,3 +1710,16 @@ fun Modifier.offlineSongAppearance(songId: String?): Modifier {
     val state = LocalOfflineSongState.current
     return if (songId != null && state.isUnavailable(songId)) alpha(0.38f) else this
 }
+
+/** Guard the click action itself so touch, keyboard and accessibility clicks behave alike. */
+@Composable
+fun offlineSongClick(songId: String?, onClick: () -> Unit): () -> Unit {
+    val state = LocalOfflineSongState.current
+    return {
+        if (songId == null || !state.isUnavailable(songId)) onClick()
+    }
+}
+
+@Composable
+fun offlineSongClick(item: YTItem, onClick: () -> Unit): () -> Unit =
+    offlineSongClick(item.id.takeIf { item is SongItem }, onClick)

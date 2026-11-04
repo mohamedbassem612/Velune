@@ -42,6 +42,7 @@ import com.nikhil.yt.R
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.queues.YouTubeQueue
+import com.nikhil.yt.ui.component.offlineSongClick
 import com.nikhil.yt.ui.component.LocalMenuState
 import com.nikhil.yt.ui.component.YouTubeListItem
 import com.nikhil.yt.ui.menu.*
@@ -219,7 +220,7 @@ fun OnlineSearchScreen(
                 },
                 modifier = Modifier
                     .combinedClickable(
-                        onClick = {
+                        onClick = offlineSongClick(item) {
                             when (item) {
                                 is SongItem -> {
                                     if (item.id == mediaMetadata?.id) {
