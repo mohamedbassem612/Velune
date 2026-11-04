@@ -74,6 +74,8 @@ Interface and integrations
 
 ## Offline and download updates
 
+Smart Trimmer is temporarily disabled for both image and song caches, including its Settings switch. Its implementation and saved preference are preserved behind the `SmartTrimmerEnabled` code flag. Standard cache size limits and manual cache clearing still apply.
+
 The offline work merged into `main` improves browsing, playback and the safety of downloaded music:
 
 - Offline Home and local search focus on songs that can be played from an accessible MP3 or a complete audio cache. Offline Quick Picks start the selected song locally; online clicks continue to start a radio queue.

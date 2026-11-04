@@ -137,6 +137,8 @@ val EqualizerSelectedProfileIdKey = stringPreferencesKey("equalizerSelectedProfi
 val EqualizerCustomProfilesJsonKey = stringPreferencesKey("equalizerCustomProfilesJson")
 
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
+// Temporarily disable Smart Trimmer everywhere while preserving its code and saved preference.
+const val SmartTrimmerEnabled = false
 val SmartTrimmerKey = booleanPreferencesKey("smartTrimmer")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")
 val MaxCanvasCacheSizeKey = intPreferencesKey("maxCanvasCacheSize")

@@ -132,6 +132,7 @@ import com.nikhil.yt.constants.ScrobbleMinSongDurationKey
 import com.nikhil.yt.constants.ShowLyricsKey
 import com.nikhil.yt.constants.SkipSilenceKey
 import com.nikhil.yt.constants.SmartTrimmerKey
+import com.nikhil.yt.constants.SmartTrimmerEnabled
 import com.nikhil.yt.constants.StopMusicOnTaskClearKey
 import com.nikhil.yt.constants.TogetherClientIdKey
 import com.nikhil.yt.constants.YtmSyncKey
@@ -850,7 +851,7 @@ class MusicService :
 
         dataStore.data
             .map { prefs ->
-                (prefs[SmartTrimmerKey] ?: false) to (prefs[MaxSongCacheSizeKey] ?: 1024)
+                (SmartTrimmerEnabled && (prefs[SmartTrimmerKey] ?: false)) to (prefs[MaxSongCacheSizeKey] ?: 1024)
             }
             .debounce(300)
             .distinctUntilChanged()

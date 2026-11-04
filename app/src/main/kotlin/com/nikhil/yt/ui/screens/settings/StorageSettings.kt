@@ -33,6 +33,7 @@ import com.nikhil.yt.constants.MaxCanvasCacheSizeKey
 import com.nikhil.yt.constants.MaxImageCacheSizeKey
 import com.nikhil.yt.constants.MaxSongCacheSizeKey
 import com.nikhil.yt.constants.SmartTrimmerKey
+import com.nikhil.yt.constants.SmartTrimmerEnabled
 import com.nikhil.yt.extensions.directorySizeBytes
 import com.nikhil.yt.extensions.tryOrNull
 import com.nikhil.yt.ui.component.ActionPromptDialog
@@ -115,9 +116,9 @@ fun StorageSettings(
         label = "canvasCacheProgress",
     )
 
-    val isSmartTrimmerAvailable = maxImageCacheSize != 0 || maxSongCacheSize != 0
+    val isSmartTrimmerAvailable = SmartTrimmerEnabled && (maxImageCacheSize != 0 || maxSongCacheSize != 0)
     LaunchedEffect(isSmartTrimmerAvailable) {
-        if (!isSmartTrimmerAvailable && smartTrimmer) onSmartTrimmerChange(false)
+        if (SmartTrimmerEnabled && !isSmartTrimmerAvailable && smartTrimmer) onSmartTrimmerChange(false)
     }
 
     LaunchedEffect(maxImageCacheSize) {

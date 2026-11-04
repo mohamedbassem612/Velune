@@ -317,7 +317,7 @@ class App : Application(), SingletonImageLoader.Factory {
 
     @OptIn(ExperimentalCoilApi::class)
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        val smartTrimmer = dataStore[SmartTrimmerKey] ?: false
+        val smartTrimmer = SmartTrimmerEnabled && (dataStore[SmartTrimmerKey] ?: false)
         val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey])
 
         // Images live in filesDir (not cacheDir) so "Clear cache" in Android settings does not delete them.
