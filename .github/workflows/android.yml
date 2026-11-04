@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: ["main", "velune-offline-fixes"]
+    branches: ["main", "velune-offline-fixes", "Testing-features"]
     tags: ["v*"]
   pull_request:
     branches: ["main"]
@@ -41,9 +41,9 @@ jobs:
         run: ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
 
       # Repository secrets are not available to pull_request workflows from forks.
-      # PRs build Debug; pushes and manual runs build a signed Release.
+      # Testing-features builds Debug; other pushes and manual runs build a signed Release.
       - name: Prepare release signing key
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref_name != 'Testing-features'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -71,7 +71,7 @@ jobs:
           echo "RELEASE_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
       - name: Build Universal Release APK
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref_name != 'Testing-features'
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -83,11 +83,11 @@ jobs:
           ./gradlew :app:assembleUniversalRelease
 
       - name: Build Universal Debug APK (pull requests)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.ref_name == 'Testing-features'
         run: ./gradlew :app:assembleUniversalDebug
 
       - name: Upload signed Release APK artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref_name != 'Testing-features'
         uses: actions/upload-artifact@v4
         with:
           name: Velune-Universal-Release
@@ -105,7 +105,7 @@ jobs:
           files: app/build/outputs/apk/universal/release/*.apk
 
       - name: Upload Debug APK (pull requests)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.ref_name == 'Testing-features'
         uses: actions/upload-artifact@v4
         with:
           name: Velune-Universal-Debug
