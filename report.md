@@ -498,6 +498,22 @@ Problem: in Settings > Storage the Downloaded songs card read only the old downl
 - `playback/Mp3Library.kt`, `playback/DownloadUtil.kt`, `playback/MusicService.kt`, `ui/screens/settings/StorageSettings.kt`
 
 
+## 25. Covers that survive cache clearing (patch covers)
+
+Problem: covers load from the internet through Coil, and its cache lives in cacheDir, which Android can clear. After that, offline songs show no cover.
+
+- Downloaded songs: the cover is read from inside the mp3 (ID3), and if that fails the normal thumbnail url is used.
+- Songs in the player cache: the cover is saved once as a permanent file in filesDir/covers named by videoId (about 544px JPEG), and read from there first.
+- Every other song: loaded from the internet as before.
+- One Coil interceptor (`LocalCoverInterceptor`) redirects any image request to the local cover, so no screen had to change. The notification cover goes through the same loader. If the local cover fails, the normal url is loaded.
+- Cleanup: 20 seconds after the service starts, covers of songs that left the player cache are deleted, and up to 60 cached songs without a saved cover get one.
+- Not done on purpose: converting cached songs to full files with metadata (the player cache holds raw chunks, so it would cost battery and space).
+
+### Modified Files
+- New: `utils/CoverStore.kt`, `utils/LocalCoverInterceptor.kt`
+- `App.kt`, `playback/MusicService.kt`, `playback/Mp3Converter.kt`
+
+
 ---
 
 **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

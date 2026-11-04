@@ -29,6 +29,11 @@ import coil3.network.CacheStrategy
 import coil3.network.NetworkRequest
 import coil3.network.NetworkResponse
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.nikhil.yt.playback.Mp3Library
+import com.nikhil.yt.utils.CoverBytes
+import com.nikhil.yt.utils.CoverBytesFetcher
+import com.nikhil.yt.utils.LocalCoverInterceptor
+import javax.inject.Inject
 import coil3.annotation.ExperimentalCoilApi
 import com.nikhil.yt.constants.*
 import com.nikhil.yt.extensions.*
@@ -80,6 +85,9 @@ class App : Application(), SingletonImageLoader.Factory {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @Volatile private var isInitialized = false
     private val didRunImageCacheTrim = AtomicBoolean(false)
+
+    @Inject
+    lateinit var mp3Library: Mp3Library
 
     private fun currentProcessName(): String? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -328,6 +336,8 @@ class App : Application(), SingletonImageLoader.Factory {
             .diskCachePolicy(imageCacheConfig.policy)
             .components {
                 add(OkHttpNetworkFetcherFactory(cacheStrategy = { ForceCacheStrategy }))
+                add(CoverBytesFetcher.Factory(), CoverBytes::class)
+                add(LocalCoverInterceptor(this@App) { if (::mp3Library.isInitialized) mp3Library else null })
             }
             .build()
     }

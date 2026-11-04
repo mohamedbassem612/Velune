@@ -117,6 +117,9 @@ constructor(
                 return
             }
 
+            // The cover is inside the mp3 now, so the app can find it there
+            coverUrl?.let { com.nikhil.yt.utils.CoverStore.register(context, id, it) }
+
             runCatching { downloadCache.removeResource(id) }
             Timber.tag(TAG).i("Converted $id to mp3 and removed it from the download cache")
         } finally {

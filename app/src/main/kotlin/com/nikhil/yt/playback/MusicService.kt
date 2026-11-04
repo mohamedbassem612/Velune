@@ -516,6 +516,10 @@ class MusicService :
         super.onCreate()
         com.nikhil.yt.utils.StartupTrace.mark("MusicService.onCreate begin (injection done)")
         ensureScopesActive()
+        ioScope.launch {
+            delay(20_000L)
+            runCoverMaintenance()
+        }
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -3417,6 +3421,7 @@ class MusicService :
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
     super.onMediaItemTransition(mediaItem, reason)
+    mediaItem?.let { saveCoverFor(it) }
 
     clearStreamRefreshGuards(
         mediaItem?.mediaId
@@ -4115,6 +4120,42 @@ class MusicService :
                 totalBytes -= removedSize
             }
         }
+    }
+
+    /** Keeps a permanent copy of the cover of the song that is playing (downloaded songs use the cover inside their mp3). */
+    private fun saveCoverFor(item: MediaItem) {
+        val id = item.mediaId.trim().takeIf { it.isNotEmpty() } ?: return
+        val url = item.mediaMetadata.artworkUri?.toString()?.takeIf { it.startsWith("http") } ?: return
+        ioScope.launch {
+            if (mp3Library.has(id)) {
+                com.nikhil.yt.utils.CoverStore.register(this@MusicService, id, url)
+            } else {
+                com.nikhil.yt.utils.CoverStore.saveFromUrl(this@MusicService, id, url)
+            }
+        }
+    }
+
+    /** Runs a while after start: links mp3 songs to their covers, deletes covers of songs that left the cache, fills in missing ones. */
+    private suspend fun runCoverMaintenance() {
+        runCatching {
+            val mp3Ids = mp3Library.ids()
+            mp3Ids.toList().chunked(500).forEach { chunk ->
+                database.getSongsByIds(chunk).forEach { song ->
+                    song.song.thumbnailUrl?.let { com.nikhil.yt.utils.CoverStore.register(this, song.song.id, it) }
+                }
+            }
+            val cachedIds = playerCache.keys.toSet()
+            com.nikhil.yt.utils.CoverStore.sweep(this, cachedIds, cachedIds + mp3Ids)
+
+            var left = 60
+            for (id in cachedIds) {
+                if (left <= 0) break
+                if (id in mp3Ids || com.nikhil.yt.utils.CoverStore.hasSavedCover(this, id)) continue
+                val url = database.getSongById(id)?.song?.thumbnailUrl ?: continue
+                com.nikhil.yt.utils.CoverStore.saveFromUrl(this, id, url)
+                left--
+            }
+        }.onFailure { Timber.tag("CoverStore").w(it, "Cover maintenance failed") }
     }
 
     private fun createCacheDataSource(): CacheDataSource.Factory =
