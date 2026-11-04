@@ -141,6 +141,12 @@ A local release build (`assembleUniversalRelease`) is signed with the debug key 
 
 Releases are built by GitHub Actions and signed with the project key. Pushing a tag in the form `vMAJOR.MINOR.PATCH` (for example `v1.3.1`) builds the signed APK, sets the app version from the tag, and publishes a GitHub release with the APK attached. The required repository secrets are `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
 
+Pushes to `Testing-features` build a signed Universal Release APK. Its filename is
+`velune-testing-vMAJOR.MINOR.PATCH.apk` (for example, `velune-testing-v1.3.7.apk`).
+Branch builds take the version from the newest semantic release tag; manual builds
+can override it with `release_version`. The artifact is available on the Actions
+run page for 14 days. Tag release assets use `velune-vMAJOR.MINOR.PATCH.apk`.
+
 ## Credits
 
 Velune is based on the earlier Velune project by [nikhilvishwakarma00](https://github.com/nikhilvishwakarma00), and builds on the work of these projects:

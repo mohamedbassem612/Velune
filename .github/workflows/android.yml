@@ -10,8 +10,7 @@ on:
     inputs:
       release_version:
         description: APK version for this manual build
-        required: true
-        default: "1.3.6"
+        required: false
         type: string
 
 permissions:
@@ -24,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -41,9 +42,9 @@ jobs:
         run: ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
 
       # Repository secrets are not available to pull_request workflows from forks.
-      # Testing-features builds Debug; other pushes and manual runs build a signed Release.
+      # Pushes and manual runs use the project signing key; fork PRs use the local fallback.
       - name: Prepare release signing key
-        if: github.event_name != 'pull_request' && github.ref_name != 'Testing-features'
+        if: github.event_name != 'pull_request'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -52,46 +53,62 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/keystore/release.keystore
           test -s app/keystore/release.keystore
 
-      - name: Set APK version
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      - name: Set APK version and filename
         shell: bash
         env:
           MANUAL_VERSION: ${{ inputs.release_version }}
         run: |
-          VERSION="${MANUAL_VERSION:-${GITHUB_REF_NAME#v}}"
+          if [[ -n "$MANUAL_VERSION" ]]; then
+            VERSION="${MANUAL_VERSION#v}"
+          elif [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" =~ ^(velune-testing-)?v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION="${BASH_REMATCH[2]}"
+          else
+            # Branch builds use the newest release tag, including after a tree recovery.
+            VERSION_TAG="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)"
+            VERSION="${VERSION_TAG#v}"
+          fi
           if [[ ! "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "Tag must use semantic version format vMAJOR.MINOR.PATCH (example: v1.1.3)"
+            echo "Expected a semantic version: MAJOR.MINOR.PATCH"
             exit 1
           fi
           MAJOR="${BASH_REMATCH[1]}"
           MINOR="${BASH_REMATCH[2]}"
           PATCH="${BASH_REMATCH[3]}"
-          VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          VERSION_CODE=$((10#$MAJOR * 10000 + 10#$MINOR * 100 + 10#$PATCH))
           echo "RELEASE_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "RELEASE_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF_NAME" == "Testing-features" || "$GITHUB_REF_NAME" == velune-testing-* ]]; then
+            APK_TAG="velune-testing-v$VERSION"
+          else
+            APK_TAG="velune-v$VERSION"
+          fi
+          echo "APK_TAG=$APK_TAG" >> "$GITHUB_ENV"
 
       - name: Build Universal Release APK
-        if: github.event_name != 'pull_request' && github.ref_name != 'Testing-features'
         env:
+          REQUIRE_SIGNING: ${{ github.event_name != 'pull_request' }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          test -n "$STORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret" && exit 1)
-          test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
-          test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
+          if [ "$REQUIRE_SIGNING" = "true" ]; then
+            test -n "$STORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret" && exit 1)
+            test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
+            test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
+          fi
           ./gradlew :app:assembleUniversalRelease
 
-      - name: Build Universal Debug APK (pull requests)
-        if: github.event_name == 'pull_request' || github.ref_name == 'Testing-features'
-        run: ./gradlew :app:assembleUniversalDebug
+      - name: Name Release APK
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/universal/release/*.apk "dist/$APK_TAG.apk"
 
-      - name: Upload signed Release APK artifact
-        if: github.event_name != 'pull_request' && github.ref_name != 'Testing-features'
+      - name: Upload Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Velune-Universal-Release
-          path: app/build/outputs/apk/universal/release/*.apk
+          name: ${{ env.APK_TAG }}-Release
+          path: dist/*.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -102,13 +119,4 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Velune ${{ github.ref_name }}
           generate_release_notes: true
-          files: app/build/outputs/apk/universal/release/*.apk
-
-      - name: Upload Debug APK (pull requests)
-        if: github.event_name == 'pull_request' || github.ref_name == 'Testing-features'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Velune-Universal-Debug
-          path: app/build/outputs/apk/universal/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          files: dist/*.apk
