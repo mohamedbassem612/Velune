@@ -1186,16 +1186,23 @@ fun ItemThumbnail(
     val online by remember(context) { ArtworkConnectivity.online(context) }.collectAsState()
     var imageFailed by remember(thumbnailUrl) { mutableStateOf(false) }
     var retryGeneration by remember(thumbnailUrl) { androidx.compose.runtime.mutableIntStateOf(0) }
-    var retryCount by remember(thumbnailUrl) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var imageLoaded by remember(thumbnailUrl) { mutableStateOf(false) }
 
-    // Retry failed visible images when connectivity is restored (up to 3 times, a little later each time,
-    // because the network is sometimes not ready the moment it reports online); cached images stay intact.
-    LaunchedEffect(online, thumbnailUrl, imageFailed) {
-        if (online && imageFailed && retryCount < 3) {
-            kotlinx.coroutines.delay(if (retryCount == 0) 300L else 2_000L * retryCount)
-            retryCount++
-            imageFailed = false
-            retryGeneration++
+    // When the internet is back, keep retrying an image that did not load (up to 5 times, waiting a bit
+    // longer each time, because the network is often not really ready the moment it reports online).
+    // A new online event starts the tries again. Images that already loaded are never touched.
+    LaunchedEffect(online, thumbnailUrl) {
+        if (!online || thumbnailUrl.isNullOrBlank()) return@LaunchedEffect
+        var tries = 0
+        while (tries < 5 && !imageLoaded) {
+            kotlinx.coroutines.delay(400L + 1_500L * tries)
+            if (imageLoaded) break
+            if (imageFailed) {
+                timber.log.Timber.tag("ThumbRetry").d("retry %d for %s", tries + 1, thumbnailUrl)
+                imageFailed = false
+                retryGeneration++
+            }
+            tries++
         }
     }
 
@@ -1231,7 +1238,7 @@ fun ItemThumbnail(
                         contentDescription = null,
                         onSuccess = {
                             imageFailed = false
-                            retryCount = 0
+                            imageLoaded = true
                         },
                         onError = { imageFailed = true },
                         contentScale = if (shouldApplySquareCrop) ContentScale.Crop else ContentScale.Fit,

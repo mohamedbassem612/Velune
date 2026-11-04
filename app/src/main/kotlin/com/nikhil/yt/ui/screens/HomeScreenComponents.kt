@@ -184,12 +184,8 @@ fun QuickPicksSection(
                     }
                 )
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(song.song.thumbnailUrl?.toHighResThumbnail())
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
+            com.nikhil.yt.ui.component.RetryAsyncImage(
+                url = song.song.thumbnailUrl?.toHighResThumbnail(),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )

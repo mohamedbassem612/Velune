@@ -519,11 +519,24 @@ Problem: covers load from the internet through Coil, and its cache lives in cach
 Problem: the playlist images were saved in cacheDir, so Clear cache in Android settings deleted them and they did not show offline.
 
 - The image cache folder moved from cacheDir/coil to filesDir/coil (the old folder is moved once, so saved images are kept).
-- Retry of failed images after the internet comes back now tries up to 3 times, a little later each time (the network is sometimes not ready the moment it reports online).
+- Retry of failed images after the internet comes back now keeps trying up to 5 times, a little later each time (the network is sometimes not ready the moment it reports online). Each new online event starts the tries again, and images that already loaded are not touched. Each retry is written to the log with tag ThumbRetry.
 - Settings > Storage > Clear image cache deletes all saved images. Covers of downloaded songs (inside the mp3) and of songs in the song cache (filesDir/covers) are not touched. The memory image cache is cleared too. The dialog text explains this.
 
 ### Modified Files
 - `App.kt`, `ui/component/Items.kt`, `ui/screens/settings/StorageSettings.kt`, `res/values/velune_strings.xml`
+
+
+## 27. Home carousel covers: retry and local cover (patch home-covers)
+
+Problem: the Home carousel loaded its image with a plain AsyncImage, so it had no retry when the internet came back, and it asks for the high resolution version of the url, so the local cover (patch covers) was never found for it.
+
+- New `ui/component/RetryAsyncImage.kt`: same retry rule as ItemThumbnail (up to 5 tries after the internet is back, loaded images untouched, log tag ThumbRetry). The carousel uses it.
+- `CoverStore` now also links the high resolution url of each song to its local cover, so the carousel shows the cover inside the mp3 or the saved cover offline.
+- Quick picks list already uses ItemThumbnail, so it gets the retry from patch images-retry.
+
+### Modified Files
+- New: `ui/component/RetryAsyncImage.kt`
+- `utils/CoverStore.kt`, `ui/screens/HomeScreenComponents.kt`
 
 
 ---

@@ -16,6 +16,7 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.nikhil.yt.innertube.toHighResThumbnail
 import com.nikhil.yt.playback.Mp3Library
 import timber.log.Timber
 import java.io.File
@@ -64,19 +65,31 @@ object CoverStore {
         loaded = true
     }
 
+    /** The url and its high resolution version (the Home carousel asks for that one). */
+    private fun urlsOf(url: String): List<String> =
+        listOf(url, runCatching { url.toHighResThumbnail() }.getOrDefault(url)).distinct()
+
     private fun link(id: String, url: String) {
         val old = idToUrl.put(id, url)
-        if (old != null && old != url) urlToIds[old]?.remove(id)
-        val list = urlToIds.getOrPut(url) { CopyOnWriteArrayList() }
-        if (!list.contains(id)) list.add(id)
+        if (old != null && old != url) removeFromUrls(id, old)
+        urlsOf(url).forEach { u ->
+            val list = urlToIds.getOrPut(u) { CopyOnWriteArrayList() }
+            if (!list.contains(id)) list.add(id)
+        }
+    }
+
+    private fun removeFromUrls(id: String, url: String) {
+        urlsOf(url).forEach { u ->
+            urlToIds[u]?.let {
+                it.remove(id)
+                if (it.isEmpty()) urlToIds.remove(u)
+            }
+        }
     }
 
     private fun unlink(id: String) {
         val url = idToUrl.remove(id) ?: return
-        urlToIds[url]?.let {
-            it.remove(id)
-            if (it.isEmpty()) urlToIds.remove(url)
-        }
+        removeFromUrls(id, url)
     }
 
     fun idsForUrl(context: Context, url: String): List<String> {
