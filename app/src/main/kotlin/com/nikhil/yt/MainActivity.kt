@@ -18,6 +18,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.widget.Toast
 import android.os.Build
 import android.provider.MediaStore
 import android.os.Bundle
@@ -1673,6 +1675,57 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handleSpotifyLink(uri: Uri, navController: NavHostController) {
+        lifecycleScope.launch {
+            val resolved = withContext(Dispatchers.IO) {
+                com.nikhil.yt.utils.SpotifyLinkResolver.resolve(uri)
+            }
+            if (resolved == null) {
+                Toast.makeText(this@MainActivity, "Unsupported or unreadable Spotify link", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            when (resolved.type) {
+                com.nikhil.yt.utils.SpotifyLinkResolver.Type.TRACK -> {
+                    val song = withContext(Dispatchers.IO) {
+                        YouTube.search(resolved.query, YouTube.SearchFilter.FILTER_SONG)
+                            .getOrNull()?.items?.filterIsInstance<SongItem>()?.firstOrNull()
+                    }
+                    if (song == null) {
+                        Toast.makeText(this@MainActivity, "No match found on YouTube Music", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    pendingDeepLinkSong = PendingDeepLinkSong(mediaItem = song.toMediaItem())
+                    startMusicServiceSafely()
+                    playPendingDeepLinkSongIfReady()
+                }
+
+                com.nikhil.yt.utils.SpotifyLinkResolver.Type.ALBUM -> {
+                    val album = withContext(Dispatchers.IO) {
+                        YouTube.search(resolved.query, YouTube.SearchFilter.FILTER_ALBUM)
+                            .getOrNull()?.items?.filterIsInstance<com.nikhil.yt.innertube.models.AlbumItem>()?.firstOrNull()
+                    }
+                    if (album == null) {
+                        Toast.makeText(this@MainActivity, "No match found on YouTube Music", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    navController.navigate("album/${album.browseId}")
+                }
+
+                com.nikhil.yt.utils.SpotifyLinkResolver.Type.ARTIST -> {
+                    val artist = withContext(Dispatchers.IO) {
+                        YouTube.search(resolved.query, YouTube.SearchFilter.FILTER_ARTIST)
+                            .getOrNull()?.items?.filterIsInstance<com.nikhil.yt.innertube.models.ArtistItem>()?.firstOrNull()
+                    }
+                    if (artist == null) {
+                        Toast.makeText(this@MainActivity, "No match found on YouTube Music", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    navController.navigate("artist/${artist.id}")
+                }
+            }
+        }
+    }
+
     private fun handleDeepLinkIntent(intent: Intent, navController: NavHostController) {
         val uri = intent.data ?: intent.extras?.getString(Intent.EXTRA_TEXT)?.toUri() ?: return
         val coroutineScope = lifecycleScope
@@ -1682,6 +1735,11 @@ class MainActivity : ComponentActivity() {
             pendingTogetherJoinLink = uri.toString()
             startMusicServiceSafely()
             joinPendingTogetherIfReady()
+            return
+        }
+
+        if (com.nikhil.yt.utils.SpotifyLinkResolver.isSpotifyUri(uri)) {
+            handleSpotifyLink(uri, navController)
             return
         }
 

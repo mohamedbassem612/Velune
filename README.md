@@ -70,6 +70,7 @@ Interface and integrations
 - Material 3 with dynamic color
 - Discord Rich Presence
 - Last.fm scrobbling
+- Open or share Spotify track, album and artist links with Velune, including `spotify:` URIs and supported short links (`spotify.link` and `spotify.app.link`). Velune reads the public Spotify page and searches YouTube Music: tracks play the first song match, while albums and artists open the first matching page. Requires internet; matching may be approximate, and Spotify playlists are not supported.
 
 ## Offline and download updates
 
