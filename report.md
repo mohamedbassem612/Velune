@@ -539,6 +539,16 @@ Problem: the Home carousel loaded its image with a plain AsyncImage, so it had n
 - `utils/CoverStore.kt`, `ui/screens/HomeScreenComponents.kt`
 
 
+## 28. Images stuck until the app restarts (patch coil-online)
+
+Problem: list and Quick picks images stayed blank even with the internet on, and only appeared after closing and reopening the app. Reading Coil 3.4.0: before every download its network fetcher asks its own connectivity checker, and when that says offline it sends the request as "only-if-cached", so an image that is not saved yet fails with no network call at all. If that flag stays on offline after the internet is back, every retry fails the same way until the process restarts.
+
+- `App.kt`: the network fetcher now uses `ConnectivityChecker.ONLINE`, so Coil always tries the network. Saved images are still used first (ForceCacheStrategy), and offline with nothing saved still just fails and is retried by the retry rule.
+
+### Modified Files
+- `App.kt`
+
+
 ---
 
 **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

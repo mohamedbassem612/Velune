@@ -28,6 +28,7 @@ import coil3.request.Options
 import coil3.network.CacheStrategy
 import coil3.network.NetworkRequest
 import coil3.network.NetworkResponse
+import coil3.network.ConnectivityChecker
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.nikhil.yt.playback.Mp3Library
 import com.nikhil.yt.utils.CoverBytes
@@ -343,7 +344,15 @@ class App : Application(), SingletonImageLoader.Factory {
             .diskCache(diskCache)
             .diskCachePolicy(imageCacheConfig.policy)
             .components {
-                add(OkHttpNetworkFetcherFactory(cacheStrategy = { ForceCacheStrategy }))
+                // connectivityChecker: Coil has its own online/offline flag. When it gets stuck on "offline",
+                // every image that is not saved yet fails until the app is restarted. Always try the network
+                // instead (saved images are still used first by ForceCacheStrategy).
+                add(
+                    OkHttpNetworkFetcherFactory(
+                        cacheStrategy = { ForceCacheStrategy },
+                        connectivityChecker = { ConnectivityChecker.ONLINE },
+                    )
+                )
                 add(CoverBytesFetcher.Factory(), CoverBytes::class)
                 add(LocalCoverInterceptor(this@App) { if (::mp3Library.isInitialized) mp3Library else null })
             }
