@@ -96,6 +96,7 @@ import com.nikhil.yt.ui.component.AlbumGridItem
 import com.nikhil.yt.ui.component.ArtistGridItem
 import com.nikhil.yt.ui.component.MenuState
 import com.nikhil.yt.ui.component.NavigationTitle
+import com.nikhil.yt.ui.component.offlineSongAppearance
 import com.nikhil.yt.ui.component.SongGridItem
 import com.nikhil.yt.ui.component.SongListItem
 import com.nikhil.yt.ui.component.YouTubeGridItem
@@ -152,6 +153,7 @@ fun QuickPicksSection(
 
         Box(
             modifier = Modifier
+                .offlineSongAppearance(song.id)
                 .fillMaxSize()
                 .maskClip(MaterialTheme.shapes.extraLarge)
                 .maskBorder(

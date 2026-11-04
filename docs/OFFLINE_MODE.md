@@ -21,3 +21,21 @@ The JVM tests cover persisted mutation order, disconnected replay retention, una
 Manual Android CI builds accept `release_version`; these build a signed artifact without creating a GitHub Release.
 
 Local validation: `:innertube:test` passed (5 tests, including 2 offline mutation tests). Android device behavior is not validated by these JVM tests.
+
+
+## Offline song appearance
+
+While the device has no validated internet connection, song rows, song grid cards,
+Home carousel cards and queue entries dim to 38% opacity if they cannot play locally.
+Albums, artists and playlists keep their normal appearance. Song menus remain available.
+
+Availability follows playback rules: an MP3 must be readable, or the complete audio
+range must exist in either the download cache or the player cache. Partial cache
+entries, download status alone and an MP3 index entry without an accessible file do
+not qualify. Cache metadata supplies the content length first, with the database
+format as a fallback; unknown lengths do not prove a complete download.
+
+A single shared monitor checks storage on an IO dispatcher every three seconds
+while the visible activity is offline. It catches completed downloads, MP3 conversion,
+cache eviction and file removal. Returning online immediately removes the dimming;
+backgrounding the activity or going online stops storage polling.

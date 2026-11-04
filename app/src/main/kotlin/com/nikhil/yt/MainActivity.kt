@@ -126,6 +126,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.preferences.core.edit
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.flowWithLifecycle
+import com.nikhil.yt.playback.OfflineSongAvailability
+import com.nikhil.yt.playback.OfflineSongState
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -240,6 +243,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var downloadUtil: DownloadUtil
+
+    @Inject
+    lateinit var offlineSongAvailability: OfflineSongAvailability
 
     @Inject
     lateinit var syncUtils: SyncUtils
@@ -1073,7 +1079,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    val offlineSongs by remember(offlineSongAvailability, lifecycle) {
+                        offlineSongAvailability.state.flowWithLifecycle(lifecycle)
+                    }.collectAsState(initial = OfflineSongState())
+
                     CompositionLocalProvider(
+                        LocalOfflineSongState provides offlineSongs,
                         LocalDatabase provides database,
                         LocalContentColor provides if (pureBlack) Color.White else contentColorFor(MaterialTheme.colorScheme.surface),
                         LocalPlayerConnection provides playerConnection,
@@ -1766,3 +1777,5 @@ val LocalPlayerAwareWindowInsets =
     compositionLocalOf<WindowInsets> { error("No WindowInsets provided") }
 val LocalDownloadUtil = staticCompositionLocalOf<DownloadUtil> { error("No DownloadUtil provided") }
 val LocalSyncUtils = staticCompositionLocalOf<SyncUtils> { error("No SyncUtils provided") }
+
+val LocalOfflineSongState = compositionLocalOf { OfflineSongState() }

@@ -107,6 +107,7 @@ import com.nikhil.yt.innertube.models.AlbumItem
 import com.nikhil.yt.innertube.models.ArtistItem
 import com.nikhil.yt.innertube.models.PlaylistItem
 import com.nikhil.yt.innertube.models.YTItem
+import com.nikhil.yt.LocalOfflineSongState
 import com.nikhil.yt.LocalDatabase
 import com.nikhil.yt.LocalDownloadUtil
 import com.nikhil.yt.LocalPlayerConnection
@@ -330,7 +331,7 @@ fun SongListItem(
                 )
             },
             trailingContent = trailingContent,
-            modifier = modifier,
+            modifier = modifier.offlineSongAppearance(song.id),
             isActive = isActive
         )
     }
@@ -408,7 +409,7 @@ fun SongGridItem(
         }
     },
     fillMaxWidth = fillMaxWidth,
-    modifier = modifier
+    modifier = modifier.offlineSongAppearance(song.id)
 )
 
 @Composable
@@ -899,7 +900,7 @@ fun MediaMetadataListItem(
             )
         },
         trailingContent = trailingContent,
-        modifier = modifier,
+        modifier = modifier.offlineSongAppearance(mediaMetadata.id),
         isActive = isActive
     )
 }
@@ -964,7 +965,7 @@ fun YouTubeListItem(
                 )
             },
             trailingContent = trailingContent,
-            modifier = modifier,
+            modifier = modifier.offlineSongAppearance(item.id.takeIf { item is SongItem }),
             isActive = isActive
         )
     }
@@ -1078,7 +1079,7 @@ fun YouTubeGridItem(
     },
     thumbnailRatio = thumbnailRatio,
     fillMaxWidth = fillMaxWidth,
-    modifier = modifier
+    modifier = modifier.offlineSongAppearance(item.id.takeIf { item is SongItem })
 )
 
 @Composable
@@ -1694,4 +1695,11 @@ private object Icon {
                 .padding(end = 2.dp)
         )
     }
+}
+
+/** Keep browsing and song menus available while indicating songs that need the internet. */
+@Composable
+fun Modifier.offlineSongAppearance(songId: String?): Modifier {
+    val state = LocalOfflineSongState.current
+    return if (songId != null && state.isUnavailable(songId)) alpha(0.38f) else this
 }
