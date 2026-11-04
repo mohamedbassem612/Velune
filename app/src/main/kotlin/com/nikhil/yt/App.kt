@@ -320,8 +320,16 @@ class App : Application(), SingletonImageLoader.Factory {
         val smartTrimmer = dataStore[SmartTrimmerKey] ?: false
         val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey])
 
+        // Images live in filesDir (not cacheDir) so "Clear cache" in Android settings does not delete them.
+        // The old folder is moved once so images already saved are kept.
+        val oldImageDir = cacheDir.resolve("coil")
+        val imageDir = filesDir.resolve("coil")
+        if (oldImageDir.exists() && !imageDir.exists()) {
+            runCatching { oldImageDir.renameTo(imageDir) }
+        }
+
         val diskCache = DiskCache.Builder()
-            .directory(cacheDir.resolve("coil"))
+            .directory(imageDir)
             .maxSizeBytes(imageCacheConfig.maxSizeBytes)
             .build()
 

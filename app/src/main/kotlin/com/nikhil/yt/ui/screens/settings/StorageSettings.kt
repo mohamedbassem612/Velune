@@ -370,6 +370,7 @@ fun StorageSettings(
                 onConfirm = {
                     coroutineScope.launch(Dispatchers.IO) {
                         imageDiskCache.clear()
+                        context.imageLoader.memoryCache?.clear()
                         com.nikhil.yt.utils.ArtworkStorage.clear(context)
                     }
                     clearImageCacheDialog = false

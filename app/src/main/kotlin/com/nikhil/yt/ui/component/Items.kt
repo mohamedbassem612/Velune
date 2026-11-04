@@ -1186,10 +1186,14 @@ fun ItemThumbnail(
     val online by remember(context) { ArtworkConnectivity.online(context) }.collectAsState()
     var imageFailed by remember(thumbnailUrl) { mutableStateOf(false) }
     var retryGeneration by remember(thumbnailUrl) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var retryCount by remember(thumbnailUrl) { androidx.compose.runtime.mutableIntStateOf(0) }
 
-    // Retry failed visible images once when connectivity is restored; cached images stay intact.
-    LaunchedEffect(online, thumbnailUrl) {
-        if (online && imageFailed) {
+    // Retry failed visible images when connectivity is restored (up to 3 times, a little later each time,
+    // because the network is sometimes not ready the moment it reports online); cached images stay intact.
+    LaunchedEffect(online, thumbnailUrl, imageFailed) {
+        if (online && imageFailed && retryCount < 3) {
+            kotlinx.coroutines.delay(if (retryCount == 0) 300L else 2_000L * retryCount)
+            retryCount++
             imageFailed = false
             retryGeneration++
         }
@@ -1225,7 +1229,10 @@ fun ItemThumbnail(
                     AsyncImage(
                         model = request,
                         contentDescription = null,
-                        onSuccess = { imageFailed = false },
+                        onSuccess = {
+                            imageFailed = false
+                            retryCount = 0
+                        },
                         onError = { imageFailed = true },
                         contentScale = if (shouldApplySquareCrop) ContentScale.Crop else ContentScale.Fit,
                         modifier = Modifier

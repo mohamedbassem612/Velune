@@ -514,6 +514,18 @@ Problem: covers load from the internet through Coil, and its cache lives in cach
 - `App.kt`, `playback/MusicService.kt`, `playback/Mp3Converter.kt`
 
 
+## 26. Images stay after Android clears the cache (patch images-persist)
+
+Problem: the playlist images were saved in cacheDir, so Clear cache in Android settings deleted them and they did not show offline.
+
+- The image cache folder moved from cacheDir/coil to filesDir/coil (the old folder is moved once, so saved images are kept).
+- Retry of failed images after the internet comes back now tries up to 3 times, a little later each time (the network is sometimes not ready the moment it reports online).
+- Settings > Storage > Clear image cache deletes all saved images. Covers of downloaded songs (inside the mp3) and of songs in the song cache (filesDir/covers) are not touched. The memory image cache is cleared too. The dialog text explains this.
+
+### Modified Files
+- `App.kt`, `ui/component/Items.kt`, `ui/screens/settings/StorageSettings.kt`, `res/values/velune_strings.xml`
+
+
 ---
 
 **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.
