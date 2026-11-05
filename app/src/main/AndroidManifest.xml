@@ -92,6 +92,8 @@
                 <!-- video prefix -->
                 <data android:pathPrefix="/v/" />
                 <data android:pathPrefix="/embed/" />
+                <data android:pathPrefix="/shorts/" />
+                <data android:pathPrefix="/live/" />
                 <data android:pathPrefix="/watch" />
                 <!-- channel prefix -->
                 <data android:pathPrefix="/channel/" />

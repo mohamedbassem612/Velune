@@ -317,6 +317,13 @@ class MusicService :
     }
 
     private var currentQueue: Queue = EmptyQueue
+    // Accessed on the main thread: an older async load must never replace a newer request.
+    private var queueRevision = 0L
+    private var startupRestoreJob: Job? = null
+
+    suspend fun awaitStartupRestore() {
+        startupRestoreJob?.join()
+    }
     var queueTitle: String? = null
     private val persistentStateLock = Any()
     @Volatile
@@ -911,59 +918,67 @@ class MusicService :
                 }
             }
 
-        scope.launch(Dispatchers.IO) {
-            com.nikhil.yt.utils.StartupTrace.mark("queue restore: started")
-            if (dataStore.get(PersistentQueueKey, true)) {
-                readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
-                    ?.let { persistedQueue ->
-                    Timber.tag("MusicService").i("RESTORE queue items=${persistedQueue.items.size} index=${persistedQueue.mediaItemIndex} pos=${persistedQueue.position}")
-                    com.nikhil.yt.utils.StartupTrace.mark("queue restore: file read (items=${persistedQueue.items.size})")
-                    val restoredQueue = persistedQueue.toQueue()
-                    com.nikhil.yt.utils.StartupTrace.mark("queue restore: converted to queue")
-                    withContext(Dispatchers.Main) {
-                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: reached main thread")
-                        playQueue(
-                            queue = restoredQueue,
-                            playWhenReady = false,
-                        )
-                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: playQueue returned")
-                    }
-                    awaitRestoredItems()
-                    // The UI only needs the queue items to decide whether to show the mini player.
-                    // Tell it now instead of waiting for the automix / player state restore below,
-                    // which includes a fixed 1 second delay.
-                    withContext(Dispatchers.Main) {
-                        queueRestoreCompleted.value = true
-                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: items ready")
-                    }
-                }
-                readPersistentObject<PersistQueue>(PERSISTENT_AUTOMIX_FILE)
-                    ?.let { persistedAutomix ->
-                    val items = persistedAutomix.items.map { it.toMediaItem() }
-                    withContext(Dispatchers.Main) {
-                        automixItems.value = items
-                        automixSeedMediaId = player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
-                    }
-                }
-                
-                readPersistentObject<PersistPlayerState>(PERSISTENT_PLAYER_STATE_FILE)
-                    ?.let { playerState ->
-                    delay(1000)
-                    withContext(Dispatchers.Main) {
-                        player.repeatMode = playerState.repeatMode
-                        player.shuffleModeEnabled = playerState.shuffleModeEnabled
-                        playerVolume.value = playerState.volume
-                        
-                        if (playerState.currentMediaItemIndex < player.mediaItemCount) {
-                            player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
+        startupRestoreJob = scope.launch(Dispatchers.IO) {
+            var restoredRevision = 0L
+            try {
+                com.nikhil.yt.utils.StartupTrace.mark("queue restore: started")
+                if (dataStore.get(PersistentQueueKey, true)) {
+                    readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
+                        ?.let { persistedQueue ->
+                        Timber.tag("MusicService").i("RESTORE queue items=${persistedQueue.items.size} index=${persistedQueue.mediaItemIndex} pos=${persistedQueue.position}")
+                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: file read (items=${persistedQueue.items.size})")
+                        val restoredQueue = persistedQueue.toQueue()
+                        com.nikhil.yt.utils.StartupTrace.mark("queue restore: converted to queue")
+                        val canRestore = withContext(Dispatchers.Main) {
+                            if (queueRevision != 0L) return@withContext false
+                            com.nikhil.yt.utils.StartupTrace.mark("queue restore: reached main thread")
+                            playQueue(
+                                queue = restoredQueue,
+                                playWhenReady = false,
+                            )
+                            restoredRevision = queueRevision
+                            com.nikhil.yt.utils.StartupTrace.mark("queue restore: playQueue returned")
+                            true
                         }
+                        if (!canRestore) return@launch
+                        awaitRestoredItems()
+                        // The UI only needs the queue items to decide whether to show the mini player.
+                        // Tell it now instead of waiting for the automix / player state restore below,
+                        // which includes a fixed 1 second delay.
+                        withContext(Dispatchers.Main) {
+                            queueRestoreCompleted.value = true
+                            com.nikhil.yt.utils.StartupTrace.mark("queue restore: items ready")
+                        }
+                    }
+                    readPersistentObject<PersistQueue>(PERSISTENT_AUTOMIX_FILE)
+                        ?.let { persistedAutomix ->
+                        val items = persistedAutomix.items.map { it.toMediaItem() }
+                        withContext(Dispatchers.Main) {
+                            if (queueRevision != restoredRevision) return@withContext
+                            automixItems.value = items
+                            automixSeedMediaId = player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
+                        }
+                    }
+                
+                    readPersistentObject<PersistPlayerState>(PERSISTENT_PLAYER_STATE_FILE)
+                        ?.let { playerState ->
+                        delay(1000)
+                        withContext(Dispatchers.Main) {
+                            if (queueRevision != restoredRevision) return@withContext
+                            player.repeatMode = playerState.repeatMode
+                            player.shuffleModeEnabled = playerState.shuffleModeEnabled
+                            playerVolume.value = playerState.volume
                         
-                        currentMediaMetadata.value = player.currentMetadata
-                        updateNotification()
+                            if (playerState.currentMediaItemIndex < player.mediaItemCount) {
+                                player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
+                            }
+                        
+                            currentMediaMetadata.value = player.currentMetadata
+                            updateNotification()
+                        }
                     }
                 }
-            }
-            withContext(Dispatchers.Main) {
+            } finally {
                 queueRestoreCompleted.value = true
             }
         }
@@ -1479,6 +1494,7 @@ class MusicService :
         }
         ensureScopesActive()
         suppressAutoPlayback = false
+        val revision = ++queueRevision
         currentQueue = queue
         queueTitle = null
         val permanentShuffle = dataStore.get(PermanentShuffleKey, false)
@@ -1507,6 +1523,7 @@ class MusicService :
                 initialStatus = initialStatus.copy(items = available,
                     mediaItemIndex = available.indexOfFirst { it.mediaId == selected }.coerceAtLeast(0))
             }
+            if (queueRevision != revision) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
             }
@@ -1553,7 +1570,7 @@ class MusicService :
                     scope.launch(SilentHandler) {
                         try {
                             delay(2000)
-                            if (!isActive) return@launch
+                            if (!isActive || queueRevision != revision) return@launch
 
                             if (windowStart > 0) {
                                 val startChunk = items.subList(0, windowStart)

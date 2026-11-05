@@ -783,4 +783,5 @@ Velune will only extract your token, and everything else is stored locally.</str
     <string name="token_copied">Token copied to clipboard</string>
     <string name="no_visitor_data">No visitor data available. Tokens cannot be generated.</string>
     <string name="extracting_from_url">Extracting tokens from URL…</string>
+    <string name="deep_link_load_failed">Could not load this song. Check your connection and try the link again.</string>
 </resources>

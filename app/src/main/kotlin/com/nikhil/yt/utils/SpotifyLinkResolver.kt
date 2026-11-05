@@ -3,6 +3,11 @@ package com.nikhil.yt.utils
 import android.net.Uri
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Turns a Spotify link into a search query that can be run on YouTube Music.
@@ -32,16 +37,17 @@ object SpotifyLinkResolver {
 
     fun resolve(uri: Uri): Result? {
         val (type, id) = parseTypeAndId(uri) ?: resolveShortLink(uri)?.let { parseTypeAndId(it) } ?: return null
-        val html = fetch("https://open.spotify.com/${type_path(type)}/$id") ?: return null
-        val title = meta(html, "og:title") ?: return null
-        val description = meta(html, "og:description")
-        // Track description looks like "Artist · Song · 2020"; album: "Artist · Album · 2020"
-        val artist = description?.split("·")?.firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
-        return Result(
-            type = type,
-            title = title,
-            artist = if (type == Type.ARTIST) null else artist,
-        )
+        val pageUrl = "https://open.spotify.com/${type_path(type)}/$id"
+        val metadata = fetch(pageUrl)?.let { SpotifyPageMetadata.parse(it) }
+        if (metadata != null) {
+            return Result(type, metadata.title, if (type == Type.ARTIST) null else metadata.artist)
+        }
+        // Some share pages serve a shell without Open Graph metadata. oEmbed can still provide a title.
+        val embed = fetch("https://open.spotify.com/oembed?url=${URLEncoder.encode(pageUrl, "UTF-8")}") ?: return null
+        val embedTitle = runCatching {
+            Json.parseToJsonElement(embed).jsonObject["title"]?.jsonPrimitive?.contentOrNull
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        return Result(type, embedTitle, null)
     }
 
     private fun type_path(type: Type) = type.name.lowercase()
@@ -64,35 +70,31 @@ object SpotifyLinkResolver {
         if (host != "spotify.link" && host != "spotify.app.link") return null
         return runCatching {
             val conn = URL(uri.toString()).openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = true
-            conn.connectTimeout = 8000
-            conn.readTimeout = 8000
-            conn.setRequestProperty("User-Agent", UA)
-            conn.inputStream.close()
-            val finalUrl = conn.url.toString()
-            conn.disconnect()
-            Uri.parse(finalUrl)
+            try {
+                conn.instanceFollowRedirects = true
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.setRequestProperty("User-Agent", UA)
+                conn.inputStream.close()
+                Uri.parse(conn.url.toString())
+            } finally {
+                conn.disconnect()
+            }
         }.getOrNull()
     }
 
-    private fun fetch(url: String): String? =
-        runCatching {
-            val conn = URL(url).openConnection() as HttpURLConnection
+    private fun fetch(url: String): String? = runCatching {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
             conn.connectTimeout = 8000
             conn.readTimeout = 8000
             conn.setRequestProperty("User-Agent", UA)
             conn.setRequestProperty("Accept-Language", "en")
             conn.inputStream.bufferedReader().use { it.readText() }
-        }.getOrNull()
-
-    private fun meta(html: String, property: String): String? {
-        val re = Regex("""<meta[^>]+property="$property"[^>]+content="([^"]*)"""", RegexOption.IGNORE_CASE)
-        return re.find(html)?.groupValues?.get(1)?.let { unescape(it) }?.takeIf { it.isNotBlank() }
-    }
-
-    private fun unescape(s: String) =
-        s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'")
-            .replace("&#x27;", "'").replace("&lt;", "<").replace("&gt;", ">")
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrNull()
 
     private const val UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36"
 }

@@ -560,6 +560,16 @@ Problem: some images (mostly newer songs without a local cover) stayed blank eve
 - `App.kt`, `utils/LocalCoverInterceptor.kt`
 
 
+## 30. Shared music links and cold-start playback
+
+- Recognize YouTube short links, mobile/watch URLs, Shorts, live, embed, and native YouTube URIs; extract URLs from shared text.
+- Wait for the complete startup queue/player-state restore before playing a linked song. Ignore stale queue loads and delayed restore state after a newer queue request.
+- Cancel the previous link resolution when another link arrives.
+- Parse Spotify Open Graph metadata with Jsoup (attribute order, quote style, and entities), with oEmbed title fallback for pages without metadata.
+- Show an error if YouTube metadata loading fails instead of silently ignoring it.
+- Regression coverage: MusicLinkParserTest and SpotifyPageMetadataTest (six tests). Device verification should cover cold/warm starts and opening two links in quick succession.
+
+
 ---
 
 **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.
