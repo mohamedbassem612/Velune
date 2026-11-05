@@ -549,6 +549,17 @@ Problem: list and Quick picks images stayed blank even with the internet on, and
 - `App.kt`
 
 
+## 29. Saved error answers made images fail forever (patch image-errors)
+
+Problem: some images (mostly newer songs without a local cover) stayed blank even with the internet on and even after retries. Reading Coil 3.4.0 `NetworkFetcher`: it saves the server answer to the disk cache first and only then checks whether the answer was an error. `ForceCacheStrategy.write` saved every answer, so one bad answer (404, 429, 5xx, for example while scrolling a long list fast) was stored, and from then on Coil read that saved error back and never asked the server again. Retrying could not help, and since the image folder now lives in filesDir (patch images-persist) the bad entry also survived Android clearing the cache.
+
+- `App.kt`: `ForceCacheStrategy.write` saves only 2xx answers.
+- `LocalCoverInterceptor`: if an image fails with an HTTP error and the image cache holds an entry for it, that entry is deleted and the request is tried once more, so bad entries saved by older versions fix themselves one by one (no need to clear the whole image cache).
+
+### Modified Files
+- `App.kt`, `utils/LocalCoverInterceptor.kt`
+
+
 ---
 
 **Overall Summary**: Removed crash-prone null assertions across the app and InnerTube, added selection UI for queuing and playlist management, fixed selection state resets on data refresh, and restored the mood/category chip suggestions on the home screen. Also made the app open much faster (first frame about 357ms on release) and cut the song start delay from 2-5 seconds of URL resolving to about 0.45 seconds, by remembering the working stream client, warming up the JS player, and prefetching the next song.

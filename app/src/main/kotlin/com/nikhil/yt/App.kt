@@ -415,7 +415,14 @@ internal object ForceCacheStrategy : CacheStrategy {
         networkRequest: NetworkRequest,
         networkResponse: NetworkResponse,
         options: Options,
-    ) = CacheStrategy.WriteResult(networkResponse)
+    ): CacheStrategy.WriteResult =
+        // Only save good (2xx) answers. Saving an error answer (404, 429, 5xx...) made that image
+        // fail forever, because the saved error was then read back instead of asking the server again.
+        if (networkResponse.code in 200..299) {
+            CacheStrategy.WriteResult(networkResponse)
+        } else {
+            CacheStrategy.WriteResult.DISABLED
+        }
 }
 
 internal data class ImageDiskCacheConfig(
