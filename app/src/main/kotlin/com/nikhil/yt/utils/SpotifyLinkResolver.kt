@@ -39,8 +39,14 @@ object SpotifyLinkResolver {
         val (type, id) = parseTypeAndId(uri) ?: resolveShortLink(uri)?.let { parseTypeAndId(it) } ?: return null
         val pageUrl = "https://open.spotify.com/${type_path(type)}/$id"
         val metadata = fetch(pageUrl)?.let { SpotifyPageMetadata.parse(it) }
-        if (metadata != null) {
+        if (metadata != null && (type != Type.TRACK || metadata.artist != null)) {
             return Result(type, metadata.title, if (type == Type.ARTIST) null else metadata.artist)
+        }
+        // The embed page can retain artist metadata when the public page is only a shell.
+        val embedMetadata = fetch("https://open.spotify.com/embed/${type_path(type)}/$id")
+            ?.let { SpotifyPageMetadata.parse(it) }
+        if (embedMetadata != null) {
+            return Result(type, embedMetadata.title, if (type == Type.ARTIST) null else embedMetadata.artist)
         }
         // Some share pages serve a shell without Open Graph metadata. oEmbed can still provide a title.
         val embed = fetch("https://open.spotify.com/oembed?url=${URLEncoder.encode(pageUrl, "UTF-8")}") ?: return null

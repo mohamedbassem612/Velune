@@ -6,6 +6,16 @@ import org.junit.Test
 
 class SpotifyPageMetadataTest {
     @Test
+    fun prefersExplicitArtistMetadataOverDescription() {
+        val html = """
+            <meta property="og:title" content="Hello">
+            <meta property="og:description" content="Listen to Hello on Spotify">
+            <meta name="music:musician_description" content="Adele">
+        """.trimIndent()
+        assertEquals(SpotifyPageMetadata.Metadata("Hello", "Adele"), SpotifyPageMetadata.parse(html))
+    }
+
+    @Test
     fun readsReorderedSingleQuotedAttributesAndDecodesEntities() {
         val html = """
             <meta content='Song &amp; Music' property='og:title'>
@@ -24,5 +34,9 @@ class SpotifyPageMetadataTest {
     fun missingMetadataAndGenericShellRequireFallback() {
         assertNull(SpotifyPageMetadata.parse("<html><title>Spotify</title></html>"))
         assertNull(SpotifyPageMetadata.parse("""<meta property="og:title" content="Spotify">"""))
+        assertEquals(
+            SpotifyPageMetadata.Metadata("Hello", null),
+            SpotifyPageMetadata.parse("""<meta property="og:title" content="Hello"><meta property="og:description" content="Listen to Hello on Spotify">"""),
+        )
     }
 }

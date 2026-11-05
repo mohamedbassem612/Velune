@@ -9,7 +9,10 @@ internal object SpotifyPageMetadata {
         val page = Jsoup.parse(html)
         val title = page.selectFirst("meta[property=og:title]")?.attr("content")
             ?.trim()?.takeIf { it.isNotEmpty() && !it.equals("Spotify", ignoreCase = true) } ?: return null
-        val artist = page.selectFirst("meta[property=og:description]")?.attr("content")
+        val artist = page.selectFirst("meta[name=music:musician_description], meta[property=music:musician_description]")
+            ?.attr("content")?.trim()?.takeIf { it.isNotBlank() }
+            ?: page.selectFirst("meta[property=og:description]")?.attr("content")
+            ?.takeIf { '·' in it || '•' in it }
             ?.split("·", "•")?.firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
         return Metadata(title, artist)
     }

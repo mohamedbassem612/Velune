@@ -148,6 +148,7 @@ import com.valentinilk.shimmer.LocalShimmerTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -256,8 +257,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var navController: NavHostController
     private var pendingIntent: Intent? = null
     private var deepLinkJob: Job? = null
-    private var pendingPlaybackJob: Job? = null
-    private var pendingDeepLinkSong: PendingDeepLinkSong? = null
+    private val pendingLinkPlayback by lazy {
+        com.nikhil.yt.utils.PendingLinkPlayback<MediaItem>(lifecycleScope)
+    }
     private var pendingTogetherJoinLink: String? = null
 
     private var playerConnection by mutableStateOf<PlayerConnection?>(null)
@@ -280,26 +282,18 @@ class MainActivity : ComponentActivity() {
 
             override fun onServiceDisconnected(name: ComponentName?) {
                 isMusicServiceBound = false
+                pendingLinkPlayback.pause()
                 playerConnection?.dispose()
                 playerConnection = null
             }
         }
 
-    private data class PendingDeepLinkSong(
-        val mediaItem: MediaItem,
-    )
-
     private fun playPendingDeepLinkSongIfReady() {
-        val pending = pendingDeepLinkSong ?: return
         val connection = playerConnection ?: return
-        if (pendingPlaybackJob?.isActive == true) return
-        pendingPlaybackJob = lifecycleScope.launch {
-            // Startup restoration includes a delayed seek. Finish it before replacing the queue.
-            connection.service.awaitStartupRestore()
-            if (pendingDeepLinkSong !== pending) return@launch
-            pendingDeepLinkSong = null
-            connection.playQueue(ListQueue(items = listOf(pending.mediaItem)))
-        }
+        pendingLinkPlayback.playIfReady(
+            awaitReady = { connection.service.awaitStartupRestore() },
+            play = { connection.playQueue(ListQueue(items = listOf(it))) },
+        )
     }
 
     private fun joinPendingTogetherIfReady() {
@@ -430,6 +424,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate begin")
         super.onCreate(savedInstanceState)
+        pendingIntent = intent
         com.nikhil.yt.utils.StartupTrace.mark("MainActivity.onCreate after super (injection done)")
         window.decorView.viewTreeObserver.addOnPreDrawListener(
             object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -1003,13 +998,11 @@ class MainActivity : ComponentActivity() {
                         mutableStateOf(null)
                     }
 
-                    LaunchedEffect(Unit) {
-                        if (pendingIntent != null) {
-                            handleDeepLinkIntent(pendingIntent!!, navController)
-                            pendingIntent = null
-                        } else {
-                            handleDeepLinkIntent(intent, navController)
-                        }
+                    LaunchedEffect(navController) {
+                        this@MainActivity.navController = navController
+                        val incoming = pendingIntent
+                        pendingIntent = null
+                        incoming?.let { handleDeepLinkIntent(it, navController) }
                     }
 
                     var showStarDialog by remember { mutableStateOf(false) }
@@ -1689,6 +1682,7 @@ class MainActivity : ComponentActivity() {
             val resolved = withContext(Dispatchers.IO) {
                 com.nikhil.yt.utils.SpotifyLinkResolver.resolve(uri)
             }
+            coroutineContext.ensureActive()
             if (resolved == null) {
                 Toast.makeText(this@MainActivity, "Unsupported or unreadable Spotify link", Toast.LENGTH_SHORT).show()
                 return@launch
@@ -1696,14 +1690,19 @@ class MainActivity : ComponentActivity() {
             when (resolved.type) {
                 com.nikhil.yt.utils.SpotifyLinkResolver.Type.TRACK -> {
                     val song = withContext(Dispatchers.IO) {
-                        YouTube.search(resolved.query, YouTube.SearchFilter.FILTER_SONG)
-                            .getOrNull()?.items?.filterIsInstance<SongItem>()?.firstOrNull()
+                        val candidates = YouTube.search(resolved.query, YouTube.SearchFilter.FILTER_SONG)
+                            .getOrNull()?.items?.filterIsInstance<SongItem>().orEmpty()
+                        com.nikhil.yt.utils.SpotifyTrackMatcher.bestMatch(
+                            resolved.title, resolved.artist, candidates,
+                            titleOf = { it.title }, artists = { it.artists.map { artist -> artist.name } },
+                        )
                     }
+                    coroutineContext.ensureActive()
                     if (song == null) {
                         Toast.makeText(this@MainActivity, "No match found on YouTube Music", Toast.LENGTH_SHORT).show()
                         return@launch
                     }
-                    pendingDeepLinkSong = PendingDeepLinkSong(mediaItem = song.toMediaItem())
+                    pendingLinkPlayback.submit(song.toMediaItem())
                     startMusicServiceSafely()
                     playPendingDeepLinkSongIfReady()
                 }
@@ -1737,10 +1736,9 @@ class MainActivity : ComponentActivity() {
 
     private fun handleDeepLinkIntent(intent: Intent, navController: NavHostController) {
         val uri = intent.data ?: com.nikhil.yt.utils.MusicLinkParser
-            .extractUrl(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())?.toUri() ?: return
+            .extractUrl(intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty())?.toUri() ?: return
         deepLinkJob?.cancel()
-        pendingPlaybackJob?.cancel()
-        pendingDeepLinkSong = null
+        pendingLinkPlayback.clear()
 
         val authority = uri.authority?.lowercase()
         if (uri.scheme.equals("velune", ignoreCase = true) && authority == "together") {
@@ -1781,7 +1779,7 @@ class MainActivity : ComponentActivity() {
             else -> {
                 val videoId = com.nikhil.yt.utils.MusicLinkParser.youtubeVideoId(uri.toString())
 
-                val playlistId = uri.getQueryParameter("list")
+                val playlistId = if (uri.isHierarchical) uri.getQueryParameter("list") else null
 
                 videoId?.let { vid ->
                     deepLinkJob = lifecycleScope.launch {
@@ -1789,20 +1787,17 @@ class MainActivity : ComponentActivity() {
                             YouTube.queue(listOf(vid), playlistId)
                         }
 
+                        coroutineContext.ensureActive()
                         result.onSuccess { queued ->
                             val mediaItem =
                                 queued.firstOrNull { it.id == vid }?.toMediaItem()
-                                    ?: queued.firstOrNull()?.toMediaItem()
                                     ?: MediaItem
                                         .Builder()
                                         .setMediaId(vid)
                                         .setUri(vid)
                                         .setCustomCacheKey(vid)
                                         .build()
-                            pendingDeepLinkSong =
-                                PendingDeepLinkSong(
-                                    mediaItem = mediaItem,
-                                )
+                            pendingLinkPlayback.submit(mediaItem)
                             startMusicServiceSafely()
                             playPendingDeepLinkSongIfReady()
                         }.onFailure {
