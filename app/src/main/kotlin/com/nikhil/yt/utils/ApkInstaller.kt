@@ -7,6 +7,8 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -34,7 +36,7 @@ object ApkInstaller {
         val dir = File(context.cacheDir, "updates")
         dir.mkdirs()
         dir.listFiles()?.forEach { it.delete() }
-        val file = File(dir, "Velune-update.apk")
+        val file = File.createTempFile("Velune-update-", ".apk", dir)
 
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
@@ -52,6 +54,7 @@ object ApkInstaller {
                 file.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
                         output.write(buffer, 0, read)
@@ -60,12 +63,20 @@ object ApkInstaller {
                             val percent = (done * 100 / total).toInt()
                             if (percent != lastPercent) {
                                 lastPercent = percent
-                                onProgress(percent)
+                                withContext(Dispatchers.Main) { onProgress(percent.coerceIn(0, 100)) }
                             }
                         }
                     }
                 }
             }
+            currentCoroutineContext().ensureActive()
+            if (done == 0L || (total > 0 && done != total)) {
+                throw IOException("Incomplete APK download")
+            }
+            withContext(Dispatchers.Main) { onProgress(100) }
+        } catch (e: Exception) {
+            file.delete()
+            throw e
         } finally {
             connection.disconnect()
         }
