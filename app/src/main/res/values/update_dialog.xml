@@ -11,10 +11,4 @@
     <string name="update_dialog_no_apk">No APK is attached to this release yet.</string>
     <string name="update_dialog_install_permission">Allow installs from Velune, then return and tap Download Now.</string>
     <string name="update_dialog_failed">The update could not be downloaded or opened. Please try again.</string>
-    <string name="update_demo_title">Demo Update</string>
-    <string name="update_demo_button">Try a demo update (1 MB)</string>
-    <string name="update_demo_available" formatted="false">Local simulation · 1 MB · no installation</string>
-    <string name="update_demo_downloading" formatted="false">Simulating a 1 MB download…</string>
-    <string name="update_demo_complete" formatted="false">Demo complete · 1 MB processed. Nothing was installed.</string>
-    <string name="update_demo_notes">## Try the update experience\n- Preview release notes and download progress.\n- Cancel at any time and start again.\n- A temporary 1 MB file is generated locally and deleted afterward.\n\nThis demo uses no internet data and does not change your installed version.</string>
 </resources>
