@@ -160,6 +160,12 @@ fun CachePlaylistScreen(
     val wrappedSongs = rememberWrappedItems(sortedCachedSongs) { it.id }
 
     var selection by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selection, wrappedSongs.count { it.isSelected }) {
+        if (selection && wrappedSongs.count { it.isSelected } == 0) {
+            selection = false
+        }
+    }
     var isSearching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf(TextFieldValue()) }
     val focusRequester = remember { FocusRequester() }

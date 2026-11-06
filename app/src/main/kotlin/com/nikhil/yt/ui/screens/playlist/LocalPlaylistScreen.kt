@@ -255,6 +255,12 @@ fun LocalPlaylistScreen(
 
     val wrappedSongs = rememberWrappedItems(filteredSongs) { it.map.id }
 
+    LaunchedEffect(selection, wrappedSongs.count { it.isSelected }) {
+        if (selection && wrappedSongs.count { it.isSelected } == 0) {
+            selection = false
+        }
+    }
+
     if (isSearching) {
         BackHandler {
             isSearching = false
