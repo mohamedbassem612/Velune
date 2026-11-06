@@ -25,20 +25,25 @@ import coil3.compose.AsyncImage
 import com.nikhil.yt.R
 import com.nikhil.yt.utils.ApkInstaller
 import com.nikhil.yt.utils.ReleaseInfo
+import com.nikhil.yt.utils.DemoUpdate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 @Composable
 fun UpdateAvailableDialog(
     release: ReleaseInfo,
     onDismiss: () -> Unit,
+    demo: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var downloadJob by remember(release.tagName) { mutableStateOf<Job?>(null) }
     var progress by remember(release.tagName) { mutableIntStateOf(-1) }
     var error by remember(release.tagName) { mutableStateOf<String?>(null) }
+    var demoCompleted by remember(release.tagName, demo) { mutableStateOf(false) }
     val downloading = downloadJob != null
     val version = release.tagName.removePrefix("v")
     // An optional Markdown image at the start of the release becomes the banner.
@@ -69,12 +74,18 @@ fun UpdateAvailableDialog(
                     ).padding(horizontal = 24.dp, vertical = 22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(stringResource(R.string.update_dialog_title),
+                    Text(stringResource(if (demo) R.string.update_demo_title else R.string.update_dialog_title),
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
                     Text(
                         stringResource(
-                            if (downloading) R.string.update_dialog_downloading else R.string.update_dialog_available,
+                            when {
+                                demoCompleted -> R.string.update_demo_complete
+                                demo && downloading -> R.string.update_demo_downloading
+                                demo -> R.string.update_demo_available
+                                downloading -> R.string.update_dialog_downloading
+                                else -> R.string.update_dialog_available
+                            },
                             version,
                         ),
                         style = MaterialTheme.typography.bodyMedium,
@@ -131,12 +142,33 @@ fun UpdateAvailableDialog(
                         Text(it, color = Color(0xFFFFB4AB), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                if (downloading) {
+                if (demoCompleted) {
+                    UpdateDialogAction(stringResource(android.R.string.ok), onDismiss)
+                } else if (downloading) {
                     UpdateDialogAction(stringResource(R.string.cancel_button)) { downloadJob?.cancel() }
                 } else {
                     UpdateDialogAction(stringResource(
                         if (error == null) R.string.update_dialog_download else R.string.retry
                     )) {
+                        if (demo) {
+                            error = null
+                            progress = 0
+                            downloadJob = scope.launch {
+                                try {
+                                    DemoUpdate.run(context.cacheDir) { value ->
+                                        withContext(Dispatchers.Main) { progress = value }
+                                    }
+                                    demoCompleted = true
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    error = context.getString(R.string.update_dialog_failed)
+                                } finally {
+                                    downloadJob = null
+                                }
+                            }
+                            return@UpdateDialogAction
+                        }
                         val apkUrl = release.apkUrl
                         if (apkUrl == null) {
                             error = context.getString(R.string.update_dialog_no_apk)

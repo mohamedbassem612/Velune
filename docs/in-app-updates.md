@@ -44,3 +44,17 @@ Manual device checks:
 - Cancel mid-download and verify no installer opens; download again.
 - Disable the network during download and verify the error and retry action.
 - Verify a release without notes or an APK displays the appropriate message.
+
+## Local 1 MB demo
+
+Open Settings → Updates → Try a demo update (1 MB) in a build containing this
+change. It opens the same dialog without requiring a newer GitHub release or
+waiting for the automatic check. Tap Download Now to rehearse progress for about
+five seconds, Cancel to stop, or Remind Me Later to close it. Completion stays
+visible until OK is tapped.
+
+This is explicitly labelled a demo: it generates exactly 1,048,576 bytes locally,
+uses no network, never opens the installer or asks for install permission, and
+deletes its temporary file after success, cancellation, or failure. The real
+update path is unchanged. Verify completion and cancellation, then reopen the
+demo to repeat it.

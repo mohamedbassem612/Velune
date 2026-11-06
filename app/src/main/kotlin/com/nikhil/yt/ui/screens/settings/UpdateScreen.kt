@@ -82,6 +82,8 @@ import com.nikhil.yt.ui.component.EnumListPreference
 import com.nikhil.yt.ui.component.IconButton
 import com.nikhil.yt.ui.component.PreferenceGroupTitle
 import com.nikhil.yt.ui.component.SwitchPreference
+import com.nikhil.yt.ui.component.UpdateAvailableDialog
+import com.nikhil.yt.utils.ReleaseInfo
 import com.nikhil.yt.ui.utils.backToMain
 import com.nikhil.yt.utils.GitCommit
 import com.nikhil.yt.utils.UpdateNotificationManager
@@ -101,6 +103,20 @@ fun UpdateScreen(
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
+    var showUpdateDemo by remember { mutableStateOf(false) }
+    if (showUpdateDemo) {
+        UpdateAvailableDialog(
+            release = ReleaseInfo(
+                tagName = "demo",
+                name = stringResource(R.string.update_demo_title),
+                body = stringResource(R.string.update_demo_notes),
+                publishedAt = "",
+                htmlUrl = "",
+            ),
+            demo = true,
+            onDismiss = { showUpdateDemo = false },
+        )
+    }
     val nightlyInstallUrl = "https://github.com/mohamedbassem612/Velune/releases/latest"
 
     val (enableUpdateNotification, onEnableUpdateNotificationChange) = rememberPreference(
@@ -413,6 +429,13 @@ fun UpdateScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            item {
+                Button(onClick = { showUpdateDemo = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.update_demo_button))
+                }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 

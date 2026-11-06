@@ -11,4 +11,10 @@
     <string name="update_dialog_no_apk">لم تتم إضافة ملف APK لهذا الإصدار بعد.</string>
     <string name="update_dialog_install_permission">اسمح بالتثبيت من Velune، ثم ارجع واضغط تحميل الآن.</string>
     <string name="update_dialog_failed">تعذّر تحميل التحديث أو فتحه. حاول مرة أخرى.</string>
+    <string name="update_demo_title">تحديث تجريبي</string>
+    <string name="update_demo_button">تجربة تحديث وهمي (١ ميجا)</string>
+    <string name="update_demo_available" formatted="false">محاكاة محلية · ١ ميجا · بدون تثبيت</string>
+    <string name="update_demo_downloading" formatted="false">جارٍ محاكاة تحميل ١ ميجا…</string>
+    <string name="update_demo_complete" formatted="false">اكتملت التجربة · تمت معالجة ١ ميجا بدون تثبيت أي تحديث.</string>
+    <string name="update_demo_notes">## جرّب واجهة التحديث\n- معاينة مميزات الإصدار وتقدّم التحميل.\n- إلغاء التجربة وإعادتها في أي وقت.\n- إنشاء ملف مؤقت بحجم ١ ميجا محليًا وحذفه بعد التجربة.\n\nالتجربة لا تستهلك الإنترنت ولا تغيّر إصدار التطبيق.</string>
 </resources>
