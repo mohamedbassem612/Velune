@@ -28,7 +28,7 @@ import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
+import com.nikhil.yt.ui.platform.setPlatformContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -481,7 +481,7 @@ class MainActivity : ComponentActivity() {
                 }
         }
 
-        setContent {
+        setPlatformContent({ playerConnection }) {
             // Needed to see the mp3 files in Music/Velune again after reinstalling the app (asked only once)
             val audioPermissionLauncher =
                 rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->

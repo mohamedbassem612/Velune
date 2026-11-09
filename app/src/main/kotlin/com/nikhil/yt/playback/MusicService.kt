@@ -238,6 +238,11 @@ class MusicService :
     lateinit var database: MusicDatabase
 
     @Inject
+    lateinit var localLibrarySync: com.nikhil.yt.localsync.LocalLibrarySync
+
+    private var localLibrarySyncJob: Job? = null
+
+    @Inject
     lateinit var lyricsHelper: LyricsHelper
 
     @Inject
@@ -2093,6 +2098,7 @@ class MusicService :
                     port = port,
                     sessionId = sessionId,
                     sessionKey = sessionKey,
+                    syncLibrary = settings.localLibrarySyncEnabled,
                 )
             val joinLink = com.nikhil.yt.together.TogetherLink.encode(joinInfo)
 
@@ -2103,6 +2109,7 @@ class MusicService :
                     sessionKey = sessionKey,
                     hostDisplayName = displayName.trim().ifBlank { getString(R.string.app_name) },
                     initialSettings = settings,
+                    librarySync = if (settings.localLibrarySyncEnabled) localLibrarySync else null,
                 )
 
             server.onEvent = { event ->
@@ -2314,6 +2321,7 @@ class MusicService :
     fun joinTogether(
         rawLink: String,
         displayName: String,
+        syncLibrary: Boolean = false,
     ) {
         ensureScopesActive()
         val joinInfo = com.nikhil.yt.together.TogetherLink.decode(rawLink)
@@ -2394,6 +2402,24 @@ class MusicService :
 
                         is com.nikhil.yt.together.TogetherClientEvent.RoomState -> {
                             applyRemoteRoomState(event.state)
+                            val self = togetherSelfParticipantId
+                            val accepted = event.state.participants.any { it.id == self && !it.isPending }
+                            if ((syncLibrary || joinInfo.syncLibrary) && event.state.settings.localLibrarySyncEnabled &&
+                                accepted && self != null && localLibrarySyncJob?.isActive != true
+                            ) {
+                                localLibrarySyncJob = ioScope.launch {
+                                    while (isActive) {
+                                        try {
+                                            localLibrarySync.exchange(joinInfo, self)
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Exception) {
+                                            localLibrarySync.status.value = com.nikhil.yt.localsync.LibrarySyncStatus.Retrying
+                                        }
+                                        kotlinx.coroutines.delay(15_000)
+                                    }
+                                }
+                            }
                         }
 
                         is com.nikhil.yt.together.TogetherClientEvent.JoinDecision -> {
@@ -3123,6 +3149,9 @@ class MusicService :
     }
 
     private suspend fun stopTogetherInternal() {
+        localLibrarySyncJob?.cancel()
+        localLibrarySyncJob = null
+        localLibrarySync.status.value = com.nikhil.yt.localsync.LibrarySyncStatus.Idle
         togetherBroadcastJob?.cancel()
         togetherBroadcastJob = null
 

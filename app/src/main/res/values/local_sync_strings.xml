@@ -1,0 +1,7 @@
+<resources>
+    <string name="local_sync_title">Sync library on the local network</string>
+    <string name="local_sync_description">Share liked songs, bookmarked playlists and recent history in local sessions. Accounts and audio files stay on each device.</string>
+    <string name="local_sync_done">Library synced</string>
+    <string name="local_sync_retry">Library sync interrupted. Retrying…</string>
+    <string name="local_sync_working">Syncing library…</string>
+</resources>

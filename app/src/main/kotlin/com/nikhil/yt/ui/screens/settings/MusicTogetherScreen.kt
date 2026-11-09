@@ -96,6 +96,7 @@ import com.nikhil.yt.constants.TogetherDisplayNameKey
 import com.nikhil.yt.constants.TogetherLastJoinLinkKey
 import com.nikhil.yt.constants.TogetherRequireHostApprovalToJoinKey
 import com.nikhil.yt.constants.TogetherWelcomeShownKey
+import com.nikhil.yt.localsync.LibrarySyncStatus
 import com.nikhil.yt.together.TogetherLink
 import com.nikhil.yt.together.TogetherRole
 import com.nikhil.yt.together.TogetherRoomSettings
@@ -194,6 +195,11 @@ fun MusicTogetherScreen(
         if (disableJoinUi || isJoining || isHosting) showJoinDialog = false
     }
 
+    var librarySyncEnabled by rememberSaveable { mutableStateOf(false) }
+    val libraryStatusFlow = remember(playerConnection) {
+        playerConnection?.service?.localLibrarySync?.status ?: MutableStateFlow(LibrarySyncStatus.Idle)
+    }
+    val libraryStatus by libraryStatusFlow.collectAsState()
     var hostModeOnline by rememberSaveable { mutableStateOf(false) }
     var joinModeOnline by rememberSaveable { mutableStateOf(false) }
 
@@ -208,6 +214,7 @@ fun MusicTogetherScreen(
                     allowGuestsToAddTracks = addTracks,
                     allowGuestsToControlPlayback = controlPlayback,
                     requireHostApprovalToJoin = approval,
+                    localLibrarySyncEnabled = (sessionState as? TogetherSessionState.Hosting)?.settings?.localLibrarySyncEnabled ?: false,
                 ),
             )
         }
@@ -272,7 +279,7 @@ fun MusicTogetherScreen(
                 if (joinModeOnline) {
                     playerConnection?.service?.joinTogetherOnline(trimmed, displayName)
                 } else {
-                    playerConnection?.service?.joinTogether(trimmed, displayName)
+                    playerConnection?.service?.joinTogether(trimmed, displayName, syncLibrary = librarySyncEnabled)
                 }
             },
             onDismiss = { showJoinDialog = false },
@@ -364,6 +371,26 @@ fun MusicTogetherScreen(
             ),
         )
 
+        if (!isHosting && !isJoinedAsGuest && !isJoining) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = librarySyncEnabled, onCheckedChange = { librarySyncEnabled = it }, enabled = !hostModeOnline && !joinModeOnline)
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.local_sync_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.local_sync_description), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } else if (libraryStatus != LibrarySyncStatus.Idle) {
+            Text(
+                stringResource(when (libraryStatus) {
+                    LibrarySyncStatus.Synced -> R.string.local_sync_done
+                    LibrarySyncStatus.Retrying -> R.string.local_sync_retry
+                    else -> R.string.local_sync_working
+                }),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
         StatusCard(
             state = sessionState,
             onCopyText = { labelRes, value ->
@@ -428,6 +455,7 @@ fun MusicTogetherScreen(
                             allowGuestsToAddTracks = allowAddTracks,
                             allowGuestsToControlPlayback = allowControlPlayback,
                             requireHostApprovalToJoin = requireApproval,
+                            localLibrarySyncEnabled = librarySyncEnabled && !hostModeOnline,
                         )
                     if (hostModeOnline) {
                         playerConnection?.service?.startTogetherOnlineHost(
@@ -464,7 +492,7 @@ fun MusicTogetherScreen(
                 if (joinModeOnline) {
                     playerConnection?.service?.joinTogetherOnline(trimmed, displayName)
                 } else {
-                    playerConnection?.service?.joinTogether(trimmed, displayName)
+                    playerConnection?.service?.joinTogether(trimmed, displayName, syncLibrary = librarySyncEnabled)
                 }
             },
             modifier = Modifier

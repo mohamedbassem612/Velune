@@ -7,6 +7,15 @@
 package com.nikhil.yt.together
 
 import io.ktor.server.application.install
+import io.ktor.server.application.call
+import io.ktor.server.routing.post
+import io.ktor.server.request.receiveText
+import io.ktor.server.response.respondText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import com.nikhil.yt.localsync.LocalLibrarySync
+import kotlinx.coroutines.CancellationException
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
@@ -60,6 +69,7 @@ class TogetherServer(
     private val sessionKey: String,
     private val hostDisplayName: String,
     initialSettings: TogetherRoomSettings,
+    private val librarySync: LocalLibrarySync? = null,
 ) {
     private val mutex = Mutex()
     private var settings: TogetherRoomSettings = initialSettings
@@ -90,6 +100,33 @@ class TogetherServer(
                 embeddedServer(CIO, port = port, host = "0.0.0.0") {
                     install(WebSockets)
                     routing {
+                        post("/library") {
+                            val participant = call.request.headers["X-Velune-Participant"]?.let { clients[it] }
+                            if (librarySync == null || !currentSettings().localLibrarySyncEnabled ||
+                                call.request.headers[HttpHeaders.Authorization] != "Bearer $sessionKey" ||
+                                participant == null || participant.pending
+                            ) {
+                                call.respondText("Not authorized", status = HttpStatusCode.Forbidden)
+                                return@post
+                            }
+                            val length = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                            if (length == null || length !in 1..LocalLibrarySync.MAX_BODY_BYTES.toLong() ||
+                                call.request.headers[HttpHeaders.TransferEncoding] != null
+                            ) {
+                                call.respondText("Invalid library size", status = HttpStatusCode.PayloadTooLarge)
+                                return@post
+                            }
+                            try {
+                                val incoming = librarySync.decode(call.receiveText())
+                                val reply = librarySync.encode(librarySync.accept(incoming))
+                                check(reply.toByteArray().size <= LocalLibrarySync.MAX_BODY_BYTES)
+                                call.respondText(reply, ContentType.Application.Json)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                call.respondText("Library sync failed", status = HttpStatusCode.BadRequest)
+                            }
+                        }
                         webSocket("/together") {
                             handleClient()
                         }

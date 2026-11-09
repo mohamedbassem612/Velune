@@ -16,6 +16,7 @@ data class TogetherJoinInfo(
     val port: Int,
     val sessionId: String,
     val sessionKey: String,
+    val syncLibrary: Boolean = false,
 ) {
     fun toWebSocketUrl(): String =
         "ws://$host:$port/together"
@@ -28,6 +29,7 @@ data class TogetherJoinInfo(
                 "port" to port.toString(),
                 "sid" to sessionId,
                 "key" to sessionKey,
+                "library" to if (syncLibrary) "1" else "0",
             ).joinToString("&") { (k, v) ->
                 "${URLEncoder.encode(k, charset)}=${URLEncoder.encode(v, charset)}"
             }
@@ -66,7 +68,7 @@ object TogetherLink {
         if (host.isBlank() || port == null || sid.isBlank() || key.isBlank()) return null
         if (port !in 1..65535) return null
 
-        return TogetherJoinInfo(host = host, port = port, sessionId = sid, sessionKey = key)
+        return TogetherJoinInfo(host = host, port = port, sessionId = sid, sessionKey = key, syncLibrary = params["library"] == "1")
     }
 
     private fun decodeWsUrl(uri: URI): TogetherJoinInfo? {
@@ -87,7 +89,7 @@ object TogetherLink {
         if (host.isBlank() || sid.isBlank() || key.isBlank()) return null
         if (port !in 1..65535) return null
 
-        return TogetherJoinInfo(host = host, port = port, sessionId = sid, sessionKey = key)
+        return TogetherJoinInfo(host = host, port = port, sessionId = sid, sessionKey = key, syncLibrary = params["library"] == "1")
     }
 
     private fun decodeCompact(raw: String): TogetherJoinInfo? {

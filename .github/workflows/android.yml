@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: ["main", "velune-offline-fixes", "Testing-features"]
+    branches: ["main", "velune-offline-fixes", "Testing-features", "tv"]
     tags: ["v*"]
   pull_request:
     branches: ["main"]
@@ -41,10 +41,10 @@ jobs:
       - name: Test search filters and resumable updates
         run: |
           ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
-          ./gradlew :app:testUniversalDebugUnitTest --tests com.nikhil.yt.utils.ResumableUpdateDownloadTest --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
+          ./gradlew :app:testMobileUniversalReleaseUnitTest --tests com.nikhil.yt.utils.ResumableUpdateDownloadTest :app:testTvUniversalReleaseUnitTest --tests com.nikhil.yt.localsync.LibraryMergeTest --tests com.nikhil.yt.together.TogetherCoreTest --tests com.nikhil.yt.together.TogetherGuestPlaybackPlannerTest --no-daemon --no-parallel --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx3g
 
       # Repository secrets are not available to pull_request workflows from forks.
-      # Pushes and manual runs use the project signing key; fork PRs use the local fallback.
+      # Pushes and manual runs use the publishing key; fork PRs validate unsigned Release builds.
       - name: Prepare release signing key
         if: github.event_name != 'pull_request'
         env:
@@ -86,7 +86,7 @@ jobs:
           fi
           echo "APK_TAG=$APK_TAG" >> "$GITHUB_ENV"
 
-      - name: Build Universal Release APK
+      - name: Build Mobile and TV Release APKs
         env:
           REQUIRE_SIGNING: ${{ github.event_name != 'pull_request' }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -98,15 +98,17 @@ jobs:
             test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
             test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
           fi
-          ./gradlew :app:assembleUniversalRelease
+          ./gradlew :app:assembleMobileUniversalRelease :app:assembleTvUniversalRelease --no-daemon --no-parallel --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx4g
 
       - name: Name Release APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/universal/release/*.apk "dist/$APK_TAG.apk"
+          cp app/build/outputs/apk/mobileUniversal/release/*.apk "dist/$APK_TAG.apk"
+          cp app/build/outputs/apk/tvUniversal/release/*.apk "dist/velune-tv-v$RELEASE_VERSION_NAME.apk"
 
       - name: Upload Release APK artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_TAG }}-Release
