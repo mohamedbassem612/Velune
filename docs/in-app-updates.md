@@ -37,8 +37,10 @@ Completed downloads show Install and remain saved when the dialog closes, the
 installer is dismissed, or the app restarts. Install permission is requested only
 when installing. Open Settings → Updates → Open available update to return to
 the saved package, or reopen the app (cached newer releases bypass the network
-check interval). Installing never deletes the package. Uninstalling Velune or
-clearing app data removes saved downloads. Files are scoped to the release asset
+check interval). On the first launch after successful installation, APKs for this app whose
+version code is no higher than the installed version are deleted. Dismissing or
+failing installation keeps the package. Uninstalling Velune or clearing app
+data also removes saved downloads. Files are scoped to the release asset
 URL, so a different release does not reuse an older APK.
 
 Manual device checks:

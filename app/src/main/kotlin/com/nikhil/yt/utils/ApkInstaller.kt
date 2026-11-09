@@ -25,6 +25,25 @@ object ApkInstaller {
 
     private fun directory(context: Context) = File(context.filesDir, "updates")
 
+    suspend fun cleanupInstalledUpdates(context: Context) = withContext(Dispatchers.IO) {
+        val manager = context.packageManager
+        val installed = manager.getPackageInfo(context.packageName, 0)
+        fun version(info: android.content.pm.PackageInfo): Long =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode
+            else info.versionCode.toLong()
+        directory(context).listFiles()?.filter { it.extension == "apk" }?.forEach { file ->
+            // Keep uninstalled packages. Installation can be dismissed or fail.
+            val archive = runCatching { manager.getPackageArchiveInfo(file.absolutePath, 0) }.getOrNull()
+            if (archive != null && archive.packageName == installed.packageName &&
+                version(archive) <= version(installed)) {
+                if (file.delete()) {
+                    File(file.path.removeSuffix(".apk") + ".part").delete()
+                    File(file.path.removeSuffix(".apk") + ".validator").delete()
+                }
+            }
+        }
+    }
+
     fun downloaded(context: Context, url: String): File? =
         ResumableUpdateDownload.completed(directory(context), url)
 
