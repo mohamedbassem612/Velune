@@ -102,3 +102,21 @@ to work around that mismatch.
 
 Release tasks: `assembleMobileUniversalRelease`, `assembleTvUniversalRelease`,
 `testMobileUniversalReleaseUnitTest`, and `testTvUniversalReleaseUnitTest`.
+
+## Verified signed Release deployment — 2026-11-10
+
+GitHub Actions run 42721718154 built signed mobile and TV 1.3.8 Release APKs
+from commit b267533. Both certificates match the installed production mobile
+certificate. Artifact ZIP SHA-256:
+`2686e15dd74914d206f4b63a33b42fa2669bc134afd589d6e472483c7ce86c54`.
+
+Both APKs have `debuggable=false`, version code 10308, and passed signature
+verification. Mobile (`com.nikhil.yt`) was updated in place with the same UID;
+TV (`com.nikhil.yt.tv`) was installed separately. The Debug packages
+`com.nikhil.yt.debug` and `com.nikhil.yt.tv.debug` were uninstalled and their
+absence verified. Both Release processes launched without a startup fatal error;
+the TV Release interface and local-pairing QR were observed on-screen.
+
+The 17 focused app unit tests also passed against Release variants, alongside
+the CI search-filter tests. The publishing key was used only by GitHub Actions
+and was not copied to this laptop. No merge into main was performed.
