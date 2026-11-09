@@ -9,6 +9,9 @@
     <string name="update_dialog_later">Remind Me Later</string>
     <string name="update_dialog_no_notes">No release notes were provided for this version.</string>
     <string name="update_dialog_no_apk">No APK is attached to this release yet.</string>
-    <string name="update_dialog_install_permission">Allow installs from Velune, then return and tap Download Now.</string>
+    <string name="update_dialog_install_permission">Allow installs from Velune, then return and tap Install.</string>
     <string name="update_dialog_failed">The update could not be downloaded or opened. Please try again.</string>
+    <string name="update_dialog_install">Install</string>
+    <string name="update_dialog_open">Open available update</string>
+    <string name="update_dialog_unavailable">No newer update is available. Try again later.</string>
 </resources>

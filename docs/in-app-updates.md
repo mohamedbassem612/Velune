@@ -27,13 +27,19 @@ installed version, such as `v1.3.7`. The existing automatic check runs in releas
 builds at most once every 12 hours. “Remind Me Later” dismisses the dialog for the
 current session; the normal check interval determines when it can appear again.
 
-“Download Now” asks for Android's install permission when needed. The dialog
-keeps the release notes visible during download, shows a percentage when the
-server provides a content length (otherwise an indeterminate progress bar), and
-opens Android's installer only after a complete download. Cancel stops the
-download at the next network read, removes the partial file, and returns to the
-announcement. A blocked read is bounded by the existing 30-second read timeout.
-Failures remain in the dialog with a Retry action.
+“Download Now” saves the APK in private persistent app storage. Interrupted
+transfers keep their partial file; Retry resumes with HTTP Range and If-Range
+when the server supplies a validator. A server that ignores ranges restarts the
+transfer safely. Without a validator, Retry restarts to avoid mixing versions.
+An invalid range is rejected; HTTP 416 clears the stale partial for the next retry.
+
+Completed downloads show Install and remain saved when the dialog closes, the
+installer is dismissed, or the app restarts. Install permission is requested only
+when installing. Open Settings → Updates → Open available update to return to
+the saved package, or reopen the app (cached newer releases bypass the network
+check interval). Installing never deletes the package. Uninstalling Velune or
+clearing app data removes saved downloads. Files are scoped to the release asset
+URL, so a different release does not reuse an older APK.
 
 Manual device checks:
 

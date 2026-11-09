@@ -38,8 +38,8 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Test YouTube search filters
-        run: ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
+      - name: Test search filters and resumable updates
+        run: ./gradlew :innertube:test :app:testUniversalDebugUnitTest --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
 
       # Repository secrets are not available to pull_request workflows from forks.
       # Pushes and manual runs use the project signing key; fork PRs use the local fallback.

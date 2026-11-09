@@ -39,6 +39,9 @@ fun UpdateAvailableDialog(
     var downloadJob by remember(release.tagName) { mutableStateOf<Job?>(null) }
     var progress by remember(release.tagName) { mutableIntStateOf(-1) }
     var error by remember(release.tagName) { mutableStateOf<String?>(null) }
+    var readyFile by remember(release.apkUrl) {
+        mutableStateOf(release.apkUrl?.let { ApkInstaller.downloaded(context, it) })
+    }
     val downloading = downloadJob != null
     val version = release.tagName.removePrefix("v")
     // An optional Markdown image at the start of the release becomes the banner.
@@ -135,16 +138,29 @@ fun UpdateAvailableDialog(
                     UpdateDialogAction(stringResource(R.string.cancel_button)) { downloadJob?.cancel() }
                 } else {
                     UpdateDialogAction(stringResource(
-                        if (error == null) R.string.update_dialog_download else R.string.retry
+                        when {
+                            readyFile != null -> R.string.update_dialog_install
+                            error != null -> R.string.retry
+                            else -> R.string.update_dialog_download
+                        }
                     )) {
                         val apkUrl = release.apkUrl
                         if (apkUrl == null) {
                             error = context.getString(R.string.update_dialog_no_apk)
                             return@UpdateDialogAction
                         }
-                        if (!ApkInstaller.canInstall(context)) {
+                        if (readyFile != null && !ApkInstaller.canInstall(context)) {
                             Toast.makeText(context, R.string.update_dialog_install_permission, Toast.LENGTH_LONG).show()
                             ApkInstaller.openInstallPermissionSettings(context)
+                            return@UpdateDialogAction
+                        }
+                        readyFile?.let { file ->
+                            try {
+                                ApkInstaller.install(context, file)
+                                onDismiss()
+                            } catch (e: Exception) {
+                                error = context.getString(R.string.update_dialog_failed)
+                            }
                             return@UpdateDialogAction
                         }
                         error = null
@@ -152,8 +168,8 @@ fun UpdateAvailableDialog(
                         downloadJob = scope.launch {
                             try {
                                 val file = ApkInstaller.download(context, apkUrl) { progress = it }
-                                ApkInstaller.install(context, file)
-                                onDismiss()
+                                readyFile = file
+                                // Keep the completed package and let the user install when ready.
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
