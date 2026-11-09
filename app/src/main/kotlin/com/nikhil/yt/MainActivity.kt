@@ -540,8 +540,14 @@ class MainActivity : ComponentActivity() {
                     requestAudioPermissionOnce()
                 }
 
+                // A successful package replacement is confirmed on the next app launch.
+                com.nikhil.yt.utils.ApkInstaller.cleanupInstalledUpdates(this@MainActivity)
+
                 // In-app update check: at most once every 12 hours, release builds only.
                 if (!com.nikhil.yt.BuildConfig.DEBUG) {
+                    com.nikhil.yt.utils.Updater.getCachedReleases().firstOrNull()?.let { cached ->
+                        if (com.nikhil.yt.utils.Updater.isNewerThanInstalled(cached)) pendingUpdate = cached
+                    }
                     val updatePrefs = getSharedPreferences("update_check", MODE_PRIVATE)
                     val now = System.currentTimeMillis()
                     if (now - updatePrefs.getLong("last_check", 0L) > 12L * 60 * 60 * 1000) {
