@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.media3.common.C
 import coil3.compose.AsyncImage
 import com.nikhil.yt.R
 import com.nikhil.yt.innertube.toHighResThumbnail
@@ -46,6 +47,8 @@ import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.playback.queues.YouTubeQueue
 import com.nikhil.yt.ui.theme.VeluneTheme
 import com.nikhil.yt.viewmodels.HomeViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun TvApp(
@@ -238,9 +241,25 @@ private fun TvPlayer(connection: PlayerConnection?) {
     val next by connection.canSkipNext.collectAsState()
     val error by connection.error.collectAsState()
     val song by remember(connection) { connection.currentSong }.collectAsState(initial = null)
+    var positionMs by remember(connection, track?.id) { mutableLongStateOf(0L) }
+    var durationMs by remember(connection, track?.id) { mutableLongStateOf(0L) }
+    LaunchedEffect(connection, track?.id) {
+        while (isActive) {
+            positionMs = connection.player.currentPosition.coerceAtLeast(0L)
+            durationMs = connection.player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+            delay(250L)
+        }
+    }
     Surface(color = TvBackground.copy(alpha = .97f)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 10.dp)) {
-            HorizontalDivider(color = Color.White.copy(alpha = .08f))
+            LinearProgressIndicator(
+                progress = { if (track != null && durationMs > 0L) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f },
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = TvAccent,
+                trackColor = Color.White.copy(alpha = .12f),
+                gapSize = 0.dp,
+                drawStopIndicator = {},
+            )
             if (error != null) Text(stringResource(R.string.tv_playback_failed), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xFF1D222B))) {
