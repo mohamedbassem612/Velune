@@ -8,7 +8,7 @@ import com.nikhil.yt.playback.queues.YouTubeQueue
 /** Keeps the source position when the normal radio queue finishes loading. */
 internal class HandoverQueue(
     song: MediaMetadata,
-    private val startPositionMs: Long,
+    val startPositionMs: Long,
 ) : Queue {
     private val source = YouTubeQueue.radio(song)
     override val preloadItem = song

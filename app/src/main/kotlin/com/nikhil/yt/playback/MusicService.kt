@@ -1527,6 +1527,9 @@ class MusicService :
         autoAddedMediaIds.clear()
         queue.preloadItem?.takeIf { isOnlineNow() }?.let { preloadItem ->
             player.setMediaItem(preloadItem.toMediaItem())
+            if (queue is com.nikhil.yt.handover.HandoverQueue && queue.startPositionMs > 0L) {
+                player.seekTo(queue.startPositionMs)
+            }
             player.prepare()
             player.playWhenReady = playWhenReady
         }
@@ -1562,6 +1565,7 @@ class MusicService :
                         initialStatus.items.size
                     )
                 )
+                if (initialStatus.position > 0L) player.seekTo(initialStatus.position)
                 if (player.shuffleModeEnabled) {
                     applyCurrentFirstShuffleOrder()
                 }

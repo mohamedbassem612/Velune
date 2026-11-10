@@ -226,7 +226,7 @@ class HandoverController(private val service: MusicService) {
         put("song", player.currentMetadata?.toHandoverJson())
         put("position", player.currentPosition.takeIf { it != C.TIME_UNSET } ?: 0L)
         put("duration", player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
-        put("playing", player.isPlaying)
+        put("playing", player.playWhenReady)
     }
 
     private fun applyState(reply: JSONObject) {
