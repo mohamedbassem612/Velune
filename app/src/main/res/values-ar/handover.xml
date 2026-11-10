@@ -1,0 +1,7 @@
+<resources>
+    <string name="handover_choose_device">اختر جهاز التشغيل</string>
+    <string name="handover_listen_on">شغّل على جهاز</string>
+    <string name="handover_this_phone">هذا الهاتف</string>
+    <string name="handover_searching">جارٍ البحث عن Velune TV على نفس الشبكة…</string>
+    <string name="handover_close">إغلاق</string>
+</resources>

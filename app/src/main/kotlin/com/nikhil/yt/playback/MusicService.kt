@@ -234,6 +234,7 @@ class MusicService :
     MediaLibraryService(),
     Player.Listener,
     PlaybackStatsListener.Callback {
+    val handoverController by lazy { com.nikhil.yt.handover.HandoverController(this) }
     @Inject
     lateinit var database: MusicDatabase
 
@@ -579,6 +580,7 @@ class MusicService :
                 }
 
         com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
+        if (packageName.startsWith("com.nikhil.yt.tv")) handoverController.startTvHost()
         ioScope.launch { runCatching { YTPlayerUtils.warmUp() } }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupAudioFocusRequest()
@@ -1436,6 +1438,19 @@ class MusicService :
         queue: Queue,
         playWhenReady: Boolean = true,
     ) {
+        if (handoverController.selected.value != null) {
+            queue.preloadItem?.let {
+                handoverController.sendTrack(it, playing = playWhenReady)
+                return
+            }
+            scope.launch(SilentHandler) {
+                val status = withContext(Dispatchers.IO) { queue.getInitialStatus() }
+                status.items.getOrNull(status.mediaItemIndex)?.metadata?.let {
+                    handoverController.sendTrack(it, status.position, playWhenReady)
+                }
+            }
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (!isTogetherApplyingRemote() && joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToControlPlayback) {
@@ -4755,6 +4770,7 @@ class MusicService :
 
 
     override fun onDestroy() {
+        if (this::player.isInitialized) handoverController.close()
         super.onDestroy()
         unregisterBluetoothReceiver()
         try {

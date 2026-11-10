@@ -1,0 +1,7 @@
+<resources>
+    <string name="handover_choose_device">Choose playback device</string>
+    <string name="handover_listen_on">Listen on a device</string>
+    <string name="handover_this_phone">This phone</string>
+    <string name="handover_searching">Searching for Velune TV on this Wi-Fi…</string>
+    <string name="handover_close">Close</string>
+</resources>
