@@ -91,7 +91,10 @@ source-set entry point.
 
 ## Release delivery policy
 
-From 2026-11-10, deliver and install Release APKs only. Release has
+Release artifacts are signed and published by GitHub Actions. The user later
+authorized Debug builds on both devices while developing local handover. Keep
+the production mobile app alongside its separate Debug package; TV currently
+uses Debug only. Release has
 `isDebuggable = false`, code shrinking and resource shrinking enabled. Without
 `app/keystore/release.keystore`, local Release APKs are unsigned validation outputs;
 they never fall back to the Android debug certificate. GitHub Actions signs both
@@ -120,3 +123,35 @@ the TV Release interface and local-pairing QR were observed on-screen.
 The 17 focused app unit tests also passed against Release variants, alongside
 the CI search-filter tests. The publishing key was used only by GitHub Actions
 and was not copied to this laptop. No merge into main was performed.
+
+
+## Shared playback session — 1.3.9
+
+Local handover now uses a persistent LAN connection independent of Music Together
+and Google Cast. The TV coordinates one session while either the TV or phone can
+render audio. Choosing "This phone" retains the link: the TV mirrors the phone's
+queue and state, and its controls target the phone renderer.
+
+The shared state includes the complete loaded queue, current index, position,
+play intent, repeat mode, shuffle flag and shuffle order. Transfers install the
+same queue rather than creating another YouTube radio. The active renderer alone
+extends autoplay; its queue changes are broadcast to the other device. Session
+IDs and ownership epochs prevent delayed updates from an old renderer replacing
+the new owner's state. A restarted phone restores the coordinator's current queue
+instead of overwriting it with an older queue from disk.
+
+`HandoverPlayer` provides one Media3 Player to the UI and Android MediaSession.
+Remote seek, skip, repeat, shuffle and queue edits route to the active renderer.
+The other local ExoPlayer stays paused while its timeline mirrors the session.
+Both devices need the new session protocol and must share the local network.
+
+Validation: both Debug variants built; four HandoverSessionTest cases passed
+against the Release variant. A persistent test sender connected to the installed
+SHARP TV Debug build with a 50-item queue. Queue append/removal broadcasts,
+queue preservation across ownership transfer and return, renderer state updates,
+position preservation and rejection of late renderer frames all passed. The TV
+app remained running without a new startup fatal error during this test.
+
+The actual phone disconnected before this iteration could be installed and
+exercised on it. Signed mobile 1.3.9 is being published at the user's request;
+real-phone validation of this session rewrite remains to be done after download.

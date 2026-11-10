@@ -46,7 +46,7 @@ class PlayerConnection(
     scope: CoroutineScope,
 ) : Player.Listener {
     val service = binder.service
-    val player = service.player
+    val player = service.sessionPlayer
 
     val playbackState = MutableStateFlow(player.playbackState)
     private val playWhenReady = MutableStateFlow(player.playWhenReady)
@@ -95,8 +95,11 @@ class PlayerConnection(
             }.collect {
                 mediaMetadata.value = it
                 if (service.handoverController.selected.value != null) {
-                    canSkipPrevious.value = true
-                    canSkipNext.value = true
+                    queueTitle.value = service.handoverController.playback.value?.queueTitle
+                    queueWindows.value = player.getQueueWindows()
+                    currentMediaItemIndex.value = player.currentMediaItemIndex
+                    currentWindowIndex.value = player.getCurrentQueueIndex()
+                    updateCanSkipPreviousAndNext()
                 } else {
                     updateCanSkipPreviousAndNext()
                 }
@@ -203,8 +206,9 @@ class PlayerConnection(
     }
 
     override fun onPlaybackStateChanged(state: Int) {
-        playbackState.value = state
-        error.value = player.playerError
+        playbackState.value = if (service.handoverController.selected.value != null)
+            service.handoverController.playback.value?.playbackState ?: state else state
+        error.value = if (service.handoverController.selected.value != null) null else player.playerError
     }
 
     override fun onPlayWhenReadyChanged(
@@ -260,11 +264,6 @@ class PlayerConnection(
     }
 
     private fun updateCanSkipPreviousAndNext() {
-        if (service.handoverController.selected.value != null) {
-            canSkipPrevious.value = true
-            canSkipNext.value = true
-            return
-        }
         if (!player.currentTimeline.isEmpty) {
             val window =
                 player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())

@@ -444,12 +444,12 @@ fun BottomSheetPlayer(
 
     val handoverTarget by playerConnection.service.handoverController.selected.collectAsState()
     val handoverPlayback by playerConnection.service.handoverController.playback.collectAsState()
-    LaunchedEffect(playbackState, handoverTarget, handoverPlayback) {
+    LaunchedEffect(playbackState, handoverTarget) {
         if (playbackState == STATE_READY || handoverTarget != null) {
             while (isActive) {
                 delay(100)
-                position = if (handoverTarget != null) handoverPlayback?.positionMs ?: 0L else playerConnection.player.currentPosition
-                duration = if (handoverTarget != null) handoverPlayback?.durationMs ?: 0L else playerConnection.player.duration
+                position = playerConnection.player.currentPosition
+                duration = playerConnection.player.duration
             }
         }
     }

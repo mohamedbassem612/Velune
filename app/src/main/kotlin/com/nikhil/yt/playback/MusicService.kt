@@ -235,6 +235,7 @@ class MusicService :
     Player.Listener,
     PlaybackStatsListener.Callback {
     val handoverController by lazy { com.nikhil.yt.handover.HandoverController(this) }
+    val sessionPlayer by lazy { com.nikhil.yt.handover.HandoverPlayer(player, handoverController) }
     @Inject
     lateinit var database: MusicDatabase
 
@@ -580,6 +581,7 @@ class MusicService :
                 }
 
         com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
+        handoverController.attach()
         if (packageName.startsWith("com.nikhil.yt.tv")) handoverController.startTvHost()
         ioScope.launch { runCatching { YTPlayerUtils.warmUp() } }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -592,7 +594,7 @@ class MusicService :
         }
         mediaSession =
             MediaLibrarySession
-                .Builder(this, player, mediaLibrarySessionCallback)
+                .Builder(this, sessionPlayer, mediaLibrarySessionCallback)
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         this,
@@ -1434,20 +1436,48 @@ class MusicService :
             CacheAvailability.isCached(playerCache, id, fallbackContentLength = length)
     }
 
+    /** Installs the same queue on an inactive mirror or the newly chosen renderer. */
+    fun applyHandoverState(state: com.nikhil.yt.handover.HandoverPlayback, renderLocally: Boolean) {
+        val items = state.queue.map { it.toMediaItem() }
+        val queueChanged = player.mediaItems.map { it.metadata } != state.queue
+        suppressAutoPlayback = !renderLocally
+        if (queueChanged || renderLocally) {
+            ++queueRevision
+            clearAutomix()
+            currentQueue = com.nikhil.yt.playback.queues.ListQueue(state.queueTitle, items, state.index.coerceAtLeast(0), state.positionMs)
+        }
+        queueTitle = state.queueTitle
+        if (!renderLocally) player.pause()
+        if (items.isEmpty()) {
+            player.stop(); player.clearMediaItems(); currentQueue = EmptyQueue
+            currentMediaMetadata.value = null
+            return
+        }
+        val index = state.index.coerceIn(0, items.lastIndex)
+        if (queueChanged) player.setMediaItems(items, index, state.positionMs)
+        else if (renderLocally || player.currentMediaItemIndex != index || kotlin.math.abs(player.currentPosition - state.positionMs) > 1000)
+            player.seekTo(index, state.positionMs)
+        player.repeatMode = state.repeatMode
+        if (state.order.size == items.size && state.order.toSet() == items.indices.toSet() &&
+            (queueChanged || com.nikhil.yt.handover.playbackOrder(player) != state.order))
+            player.setShuffleOrder(DefaultShuffleOrder(state.order.toIntArray(), 0L))
+        player.shuffleModeEnabled = state.shuffle
+        if (player.playbackParameters.speed != state.speed) player.setPlaybackSpeed(state.speed)
+        currentMediaMetadata.value = state.song
+        if (renderLocally) { player.prepare(); player.playWhenReady = state.playing }
+    }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
     ) {
-        if (handoverController.selected.value != null) {
-            queue.preloadItem?.let {
-                handoverController.sendTrack(it, playing = playWhenReady)
-                return
-            }
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
             scope.launch(SilentHandler) {
-                val status = withContext(Dispatchers.IO) { queue.getInitialStatus() }
-                status.items.getOrNull(status.mediaItemIndex)?.metadata?.let {
-                    handoverController.sendTrack(it, status.position, playWhenReady)
+                val status = withContext(Dispatchers.IO) {
+                    queue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false))
+                        .filterVideo(dataStore.get(HideVideoKey, false))
                 }
+                handoverController.sendQueue(status, playWhenReady)
             }
             return
         }
@@ -1527,9 +1557,6 @@ class MusicService :
         autoAddedMediaIds.clear()
         queue.preloadItem?.takeIf { isOnlineNow() }?.let { preloadItem ->
             player.setMediaItem(preloadItem.toMediaItem())
-            if (queue is com.nikhil.yt.handover.HandoverQueue && queue.startPositionMs > 0L) {
-                player.seekTo(queue.startPositionMs)
-            }
             player.prepare()
             player.playWhenReady = playWhenReady
         }
@@ -1633,6 +1660,10 @@ class MusicService :
     }
 
     fun startRadioSeamlessly() {
+        if (handoverController.selected.value != null) {
+            handoverController.playback.value?.song?.let { playQueue(YouTubeQueue.radio(it)) }
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (!isTogetherApplyingRemote() && joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToControlPlayback) {
@@ -2024,6 +2055,10 @@ class MusicService :
     }
 
     fun stopAndClearPlayback() {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            handoverController.command("clear")
+            return
+        }
         suppressAutoPlayback = true
         clearAutomix()
         currentQueue = EmptyQueue
@@ -2040,6 +2075,10 @@ class MusicService :
     }
 
     fun playNext(items: List<MediaItem>) {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            handoverController.addTracks(items, next = true)
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToAddTracks) {
@@ -2069,6 +2108,10 @@ class MusicService :
     }
 
     fun addToQueue(items: List<MediaItem>) {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            handoverController.addTracks(items, next = false)
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToAddTracks) {
@@ -3486,6 +3529,10 @@ class MusicService :
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+    if (handoverController.applyingState || handoverController.selected.value != null) {
+        currentMediaMetadata.value = mediaItem?.metadata
+        return
+    }
     super.onMediaItemTransition(mediaItem, reason)
     mediaItem?.let { saveCoverFor(it) }
 
@@ -3774,6 +3821,7 @@ class MusicService :
 
 
     override fun onEvents(player: Player, events: Player.Events) {
+    if (handoverController.applyingState || handoverController.selected.value != null) return
     val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
     if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest &&
         events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)

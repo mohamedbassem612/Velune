@@ -179,3 +179,9 @@ The `mobile` and `tv` product flavors share playback, networking, database, and
 recommendation code. TV has its own Compose UI and launcher resources in
 `app/src/tv`; mobile keeps its existing UI through `app/src/mobile`.
 See [TV development](docs/TV_DEVELOPMENT.md) for build commands and preview scope.
+
+
+Local playback handover uses one persistent LAN session shared by the phone and
+TV, independent of Music Together and Google Cast. It preserves the loaded queue,
+shuffle/repeat settings and playback position when switching the audio device.
+Both devices need the updated handover protocol and the same local network.

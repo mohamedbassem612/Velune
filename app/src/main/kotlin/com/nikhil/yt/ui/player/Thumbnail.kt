@@ -331,7 +331,7 @@ fun Thumbnail(
     val timeline = playerConnection.player.currentTimeline
     val currentIndex = playerConnection.player.currentMediaItemIndex
     val shuffleModeEnabled = playerConnection.player.shuffleModeEnabled
-    val previousMediaMetadata = if (!isRemotePlayback && swipeThumbnail && !timeline.isEmpty) {
+    val previousMediaMetadata = if (swipeThumbnail && !timeline.isEmpty) {
         val previousIndex = timeline.getPreviousWindowIndex(
             currentIndex,
             Player.REPEAT_MODE_OFF,
@@ -344,7 +344,7 @@ fun Thumbnail(
         } else null
     } else null
 
-    val nextMediaMetadata = if (!isRemotePlayback && swipeThumbnail && !timeline.isEmpty) {
+    val nextMediaMetadata = if (swipeThumbnail && !timeline.isEmpty) {
         val nextIndex = timeline.getNextWindowIndex(
             currentIndex,
             Player.REPEAT_MODE_OFF,
@@ -357,9 +357,7 @@ fun Thumbnail(
         } else null
     } else null
 
-    // The local player stays paused during handover; its queue still holds the old artwork.
-    val remoteMediaItem = remember(mediaMetadata) { mediaMetadata?.toMediaItem() }
-    val currentMediaItem = if (isRemotePlayback) remoteMediaItem else try {
+    val currentMediaItem = try {
         playerConnection.player.currentMediaItem
     } catch (e: Exception) { null }
 
@@ -490,7 +488,7 @@ fun Thumbnail(
                         state = thumbnailLazyGridState,
                         rows = GridCells.Fixed(1),
                         flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
-                        userScrollEnabled = !isRemotePlayback && swipeThumbnail && isPlayerExpanded,
+                        userScrollEnabled = swipeThumbnail && isPlayerExpanded,
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(
