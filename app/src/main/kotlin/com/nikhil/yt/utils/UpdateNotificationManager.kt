@@ -150,14 +150,6 @@ object UpdateNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val downloadIntent = Intent(Intent.ACTION_VIEW, Uri.parse(Updater.getLatestDownloadUrl()))
-        val downloadPendingIntent = PendingIntent.getActivity(
-            context,
-            1,
-            downloadIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_velune_concept)
             .setContentTitle(context.getString(R.string.update_notification_title))
@@ -168,7 +160,7 @@ object UpdateNotificationManager {
             .addAction(
                 R.drawable.download,
                 context.getString(R.string.download),
-                downloadPendingIntent
+                openAppPendingIntent
             )
             .build()
 

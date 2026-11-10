@@ -155,3 +155,20 @@ app remained running without a new startup fatal error during this test.
 The actual phone disconnected before this iteration could be installed and
 exercised on it. Signed mobile 1.3.9 is being published at the user's request;
 real-phone validation of this session rewrite remains to be done after download.
+
+## Device-specific updates — 1.3.10
+
+The legacy updater chose the first APK in the release assets, which selected the
+TV APK on a phone when both builds were published in 1.3.9. The updater now selects
+by device flavor and ABI regardless of asset ordering, with no cross-device
+fallback. Completed downloads and the final install action also check the actual
+APK package ID and version code against the running application. Invalid cached
+packages are removed from the app's private update directory.
+
+New mobile assets use `velune-mobile-vVERSION.apk`, which sorts before
+`velune-tv-vVERSION.apk` for older mobile updaters. CI publishes the mobile asset
+before attaching TV. The 1.3.9 mobile asset was renamed to the same convention,
+and its live release API was checked to return the mobile asset first. Both
+original signed APK byte contents were retained. Existing clients may still have
+cached the previous TV download URL; installing the correct mobile build once is
+required to replace their old updater.

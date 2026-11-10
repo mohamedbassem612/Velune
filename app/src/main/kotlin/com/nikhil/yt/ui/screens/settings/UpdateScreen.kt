@@ -425,7 +425,7 @@ fun UpdateScreen(
             item {
                 Button(onClick = {
                     coroutineScope.launch {
-                        val cached = Updater.getCachedReleases().firstOrNull()
+                        val cached = Updater.getCachedReleases().firstOrNull { it.apkUrl != null }
                         val release = cached ?: Updater.getLatestReleaseInfo().getOrNull()
                         if (release != null && Updater.isNewerThanInstalled(release)) {
                             updateRelease = release

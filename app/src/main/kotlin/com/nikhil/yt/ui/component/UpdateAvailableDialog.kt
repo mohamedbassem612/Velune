@@ -25,6 +25,7 @@ import coil3.compose.AsyncImage
 import com.nikhil.yt.R
 import com.nikhil.yt.utils.ApkInstaller
 import com.nikhil.yt.utils.ReleaseInfo
+import com.nikhil.yt.utils.InvalidUpdatePackageException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -159,7 +160,9 @@ fun UpdateAvailableDialog(
                                 ApkInstaller.install(context, file)
                                 onDismiss()
                             } catch (e: Exception) {
-                                error = context.getString(R.string.update_dialog_failed)
+                                if (e is InvalidUpdatePackageException) readyFile = null
+                                error = context.getString(if (e is InvalidUpdatePackageException)
+                                    R.string.update_dialog_wrong_package else R.string.update_dialog_failed)
                             }
                             return@UpdateDialogAction
                         }
@@ -173,7 +176,8 @@ fun UpdateAvailableDialog(
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
-                                error = context.getString(R.string.update_dialog_failed)
+                                error = context.getString(if (e is InvalidUpdatePackageException)
+                                    R.string.update_dialog_wrong_package else R.string.update_dialog_failed)
                             } finally {
                                 downloadJob = null
                             }

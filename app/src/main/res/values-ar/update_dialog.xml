@@ -11,6 +11,7 @@
     <string name="update_dialog_no_apk">لم تتم إضافة ملف APK لهذا الإصدار بعد.</string>
     <string name="update_dialog_install_permission">اسمح بالتثبيت من Velune، ثم ارجع واضغط تثبيت.</string>
     <string name="update_dialog_failed">تعذّر تحميل التحديث أو فتحه. حاول مرة أخرى.</string>
+    <string name="update_dialog_wrong_package">ملف التحديث لا يخص هذه النسخة من Velune. أعد تنزيل التحديث الصحيح.</string>
     <string name="update_dialog_install">تثبيت</string>
     <string name="update_dialog_open">فتح التحديث المتاح</string>
     <string name="update_dialog_unavailable">لا يوجد تحديث أحدث متاح. حاول لاحقًا.</string>

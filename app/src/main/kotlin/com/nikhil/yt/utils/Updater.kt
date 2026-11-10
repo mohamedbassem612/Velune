@@ -60,18 +60,12 @@ object Updater {
         val releases = ArrayList<ReleaseInfo>(jsonArray.length())
         for (i in 0 until jsonArray.length()) {
             val item = jsonArray.getJSONObject(i)
-            var apkUrl: String? = null
             val assets = item.optJSONArray("assets")
-            if (assets != null) {
-                for (j in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(j)
-                    val assetName = asset.optString("name", "")
-                    if (assetName.endsWith(".apk", ignoreCase = true)) {
-                        apkUrl = asset.optString("browser_download_url", "").ifBlank { null }
-                        break
-                    }
-                }
+            val candidates = (0 until (assets?.length() ?: 0)).map { index ->
+                val asset = assets!!.getJSONObject(index)
+                UpdateAsset(asset.optString("name"), asset.optString("browser_download_url"))
             }
+            val apkUrl = UpdateAssetSelector.select(candidates, BuildConfig.FLAVOR_device, BuildConfig.ARCHITECTURE)?.downloadUrl
             releases.add(
                 ReleaseInfo(
                     tagName = item.optString("tag_name", ""),
@@ -148,8 +142,8 @@ object Updater {
     suspend fun getLatestReleaseInfo(): Result<ReleaseInfo> =
         runCatching {
             val releases = getAllReleases().getOrThrow()
-            val latest = releases.firstOrNull()
-                ?: throw IllegalStateException("No releases found")
+            val latest = releases.firstOrNull { it.apkUrl != null }
+                ?: throw IllegalStateException("No compatible release found")
             lastCheckTime = System.currentTimeMillis()
             latest
         }
@@ -191,16 +185,6 @@ object Updater {
             if (l != c) return l > c
         }
         return false
-    }
-
-    fun getLatestDownloadUrl(): String {
-        val baseUrl = "https://github.com/mohamedbassem612/Velune/releases/latest/download/"
-        val architecture = BuildConfig.ARCHITECTURE
-        return if (architecture == "universal") {
-            baseUrl + "Velune.apk"
-        } else {
-            baseUrl + "app-${architecture}-release.apk"
-        }
     }
 
     suspend fun getAllReleases(

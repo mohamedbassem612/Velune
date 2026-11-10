@@ -545,7 +545,7 @@ class MainActivity : ComponentActivity() {
 
                 // In-app update check: at most once every 12 hours, release builds only.
                 if (!com.nikhil.yt.BuildConfig.DEBUG) {
-                    com.nikhil.yt.utils.Updater.getCachedReleases().firstOrNull()?.let { cached ->
+                    com.nikhil.yt.utils.Updater.getCachedReleases().firstOrNull { it.apkUrl != null }?.let { cached ->
                         if (com.nikhil.yt.utils.Updater.isNewerThanInstalled(cached)) pendingUpdate = cached
                     }
                     val updatePrefs = getSharedPreferences("update_check", MODE_PRIVATE)
@@ -553,7 +553,7 @@ class MainActivity : ComponentActivity() {
                     if (now - updatePrefs.getLong("last_check", 0L) > 12L * 60 * 60 * 1000) {
                         com.nikhil.yt.utils.Updater.getAllReleases(forceRefresh = true).onSuccess { releases ->
                             updatePrefs.edit().putLong("last_check", now).apply()
-                            val latest = releases.firstOrNull()
+                            val latest = releases.firstOrNull { it.apkUrl != null }
                             if (latest != null && com.nikhil.yt.utils.Updater.isNewerThanInstalled(latest)) {
                                 pendingUpdate = latest
                             }
