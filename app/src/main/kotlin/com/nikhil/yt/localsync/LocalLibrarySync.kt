@@ -9,19 +9,9 @@ import com.nikhil.yt.db.entities.PlaylistSongMap
 import com.nikhil.yt.db.entities.Song
 import com.nikhil.yt.models.MediaMetadata
 import dagger.hilt.android.qualifiers.ApplicationContext
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
 import java.io.File
 import java.time.LocalDateTime
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +21,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import com.nikhil.yt.together.TogetherJoinInfo
 
 enum class LibrarySyncStatus { Idle, Syncing, Synced, Retrying }
 
@@ -77,9 +66,9 @@ class LocalLibrarySync @Inject constructor(
     private fun save(snapshot: LibrarySnapshot) {
         val output = file.startWrite()
         try {
-            output.write(json.encodeToString(LibrarySnapshot.serializer(), snapshot.copy(history = emptyList())).toByteArray())
+            output.write(json.encodeToString(LibrarySnapshot.serializer(), snapshot).toByteArray())
             file.finishWrite(output)
-            journal = snapshot.copy(history = emptyList())
+            journal = snapshot
         } catch (failure: Exception) {
             file.failWrite(output)
             throw failure
@@ -96,24 +85,31 @@ class LocalLibrarySync @Inject constructor(
                 songs = playlistSongs(list.id).first().map { it.song }.filterNot { it.song.isLocal }.map { it.toSyncTrack() },
             )
         }
-        val history = recentEvents(LibraryMerge.HISTORY_LIMIT).first().filterNot { it.song.song.isLocal }.map {
+        val previous = load()
+        val recent = recentEvents(LibraryMerge.HISTORY_LIMIT).first().filterNot { it.song.song.isLocal }.map {
             SyncHistory(it.song.toSyncTrack(), it.event.timestamp.toString(), it.event.playTime)
         }
-        LibraryMerge.observe(load(), LibrarySnapshot(device = device, likes = likes, playlists = lists, history = history))
+        val recentKeys = recent.mapTo(hashSetOf()) { it.key }
+        // Falling outside the recent window is not deletion. Check previously observed events explicitly.
+        val retained = previous.history.filter { !it.removed && it.key !in recentKeys &&
+            localSyncEventExists(it.track.id, LocalDateTime.parse(it.timestamp), it.playTime) }
+        LibraryMerge.observe(previous, LibrarySnapshot(device = device, likes = likes, playlists = lists, history = recent + retained))
     }
 
-    suspend fun snapshot(): LibrarySnapshot = withContext(Dispatchers.IO) {
-        mutex.withLock { capture().also { save(it) } }
+    suspend fun snapshot(connect: Boolean = false): LibrarySnapshot = withContext(Dispatchers.IO) {
+        mutex.withLock { capture().also { save(it) }.let { if (connect) it else it.copy(history = it.history.filterNot { event -> event.removed }) } }
     }
 
-    suspend fun accept(remote: LibrarySnapshot): LibrarySnapshot = withContext(Dispatchers.IO) {
+    suspend fun accept(remote: LibrarySnapshot, connect: Boolean = false, authorized: () -> Boolean = { true }): LibrarySnapshot = withContext(Dispatchers.IO) {
         validate(remote)
         mutex.withLock {
+            check(authorized()) { "Library peer is no longer authorized" }
             val local = capture()
             val merged = LibraryMerge.merge(local, remote)
             val oldLikes = local.likes.associateBy { it.track.id }
             val oldLists = local.playlists.associateBy { it.id }
             database.withTransaction {
+                check(authorized()) { "Library peer is no longer authorized" }
                 merged.likes.filter { it.version > (oldLikes[it.track.id]?.version ?: SyncVersion()) }.forEach { item ->
                     insert(item.track.toMetadata())
                     val existing = song(item.track.id).first()?.song ?: error("Missing synced song")
@@ -141,7 +137,9 @@ class LocalLibrarySync @Inject constructor(
                 }
                 merged.history.forEach { item ->
                     val timestamp = LocalDateTime.parse(item.timestamp)
-                    if (!localSyncEventExists(item.track.id, timestamp, item.playTime)) {
+                    if (item.removed) {
+                        deleteLocalSyncEvent(item.track.id, timestamp, item.playTime)
+                    } else if (!localSyncEventExists(item.track.id, timestamp, item.playTime)) {
                         insert(item.track.toMetadata())
                         insert(Event(songId = item.track.id, timestamp = timestamp, playTime = item.playTime))
                         incrementTotalPlayTime(item.track.id, item.playTime)
@@ -150,27 +148,7 @@ class LocalLibrarySync @Inject constructor(
             }
             save(merged)
             status.value = LibrarySyncStatus.Synced
-            merged
-        }
-    }
-
-    suspend fun exchange(info: TogetherJoinInfo, participant: String) {
-        status.value = LibrarySyncStatus.Syncing
-        val body = json.encodeToString(LibrarySnapshot.serializer(), snapshot())
-        require(body.toByteArray().size <= MAX_BODY_BYTES) { "Library is too large for this preview" }
-        HttpClient(OkHttp) {
-            engine { config { connectTimeout(10, TimeUnit.SECONDS); readTimeout(30, TimeUnit.SECONDS); writeTimeout(30, TimeUnit.SECONDS) } }
-        }.use { client ->
-            val response = client.post("http://${info.host}:${info.port}/library") {
-                header(HttpHeaders.Authorization, "Bearer ${info.sessionKey}")
-                header("X-Velune-Participant", participant)
-                contentType(ContentType.Application.Json)
-                setBody(body)
-            }
-            check(response.status.value == 200) { "Library sync unavailable (${response.status.value})" }
-            val text = response.bodyAsText()
-            require(text.toByteArray().size <= MAX_BODY_BYTES) { "Library response is too large" }
-            accept(json.decodeFromString<LibrarySnapshot>(text))
+            if (connect) merged else merged.copy(history = merged.history.filterNot { it.removed })
         }
     }
 
@@ -179,7 +157,7 @@ class LocalLibrarySync @Inject constructor(
 
     private fun validate(snapshot: LibrarySnapshot) {
         require(snapshot.schema == 1 && snapshot.device.isNotBlank() && snapshot.counter in 0..Long.MAX_VALUE / 2)
-        require(snapshot.likes.size <= 20_000 && snapshot.playlists.size <= 1000 && snapshot.history.size <= LibraryMerge.HISTORY_LIMIT)
+        require(snapshot.likes.size <= 20_000 && snapshot.playlists.size <= 1000 && snapshot.history.size <= 50_000)
         val tracks = snapshot.likes.map { it.track } + snapshot.playlists.flatMap { it.songs } + snapshot.history.map { it.track }
         require(tracks.size <= 50_000)
         tracks.forEach { require(it.id.isNotBlank() && it.id.length <= 256 && it.title.length <= 4096 && it.artists.size <= 100) }
@@ -187,7 +165,11 @@ class LocalLibrarySync @Inject constructor(
             require(it.counter in 1..snapshot.counter && it.device.isNotBlank())
         }
         snapshot.playlists.forEach { require(it.id.isNotBlank() && it.name.length <= 4096 && it.songs.size <= 10_000) }
-        snapshot.history.forEach { require(it.playTime >= 0); LocalDateTime.parse(it.timestamp) }
+        snapshot.history.forEach {
+            require(it.playTime >= 0 && it.version.counter in 0..snapshot.counter)
+            if (it.version.counter > 0) require(it.version.device.isNotBlank())
+            LocalDateTime.parse(it.timestamp)
+        }
     }
 
     private fun Song.toSyncTrack() = SyncTrack(id, title, artists.map { it.name }, song.duration, thumbnailUrl)

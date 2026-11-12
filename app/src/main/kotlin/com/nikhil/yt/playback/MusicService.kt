@@ -10,6 +10,8 @@
 
 package com.nikhil.yt.playback
 
+import com.nikhil.yt.BuildConfig
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -582,6 +584,16 @@ class MusicService :
 
         com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
         handoverController.attach()
+        scope.launch {
+            togetherSessionState.collect { state ->
+                // A failed startup may have no transport to clean up (e.g. missing online config).
+                // Established sessions release the Connect lease only after stopTogetherInternal.
+                if (state is com.nikhil.yt.together.TogetherSessionState.Error &&
+                    togetherClient == null && togetherServer == null && togetherOnlineHost == null) {
+                    handoverController.allowAfterTogether()
+                }
+            }
+        }
         if (packageName.startsWith("com.nikhil.yt.tv")) handoverController.startTvHost()
         ioScope.launch { runCatching { YTPlayerUtils.warmUp() } }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -2142,6 +2154,8 @@ class MusicService :
         displayName: String,
         settings: com.nikhil.yt.together.TogetherRoomSettings,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         scope.launch(SilentHandler) {
             togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
@@ -2242,6 +2256,8 @@ class MusicService :
         displayName: String,
         settings: com.nikhil.yt.together.TogetherRoomSettings,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         scope.launch(SilentHandler) {
             togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
@@ -2385,6 +2401,8 @@ class MusicService :
         displayName: String,
         syncLibrary: Boolean = false,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         val joinInfo = com.nikhil.yt.together.TogetherLink.decode(rawLink)
         if (joinInfo == null) {
@@ -2472,7 +2490,7 @@ class MusicService :
                                 localLibrarySyncJob = ioScope.launch {
                                     while (isActive) {
                                         try {
-                                            localLibrarySync.exchange(joinInfo, self)
+                                            com.nikhil.yt.together.TogetherLibraryExchange.exchange(localLibrarySync, joinInfo, self)
                                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                                             throw cancelled
                                         } catch (_: Exception) {
@@ -2584,6 +2602,8 @@ class MusicService :
         code: String,
         displayName: String,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         val trimmedCode = code.trim()
         if (trimmedCode.isBlank()) {
@@ -2826,10 +2846,13 @@ class MusicService :
 
     fun leaveTogether() {
         ensureScopesActive()
-        scope.launch(SilentHandler) {
-            togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
+        ioScope.launch(SilentHandler) {
+            stopTogetherInternal()
+            withContext(Dispatchers.Main) {
+                togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
+                handoverController.allowAfterTogether()
+            }
         }
-        ioScope.launch(SilentHandler) { stopTogetherInternal() }
     }
 
     fun updateTogetherSettings(settings: com.nikhil.yt.together.TogetherRoomSettings) {
@@ -3253,6 +3276,9 @@ class MusicService :
             togetherServer?.stop()
         } catch (_: Exception) {}
         togetherServer = null
+        if (togetherSessionState.value is com.nikhil.yt.together.TogetherSessionState.Error) {
+            withContext(Dispatchers.Main) { handoverController.allowAfterTogether() }
+        }
     }
 
     private fun com.nikhil.yt.together.TogetherTrack.toMediaMetadata(): com.nikhil.yt.models.MediaMetadata {
@@ -4947,6 +4973,13 @@ class MusicService :
                 }
 
                 if (stopMusicOnTaskClearEnabled) {
+                    if (shouldDetachConnectOnTaskRemoved(
+                            isTv = packageName.startsWith("com.nikhil.yt.tv"),
+                            hasRemoteRenderer = handoverController.selected.value != null,
+                        )) {
+                        // Local app cleanup must not forward Clear to an independently playing TV.
+                        handoverController.disconnect()
+                    }
                     if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
                         runBlocking { saveQueueToDisk() }
                     }
@@ -5021,6 +5054,9 @@ class MusicService :
     }
 
     companion object {
+        internal fun shouldDetachConnectOnTaskRemoved(isTv: Boolean, hasRemoteRenderer: Boolean): Boolean =
+            !isTv && hasRemoteRenderer
+
         internal fun shouldStopServiceOnTaskRemoved(
             stopMusicOnTaskClearEnabled: Boolean,
             isHostSessionActive: Boolean,

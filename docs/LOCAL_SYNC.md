@@ -1,70 +1,75 @@
-# Local device sync preview
+# Velune Connect library and device connection
 
-TV can host a Music Together LAN session using **Settings > Link a phone**.
-The QR code contains the TV address, session identifier, a random session secret,
-and an explicit library-sync flag. Scan it on a phone with the updated mobile
-build and open it in Velune. Both devices must be reachable on the same network.
-Stopping the session invalidates the link. The code grants access to playback
-controls and the library for that session; do not share its screenshot publicly.
+See [architecture, migration and validation](VELUNE_CONNECT.md) for implementation
+boundaries and current test evidence. Listen Together remains mobile-only and is
+not the transport for TV pairing, library synchronization or playback control.
 
-## Shared behavior
+## Pair once
 
-Playback uses the existing Music Together WebSocket protocol: queue, current
-track, play/pause, seeks, previous/next, repeat and shuffle. This is the existing
-shared-listening mode, so both joined devices can play audio. A dedicated mode
-that uses the phone solely as a silent remote is not implemented yet.
+1. Keep phone and TV on the same LAN. On TV open Settings > Phone playback,
+   then allow pairing for two minutes.
+2. Open Velune Connect from phone settings or the playback device button.
+3. Select the TV, compare the code on both screens, and approve on both only
+   if it matches. Approval grants persistent playback and library access.
+4. Subsequent connections use the installed device keys and saved pins. Device
+   names and addresses are discovery hints, not trust. Revoke access on either
+   device to require pairing again. Key loss/reinstall requires re-pairing.
 
-Updated clients opt into library sync through the explicit QR flag. Every 15
-seconds, an accepted guest sends a library snapshot to the host and imports the
-merged response. The endpoint requires the session secret and an active, approved
-participant ID. It is available only on LAN hosts that explicitly enabled library
-sync; online rooms and ordinary listening-only rooms keep it disabled.
+Selecting a device attaches to its session. Transfer playback is an explicit
+separate action. Unexpected Wi-Fi loss retries automatically; Disconnect disables
+reconnection but keeps trust. Revocation also removes local trust and closes the
+connection. Already mirrored library data is retained on both devices.
 
-The snapshot includes:
+## Independent playback
 
-- Liked songs, including later unlike changes.
-- Bookmarked playlists, their names and locally available ordered song lists.
-  Removing a playlist bookmark syncs that removal; imported underlying playlist
-  rows are retained to avoid destroying local data.
-- Up to the most recent 5,000 listening events, with duplicate detection.
+The destination resolves and buffers audio independently. Once ready, Connect
+pauses the source and commits a new renderer epoch. The TV continues while it is
+the renderer even if the phone goes away; it needs its own access to the media
+source and Internet connectivity for uncached content. Restart restores a paused
+session and queue, subject to Android service restrictions; it does not promise
+unattended boot playback. An uncertain transfer outcome favors pausing rather
+than duplicate audio. If the source queue/track changes during preparation, the
+transfer is rejected and may require explicit resume.
 
-Each installed app retains its own account and settings. Cookies, access tokens,
-account credentials, audio files, downloads and local-file tracks are excluded.
-Remote playlists are represented by their locally available contents; this does
-not fetch missing pages from YouTube.
+## Library and account boundaries
 
-## Conflicts and persistence
+Connect mirrors local likes/unlikes, bookmarks, available ordered playlist
+contents and recent listening history. It does not sign the TV into Google,
+copy cookies or passwords, fetch all missing remote playlist pages, or transfer
+downloaded audio/local files. Content restricted to an account needs separate
+legitimate authorization on the playback device.
 
-Likes and playlists use logical version counters with a random installation ID as
-a deterministic tie breaker. Whole-playlist conflicts choose one version. A later
-observed edit gets a newer version; concurrent changes to the same playlist do not
-merge individual song edits. Removal records persist, preventing an offline peer
-from resurrecting older likes or bookmarks. The journal and device ID live in the
-Android no-backup directory to avoid cloning one installation's identity.
+Logical clocks and device IDs resolve concurrent edits deterministically. Whole
+playlist updates use last-writer ordering by logical counter and device ID;
+individual concurrent song-list edits are not merged. Likes, bookmarks and
+Connect history deletions retain tombstones. History uses a stable natural key;
+up to 5,000 active recent records are merged. Previously observed records outside
+the recent capture window are checked in the database before being considered
+deleted. Clearing history does not recompute cumulative listening statistics,
+matching the existing local clear-history behavior.
 
-History is merged by song ID, event timestamp and play duration. Clearing history
-is not propagated in this preview, so a peer can restore previously shared events.
-Imported events increment local song play time once; remote account statistics,
-monthly counters, search history and recommendation caches are not transferred.
+Both ends periodically observe local changes. Per-connection acknowledged deltas
+send changed records; reconnect sends a full idempotent snapshot. Large playlist
+edits resend that playlist. Tombstones are retained, not silently garbage collected
+when a device is offline. Limits are inherited/extended from the merge engine:
+10 MiB snapshot body, 20,000 likes, 1,000 playlists, 10,000 songs per playlist,
+and 50,000 total track references including history tombstones. Exceeding limits
+fails synchronization visibly and retains local data.
 
-The JSON schema is version 1. Limits: 10 MiB per exchange, 20,000 like records,
-1,000 playlists, 10,000 songs per playlist, 50,000 track references per snapshot.
-Persistent removal records count toward these limits. There is no automatic
-background re-pairing after a session ends.
+The journal is an atomic no-backup file, while imported library data is stored in
+Room. They are separate persistence domains; a process kill between DB commit
+and journal save can cause the next observation to re-version imported changes.
+This is idempotent for history insertion and does not grant access or delete the
+library, but exactly-once cross-file commits are not claimed.
 
-## Validation
+Legacy Together library exchange remains on mobile. It omits history tombstones
+and preserves its older append-only history behavior. Both Connect peers must
+use protocol 3; no NSD token or old Together QR is migrated into trusted access.
 
-`LibraryMergeTest` covers repeat exchange, unlike propagation, deterministic
-concurrent conflicts, playlist removals, and later re-likes. Run:
+## Together exclusion
 
-```sh
-./gradlew :app:testTvUniversalReleaseUnitTest --tests com.nikhil.yt.localsync.LibraryMergeTest
-```
-
-The TV host has been exercised on the connected SHARP Android TV: QR decoding,
-WebSocket join, missing/invalid participant authorization, unsupported schema
-rejection, and repeated authenticated HTTP exchange. Real phone-to-TV exchange
-and shared playback still require installation of the updated mobile preview.
-The mobile Release APK keeps the production application ID and must use the
-publishing certificate to update it without losing its library. TV uses its own
-application ID and receives shared library data through local sync.
+Starting or joining Together detaches that phone from Connect before touching its
+player and disables automatic Connect reconnection. TV playback remains owned by
+the TV when it is the renderer. Connect stays blocked until Together is explicitly
+left or its failed session is cleaned up. Leaving Together does not automatically
+reattach or replace TV playback; select Connect again when desired.

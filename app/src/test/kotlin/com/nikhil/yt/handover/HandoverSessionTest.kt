@@ -55,4 +55,23 @@ class HandoverSessionTest {
         assertEquals("c", session.state.song?.id)
         assertEquals(90000L, session.state.positionMs)
     }
+
+    @Test fun processRestartRetainsQueueButRequiresResumeAndNewEpoch() {
+        val old = initial()
+        val recovered = recoverHandoverSession(old)
+        assertEquals(old.queue, recovered.queue)
+        assertEquals(old.positionMs, recovered.positionMs)
+        assertEquals(old.order, recovered.order)
+        assertFalse(recovered.playing)
+        assertEquals(old.epoch + 1, recovered.epoch)
+        assertFalse(HandoverSessionAuthority(recovered).update("phone", old.epoch, old))
+    }
+
+    @Test fun phoneDisappearanceDoesNotMutateTvRendererState() {
+        val authority = HandoverSessionAuthority(initial().copy(rendererId = "tv"))
+        val before = authority.state
+        assertFalse(authority.update("phone", before.epoch, initial().copy(playing = false)))
+        assertEquals(before, authority.state)
+        assertTrue(authority.state.playing)
+    }
 }

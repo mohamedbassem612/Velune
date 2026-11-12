@@ -46,3 +46,7 @@ internal class HandoverSessionAuthority(initial: HandoverPlayback) {
         return state
     }
 }
+
+/** Restart never reuses an ownership epoch and never starts unsolicited audio. */
+internal fun recoverHandoverSession(saved: HandoverPlayback): HandoverPlayback =
+    saved.copy(playing = false, epoch = saved.epoch + 1, revision = saved.revision + 1)

@@ -52,9 +52,12 @@ android {
     productFlavors {
         create("mobile") {
             dimension = "device"
+            buildConfigField("boolean", "LISTEN_TOGETHER_ENABLED", "true")
         }
         create("tv") {
             dimension = "device"
+            buildConfigField("boolean", "LISTEN_TOGETHER_ENABLED", "false")
+            buildConfigField("String", "TOGETHER_BEARER_TOKEN", "\"\"")
             applicationIdSuffix = ".tv"
             versionNameSuffix = "-tv"
         }
@@ -254,6 +257,9 @@ dependencies {
 
     implementation(libs.timber)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     // Ensure ProcessLifecycleOwner is available for the presence manager and CI unit tests
     implementation("com.github.therealbush:translator:1.1.1")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")

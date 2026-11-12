@@ -57,7 +57,7 @@ fun TvApp(
     search: TvSearchViewModel = hiltViewModel(),
 ) {
     var page by rememberSaveable { mutableStateOf(TvPage.Home) }
-    var showSync by rememberSaveable { mutableStateOf(false) }
+    var showPhoneConnection by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var librarySelection by rememberSaveable { mutableStateOf<String?>(null) }
     var focusedSong by remember { mutableStateOf<MediaMetadata?>(null) }
@@ -103,10 +103,10 @@ fun TvApp(
     }
 
     LaunchedEffect(Unit) { navigation.getValue(TvPage.Home).requestFocus() }
-    BackHandler(enabled = !railFocused || page != TvPage.Home || showSync) {
+    BackHandler(enabled = !railFocused || page != TvPage.Home || showPhoneConnection) {
         keyboard?.hide()
         when {
-            page == TvPage.Settings && showSync -> { showSync = false; currentRail.requestFocus() }
+            page == TvPage.Settings && showPhoneConnection -> { showPhoneConnection = false; currentRail.requestFocus() }
             !railFocused -> currentRail.requestFocus()
             else -> { page = TvPage.Home; navigation.getValue(TvPage.Home).requestFocus() }
         }
@@ -132,7 +132,7 @@ fun TvApp(
                 Row(Modifier.fillMaxSize()) {
                     TvNavigationRail(
                         page, navigation,
-                        if (page == TvPage.Settings && showSync && connection == null) FocusRequester.Default else contentFocus,
+                        contentFocus,
                         onSelect = { keyboard?.hide(); page = it },
                         onRailFocus = { railFocused = it },
                     )
@@ -185,12 +185,16 @@ fun TvApp(
                                         railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(librarySongs, it) },
                                     )
                                 }
-                                TvPage.Settings -> if (showSync) {
-                                    TvLocalSync(connection, contentFocus, Modifier.fillMaxSize().padding(28.dp))
+                                TvPage.Settings -> if (showPhoneConnection) {
+                                    TvPhoneConnection(
+                                        connection, contentFocus, currentRail,
+                                        onBack = { showPhoneConnection = false; currentRail.requestFocus() },
+                                        modifier = Modifier.fillMaxSize().padding(28.dp),
+                                    )
                                 } else {
                                     TvSettingsScreen(
                                         contentFocus = contentFocus, railFocus = currentRail,
-                                        onSync = { showSync = true },
+                                        onPhoneConnection = { showPhoneConnection = true },
                                         onRefresh = { home.refresh(); page = TvPage.Home; navigation.getValue(TvPage.Home).requestFocus() },
                                     )
                                 }

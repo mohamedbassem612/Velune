@@ -37,4 +37,11 @@ class StopMusicOnTaskClearTest {
             )
         )
     }
+
+    @Test
+    fun phoneTaskCleanupDetachesBeforeClearSoTvKeepsPlaying() {
+        assertTrue(MusicService.shouldDetachConnectOnTaskRemoved(isTv = false, hasRemoteRenderer = true))
+        assertFalse(MusicService.shouldDetachConnectOnTaskRemoved(isTv = false, hasRemoteRenderer = false))
+        assertFalse(MusicService.shouldDetachConnectOnTaskRemoved(isTv = true, hasRemoteRenderer = true))
+    }
 }

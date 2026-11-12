@@ -23,7 +23,7 @@ import com.nikhil.yt.constants.StopMusicOnTaskClearKey
 import com.nikhil.yt.utils.rememberPreference
 
 @Composable
-internal fun TvSettingsScreen(contentFocus: FocusRequester, railFocus: FocusRequester, onSync: () -> Unit, onRefresh: () -> Unit) {
+internal fun TvSettingsScreen(contentFocus: FocusRequester, railFocus: FocusRequester, onPhoneConnection: () -> Unit, onRefresh: () -> Unit) {
     val (hideExplicit, setHideExplicit) = rememberPreference(HideExplicitKey, false)
     val (stopOnExit, setStopOnExit) = rememberPreference(StopMusicOnTaskClearKey, false)
     Column(
@@ -32,7 +32,7 @@ internal fun TvSettingsScreen(contentFocus: FocusRequester, railFocus: FocusRequ
     ) {
         Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(4.dp))
-        TvSettingsTile(stringResource(R.string.tv_sync_start), stringResource(R.string.tv_settings_sync_hint), Modifier.focusRequester(contentFocus).focusProperties { left = railFocus }, onClick = onSync)
+        TvSettingsTile(stringResource(R.string.tv_phone_connection), stringResource(R.string.tv_phone_connection_hint), Modifier.focusRequester(contentFocus).focusProperties { left = railFocus }, onClick = onPhoneConnection)
         TvSettingsTile(stringResource(R.string.tv_refresh_picks), stringResource(R.string.tv_refresh_hint), onClick = onRefresh)
         TvSettingsTile(stringResource(R.string.hide_explicit), stringResource(if (hideExplicit) R.string.tv_enabled else R.string.tv_disabled), onClick = { setHideExplicit(!hideExplicit); onRefresh() })
         TvSettingsTile(stringResource(R.string.tv_stop_on_exit), stringResource(if (stopOnExit) R.string.tv_enabled else R.string.tv_disabled), onClick = { setStopOnExit(!stopOnExit) })

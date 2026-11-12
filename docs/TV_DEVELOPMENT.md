@@ -49,7 +49,8 @@ Sharing source code does not sync user data.
 - Back returns from Search or Likes to Home; Back from Home follows Android's
   normal exit behavior. Remote media keys use the existing media session.
 - TV launcher banner and explicit touchscreen/Leanback feature declarations.
-- QR pairing for local shared playback and library sync. See [Local sync](LOCAL_SYNC.md).
+- Phone playback handover on the same Wi-Fi, with connection instructions and status
+  under Settings > Phone playback. See [Local device connection](LOCAL_SYNC.md).
 
 This is an initial preview. TV-specific account sign-in, additional settings, album and artist library
 browsing, search pagination, queue and lyrics screens, seek controls, and deep-link
@@ -73,6 +74,21 @@ and [Compose focus requests](https://developer.android.com/develop/ui/compose/to
 TV work is based on main commit `05e6c98`, including the in-app update dialog and
 resumable-download changes. The original mobile UI remains selected by its
 source-set entry point.
+
+## Listen Together is mobile-only
+
+The TV flavor disables all LAN and online Listen Together host/join entry points,
+ignores Together deep links and contains no Together bearer token. The TV QR
+pairing screen has been removed. Mobile Listen Together remains enabled.
+
+Playback transfer and remote controls now use Velune Connect, evolved from the
+independent Handover LAN session. The former Together QR/library flow is removed.
+Connect adds explicit persistent pairing and its own library exchange. Pairing
+mirrors library data; it does not authenticate the TV to Google. See
+[Velune Connect architecture and validation](VELUNE_CONNECT.md).
+
+The validation and deployment notes below describe earlier revisions. This change
+still needs both flavor builds and device validation.
 
 ## Latest validation
 

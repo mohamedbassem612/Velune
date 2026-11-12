@@ -31,10 +31,10 @@ class HandoverPlayer(private val local: ExoPlayer, private val session: Handover
     override fun getShuffleModeEnabled(): Boolean = if (remote) session.playback.value?.shuffle == true else local.shuffleModeEnabled
     override fun getRepeatMode(): Int = if (remote) session.playback.value?.repeatMode ?: 0 else local.repeatMode
     override fun getPlaybackParameters(): PlaybackParameters = if (remote) PlaybackParameters(session.playback.value?.speed ?: 1f) else local.playbackParameters
-    override fun prepare() { if (!remote) local.prepare() }
-    override fun play() { if (remote) session.command("resume") else local.play() }
+    override fun prepare() { if (session.controlsFrozen) return; if (!remote) local.prepare() }
+    override fun play() { if (session.controlsFrozen) return; if (remote) session.command("resume") else local.play() }
     override fun pause() { if (remote) session.command("pause") else local.pause() }
-    override fun setPlayWhenReady(value: Boolean) { if (remote) session.command(if (value) "resume" else "pause") else local.playWhenReady = value }
+    override fun setPlayWhenReady(value: Boolean) { if (value && session.controlsFrozen) return; if (remote) session.command(if (value) "resume" else "pause") else local.playWhenReady = value }
     override fun stop() { if (remote) session.command("stop") else local.stop() }
     override fun clearMediaItems() { if (remote) session.command("clear") else local.clearMediaItems() }
     override fun seekTo(positionMs: Long) { if (remote) session.command("seek", positionMs) else local.seekTo(positionMs) }

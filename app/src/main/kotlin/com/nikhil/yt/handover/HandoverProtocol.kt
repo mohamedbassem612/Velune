@@ -6,7 +6,7 @@ import org.json.JSONObject
 
 internal const val HANDOVER_SERVICE_TYPE = "_velune-player._tcp."
 
-data class HandoverDevice(val name: String, val host: String, val port: Int, val token: String)
+data class HandoverDevice(val name: String, val host: String, val port: Int, val id: String)
 
 internal fun MediaMetadata.toHandoverJson() = JSONObject().apply {
     put("id", id)

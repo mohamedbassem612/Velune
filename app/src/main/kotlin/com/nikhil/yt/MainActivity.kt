@@ -297,6 +297,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun joinPendingTogetherIfReady() {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
         val pending = pendingTogetherJoinLink ?: return
         val connection = playerConnection ?: return
         pendingTogetherJoinLink = null
@@ -1748,6 +1749,7 @@ class MainActivity : ComponentActivity() {
 
         val authority = uri.authority?.lowercase()
         if (uri.scheme.equals("velune", ignoreCase = true) && authority == "together") {
+            if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
             pendingTogetherJoinLink = uri.toString()
             startMusicServiceSafely()
             joinPendingTogetherIfReady()

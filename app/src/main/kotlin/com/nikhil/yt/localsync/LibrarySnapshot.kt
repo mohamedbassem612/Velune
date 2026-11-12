@@ -32,7 +32,10 @@ data class SyncPlaylist(
 )
 
 @Serializable
-data class SyncHistory(val track: SyncTrack, val timestamp: String, val playTime: Long) {
+data class SyncHistory(
+    val track: SyncTrack, val timestamp: String, val playTime: Long,
+    val removed: Boolean = false, val version: SyncVersion = SyncVersion(),
+) {
     // Existing history has no cross-device ID. This natural key remains stable on import.
     val key: String get() = "${track.id}|$timestamp|$playTime"
 }
@@ -59,8 +62,10 @@ object LibraryMerge {
                 .map { versions -> versions.maxBy { it.version } }.sortedBy { it.track.id },
             playlists = (local.playlists + remote.playlists).groupBy { it.id }.values
                 .map { versions -> versions.maxBy { it.version } }.sortedBy { it.id },
-            history = (local.history + remote.history).distinctBy { it.key }
-                .sortedByDescending { it.timestamp }.take(HISTORY_LIMIT),
+            history = (local.history + remote.history).groupBy { it.key }.values
+                .map { records -> records.maxWith(compareBy<SyncHistory> { it.version }.thenBy { it.removed }) }
+                .let { records -> records.filter { it.removed } + records.filterNot { it.removed }
+                    .sortedByDescending { it.timestamp }.take(HISTORY_LIMIT) },
         )
     }
 
@@ -92,6 +97,18 @@ object LibraryMerge {
                 else -> old
             }
         }
-        return current.copy(device = previous.device, counter = clock, likes = likes, playlists = playlists)
+        val oldHistory = previous.history.associateBy { it.key }
+        val currentHistory = current.history.associateBy { it.key }
+        val history = (oldHistory.keys + currentHistory.keys).map { key ->
+            val old = oldHistory[key]
+            val now = currentHistory[key]
+            when {
+                now != null && old == null -> now.copy(version = next())
+                now != null -> old!! // Imported records and tombstones retain identity/version.
+                old!!.removed -> old
+                else -> old.copy(removed = true, version = next())
+            }
+        }
+        return current.copy(device = previous.device, counter = clock, likes = likes, playlists = playlists, history = history)
     }
 }
