@@ -1,0 +1,45 @@
+<resources>
+    <string name="tv_app_name" translatable="false">Velune TV</string>
+    <string name="tv_home_title">Music for your big screen</string>
+    <string name="tv_search_hint">Search for a song or artist</string>
+    <string name="tv_search_failed">Couldn’t load songs. Check your connection and try again.</string>
+    <string name="tv_home_empty">Search for music to start building your recommendations.</string>
+    <string name="tv_likes_empty">Songs you like on this TV will appear here.</string>
+    <string name="tv_no_track">Choose a song to start listening</string>
+    <string name="tv_like">Like</string>
+    <string name="tv_unlike">Unlike</string>
+    <string name="tv_pause">Pause</string>
+    <string name="tv_previous">Previous</string>
+    <string name="tv_connection_wait">Connecting to the music player…</string>
+    <string name="tv_playback_failed">This song couldn’t be played. Try another song.</string>
+    <string name="tv_home_eyebrow">YOUR MUSIC, UP CLOSE</string>
+    <string name="tv_home_subtitle">Your favorites, your radio, and something new.</string>
+    <string name="tv_personal_picks">Made for your listening</string>
+    <string name="tv_your_radio">Your radio</string>
+    <string name="tv_discover_next">Discover what’s next</string>
+    <string name="tv_rediscover">Worth another listen</string>
+    <string name="tv_recently_played">Recently played</string>
+    <string name="tv_start_radio">Start radio</string>
+    <string name="tv_radio_subtitle">A continuous mix</string>
+    <string name="tv_radio_empty">Play or like a few songs to build your own radio.</string>
+    <string name="tv_refresh_picks">Refresh recommendations</string>
+    <string name="tv_refresh_hint">Find fresh picks based on your listening.</string>
+    <string name="tv_stop_on_exit">Stop playback when leaving the app</string>
+    <string name="tv_enabled">Enabled</string>
+    <string name="tv_disabled">Disabled</string>
+    <string name="tv_next">Next</string>
+    <string name="tv_phone_connection">Phone playback</string>
+    <string name="tv_phone_connection_hint">Control playback and move listening between your phone and TV.</string>
+    <string name="tv_phone_connection_intro">Connect your phone and TV to the same Wi-Fi. In the Velune phone player, open the playback device selector and choose Velune TV. To move listening back, choose This phone. Likes, playlists and listening history are stored separately on each device.</string>
+    <string name="tv_phone_connected">Phone connected</string>
+    <string name="tv_phone_waiting">Waiting for a phone. Choose this TV from the phone player.</string>
+    <string name="tv_phone_back">Back to settings</string>
+    <string name="tv_language">App language</string>
+    <string name="tv_language_system">Use TV system language</string>
+    <string name="tv_language_english">English</string>
+    <string name="tv_language_arabic">العربية</string>
+    <string name="tv_language_selected">Selected</string>
+    <string name="tv_language_choose">Select</string>
+    <string name="tv_open_player">Open player</string>
+    <string name="tv_up_next">Up next</string>
+</resources>

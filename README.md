@@ -139,12 +139,12 @@ Requirements: a recent Android Studio, JDK 21, and the Android SDK for API 36.
 ```bash
 git clone https://github.com/mohamedbassem612/Velune.git
 cd Velune
-./gradlew :app:assembleUniversalDebug
+./gradlew :app:assembleMobileUniversalRelease
 ```
 
-The APK is written to `app/build/outputs/apk/universal/debug/`. You can also open the project in Android Studio, let Gradle sync, and run it.
+The APK is written to `app/build/outputs/apk/mobileUniversal/release/`. You can also open the project in Android Studio, let Gradle sync, and run it.
 
-A local release build (`assembleUniversalRelease`) is signed with the debug key unless `app/keystore/release.keystore` exists, so it will not update an installed official release.
+A local release build (`assembleMobileUniversalRelease`) is unsigned unless `app/keystore/release.keystore` and its signing environment variables are available. Release builds never fall back to the Android debug key. GitHub Actions signs both mobile and TV Release APKs with the publishing key.
 
 ## Releases
 
@@ -172,3 +172,16 @@ Velune is based on the earlier Velune project by [nikhilvishwakarma00](https://g
 Velune is an independent client. It is not affiliated with, endorsed by, or sponsored by YouTube or Google. Please support artists through official platforms.
 
 Licensed under the [GNU General Public License v3.0](LICENSE).
+
+## Android TV development
+
+The `mobile` and `tv` product flavors share playback, networking, database, and
+recommendation code. TV has its own Compose UI and launcher resources in
+`app/src/tv`; mobile keeps its existing UI through `app/src/mobile`.
+See [TV development](docs/TV_DEVELOPMENT.md) for build commands and preview scope.
+
+
+Local playback handover uses one persistent LAN session shared by the phone and
+TV, independent of Music Together and Google Cast. It preserves the loaded queue,
+shuffle/repeat settings and playback position when switching the audio device.
+Both devices need the updated handover protocol and the same local network.

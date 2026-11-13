@@ -136,6 +136,9 @@ private val HEAD_LYRICS_ENTRY = LyricsEntry(time = 0L, text = "")
 fun LyricsV2(
     sliderPositionProvider: () -> Long?,
     modifier: Modifier = Modifier,
+    keepScreenOn: Boolean = true,
+    contentColor: Color? = null,
+    showResumeAutoscrollButton: Boolean = true,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val player = playerConnection.player
@@ -157,7 +160,7 @@ fun LyricsV2(
     val playerBackground by rememberEnumPreference(PlayerBackgroundStyleKey, PlayerBackgroundStyle.DEFAULT)
 
     // ── Text colour derived from background style ──
-    val textColor = if (playerBackground == PlayerBackgroundStyle.DEFAULT)
+    val textColor = contentColor ?: if (playerBackground == PlayerBackgroundStyle.DEFAULT)
         MaterialTheme.colorScheme.onBackground
     else
         Color.White
@@ -363,10 +366,10 @@ fun LyricsV2(
 
     // ── Keep screen alive ──
     val activity = context as? android.app.Activity
-    DisposableEffect(Unit) {
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    DisposableEffect(keepScreenOn) {
+        if (keepScreenOn) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (keepScreenOn) activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -484,6 +487,8 @@ fun LyricsV2(
                             if (lyricsClick && isSynced && item.time > 0) {
                                 Modifier.clickable {
                                     player.seekTo(item.time)
+                                    isManualScrolling = false
+                                    lastManualScrollTime = 0L
                                 }
                             } else Modifier
                         ),
@@ -549,7 +554,7 @@ fun LyricsV2(
         }
 
         // ── Resume auto-scroll button ──
-        if (isManualScrolling && isSynced) {
+        if (showResumeAutoscrollButton && isManualScrolling && isSynced) {
             androidx.compose.material3.FilledTonalButton(
                 onClick = {
                     isManualScrolling = false

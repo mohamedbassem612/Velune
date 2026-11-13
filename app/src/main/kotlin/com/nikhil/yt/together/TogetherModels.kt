@@ -35,6 +35,7 @@ data class TogetherRoomSettings(
     val allowGuestsToAddTracks: Boolean = true,
     val allowGuestsToControlPlayback: Boolean = false,
     val requireHostApprovalToJoin: Boolean = false,
+    val localLibrarySyncEnabled: Boolean = false,
 )
 
 @Serializable

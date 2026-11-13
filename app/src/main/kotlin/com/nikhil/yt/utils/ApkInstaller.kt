@@ -9,9 +9,6 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 object ApkInstaller {
     fun canInstall(context: Context): Boolean =
@@ -26,53 +23,55 @@ object ApkInstaller {
         context.startActivity(intent)
     }
 
-    suspend fun download(
-        context: Context,
-        url: String,
-        onProgress: (Int) -> Unit,
-    ): File = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "updates")
-        dir.mkdirs()
-        dir.listFiles()?.forEach { it.delete() }
-        val file = File(dir, "Velune-update.apk")
+    private fun directory(context: Context) = File(context.filesDir, "updates")
 
-        val connection = URL(url).openConnection() as HttpURLConnection
-        try {
-            connection.instanceFollowRedirects = true
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 30_000
-            connection.connect()
-            if (connection.responseCode !in 200..299) {
-                throw IOException("HTTP ${connection.responseCode}")
-            }
-            val total = connection.contentLengthLong
-            var done = 0L
-            var lastPercent = -1
-            connection.inputStream.use { input ->
-                file.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        done += read
-                        if (total > 0) {
-                            val percent = (done * 100 / total).toInt()
-                            if (percent != lastPercent) {
-                                lastPercent = percent
-                                onProgress(percent)
-                            }
-                        }
-                    }
-                }
-            }
-        } finally {
-            connection.disconnect()
+    private fun version(info: android.content.pm.PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+
+    private fun validate(context: Context, file: File) {
+        val manager = context.packageManager
+        val installed = manager.getPackageInfo(context.packageName, 0)
+        val archive = manager.getPackageArchiveInfo(file.absolutePath, 0)
+        if (archive == null || !isCompatibleUpdatePackage(
+                installed.packageName, version(installed), archive.packageName, version(archive))) {
+            throw InvalidUpdatePackageException()
         }
-        file
     }
 
+    suspend fun cleanupInstalledUpdates(context: Context) = withContext(Dispatchers.IO) {
+        val manager = context.packageManager
+        val installed = manager.getPackageInfo(context.packageName, 0)
+        directory(context).listFiles()?.filter { it.extension == "apk" }?.forEach { file ->
+            // Keep valid pending updates when installation was dismissed or failed.
+            val archive = runCatching { manager.getPackageArchiveInfo(file.absolutePath, 0) }.getOrNull()
+            if (archive == null || archive.packageName != installed.packageName || version(archive) <= version(installed)) {
+                if (file.delete()) {
+                    File(file.path.removeSuffix(".apk") + ".part").delete()
+                    File(file.path.removeSuffix(".apk") + ".validator").delete()
+                }
+            }
+        }
+    }
+
+    fun downloaded(context: Context, url: String): File? {
+        val file = ResumableUpdateDownload.completed(directory(context), url) ?: return null
+        return try { validate(context, file); file } catch (_: InvalidUpdatePackageException) { file.delete(); null }
+    }
+
+    suspend fun download(context: Context, url: String, onProgress: (Int) -> Unit): File =
+        ResumableUpdateDownload.download(directory(context), url) { progress ->
+            withContext(Dispatchers.Main) { onProgress(progress) }
+        }.also { file ->
+            withContext(Dispatchers.IO) {
+                try { validate(context, file) } catch (e: InvalidUpdatePackageException) { file.delete(); throw e }
+            }
+        }
+
     fun install(context: Context, file: File) {
+        try { validate(context, file) } catch (e: InvalidUpdatePackageException) {
+            if (file.parentFile == directory(context)) file.delete()
+            throw e
+        }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")

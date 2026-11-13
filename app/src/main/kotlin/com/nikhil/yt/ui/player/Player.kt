@@ -234,7 +234,7 @@ fun BottomSheetPlayer(
         mutableStateOf<Long?>(null)
     }
 
-    val isLoading = playbackState == STATE_BUFFERING || sliderPosition != null
+    val isLoading = (playbackState == STATE_BUFFERING && playerConnection.service.handoverController.selected.value == null) || sliderPosition != null
 
     var gradientColors by remember {
         mutableStateOf<List<Color>>(emptyList())
@@ -245,7 +245,7 @@ fun BottomSheetPlayer(
 
     val gradientColorsCache = remember { mutableMapOf<String, List<Color>>() }
 
-    if (!canSkipNext && automix.isNotEmpty()) {
+    if (playerConnection.service.handoverController.selected.value == null && !canSkipNext && automix.isNotEmpty()) {
         playerConnection.service.addToQueueAutomix(automix[0], 0)
     }
 
@@ -442,8 +442,10 @@ fun BottomSheetPlayer(
         )
     }
 
-    LaunchedEffect(playbackState) {
-        if (playbackState == STATE_READY) {
+    val handoverTarget by playerConnection.service.handoverController.selected.collectAsState()
+    val handoverPlayback by playerConnection.service.handoverController.playback.collectAsState()
+    LaunchedEffect(playbackState, handoverTarget) {
+        if (playbackState == STATE_READY || handoverTarget != null) {
             while (isActive) {
                 delay(100)
                 position = playerConnection.player.currentPosition
@@ -539,7 +541,7 @@ fun BottomSheetPlayer(
         val onSliderValueChange: (Long) -> Unit = { sliderPosition = it }
         val onSliderValueChangeFinished: () -> Unit = {
             sliderPosition?.let {
-                playerConnection.player.seekTo(it)
+                playerConnection.seekTo(it)
                 position = it
             }
             sliderPosition = null
@@ -911,6 +913,7 @@ private fun MetroPlayerContent(
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
+                HandoverButton(playerConnection)
                 Surface(
                     onClick = {
                         val intent = android.content.Intent().apply {
@@ -962,7 +965,7 @@ private fun MetroPlayerContent(
                     1f
                 ),
                 valueRange = 0f..1f,
-                onValueChange = { fraction -> playerConnection.player.seekTo((durationMs * fraction).toLong()) },
+                onValueChange = { fraction -> playerConnection.seekTo((durationMs * fraction).toLong()) },
                 onValueChangeFinished = {},
                 activeColor = textColor,
                 isPlaying = isPlaying,
@@ -1027,12 +1030,12 @@ private fun MetroPlayerContent(
                 }
                 Surface(
                     onClick = {
-                        if (playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                        if (playbackState == androidx.media3.common.Player.STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                             playerConnection.player.seekTo(
                                 0,
                                 0
                             ); playerConnection.player.playWhenReady = true
-                        } else playerConnection.player.togglePlayPause()
+                        } else playerConnection.togglePlayPause()
                     },
                     shape = RoundedCornerShape(50),
                     color = Color.White,

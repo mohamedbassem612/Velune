@@ -1152,6 +1152,12 @@ interface DatabaseDao {
     @Query("SELECT * FROM event ORDER BY rowId DESC LIMIT :limit")
     fun recentEvents(limit: Int): Flow<List<EventWithSong>>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM event WHERE songId = :songId AND timestamp = :timestamp AND playTime = :playTime)")
+    fun localSyncEventExists(songId: String, timestamp: LocalDateTime, playTime: Long): Boolean
+
+    @Query("DELETE FROM event WHERE songId = :songId AND timestamp = :timestamp AND playTime = :playTime")
+    fun deleteLocalSyncEvent(songId: String, timestamp: LocalDateTime, playTime: Long)
+
     @Transaction
     @Query("SELECT * FROM event ORDER BY rowId ASC LIMIT 1")
     fun firstEvent(): Flow<EventWithSong?>

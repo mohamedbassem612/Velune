@@ -178,12 +178,12 @@ fun SwipeableMiniPlayerBox(
                                     val canSkipNext = playerConnection.player.nextMediaItemIndex != -1
 
                                     if (isRightSwipe && canSkipPrevious) {
-                                        playerConnection.player.seekToPreviousMediaItem()
+                                        playerConnection.seekToPrevious()
                                         if (com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.isRunning()) {
                                             try { com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.restart() } catch (_: Exception) {}
                                         }
                                     } else if (!isRightSwipe && canSkipNext) {
-                                        playerConnection.player.seekToNext()
+                                        playerConnection.seekToNext()
                                         if (com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.isRunning()) {
                                             try { com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.restart() } catch (_: Exception) {}
                                         }
@@ -264,11 +264,11 @@ fun MiniPlayerPlayPauseButton(
                     shape = CircleShape
                 )
                 .clickable {
-                    if (playbackState == Player.STATE_ENDED) {
+                    if (playbackState == Player.STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                         playerConnection.player.seekTo(0, 0)
                         playerConnection.player.playWhenReady = true
                     } else {
-                        playerConnection.player.togglePlayPause()
+                        playerConnection.togglePlayPause()
                     }
                 }
         ) {
@@ -285,7 +285,7 @@ fun MiniPlayerPlayPauseButton(
             } else {
                 Icon(
                     painter = painterResource(
-                        if (playbackState == Player.STATE_ENDED) {
+                        if (playbackState == Player.STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                             R.drawable.replay
                         } else if (isPlaying) {
                             R.drawable.pause
@@ -432,6 +432,8 @@ fun NewMiniPlayerContent(
         }
 
         Spacer(modifier = Modifier.width(8.dp))
+
+        HandoverButton(playerConnection)
 
         // Action Buttons (Like)
         MiniPlayerActionButtons(

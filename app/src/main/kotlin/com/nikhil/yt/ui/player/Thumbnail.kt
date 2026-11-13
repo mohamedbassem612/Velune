@@ -101,6 +101,7 @@ import com.nikhil.yt.constants.ThumbnailCornerRadiusKey
 import com.nikhil.yt.constants.CropThumbnailToSquareKey
 import com.nikhil.yt.constants.HidePlayerThumbnailKey
 import com.nikhil.yt.extensions.metadata
+import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.innertube.models.YouTubeClient
 import com.nikhil.yt.utils.rememberEnumPreference
@@ -281,8 +282,11 @@ fun Thumbnail(
     // States
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
-    val error by playerConnection.error.collectAsState()
+    val localError by playerConnection.error.collectAsState()
     val queueTitle by playerConnection.queueTitle.collectAsState()
+    val handoverTarget by playerConnection.service.handoverController.selected.collectAsState()
+    val isRemotePlayback = handoverTarget != null
+    val error = localError.takeUnless { isRemotePlayback }
 
     val swipeThumbnail by rememberPreference(SwipeThumbnailKey, true)
     val hidePlayerThumbnail by rememberPreference(HidePlayerThumbnailKey, false)
@@ -459,7 +463,7 @@ fun Thumbnail(
                         color = textBackgroundColor
                     )
                     // Show album title or queue title
-                    val playingFrom = queueTitle ?: mediaMetadata?.album?.title
+                    val playingFrom = if (isRemotePlayback) mediaMetadata?.album?.title else queueTitle ?: mediaMetadata?.album?.title
                     if (!playingFrom.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -484,7 +488,7 @@ fun Thumbnail(
                         state = thumbnailLazyGridState,
                         rows = GridCells.Fixed(1),
                         flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
-                        userScrollEnabled = swipeThumbnail && isPlayerExpanded, // Only allow swipe when player is expanded
+                        userScrollEnabled = swipeThumbnail && isPlayerExpanded,
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(
@@ -582,11 +586,14 @@ fun Thumbnail(
                                     .width(horizontalLazyGridItemWidth)
                                     .fillMaxSize()
                                     .padding(horizontal = PlayerHorizontalPadding)
-                                    .pointerInput(Unit) {
+                                    .pointerInput(isRemotePlayback) {
                                         detectTapGestures(
                                             onDoubleTap = { offset ->
-                                                val currentPosition = playerConnection.player.currentPosition
-                                                val duration = playerConnection.player.duration
+                                                val handover = playerConnection.service.handoverController
+                                                val remote = handover.playback.value.takeIf { handover.selected.value != null }
+                                                val currentPosition = remote?.positionMs ?: playerConnection.player.currentPosition
+                                                val duration = (remote?.durationMs ?: playerConnection.player.duration)
+                                                    .takeIf { it > 0L } ?: Long.MAX_VALUE
 
                                                 val now = System.currentTimeMillis()
                                                 if (incrementalSeekSkipEnabled && now - lastTapTime < 1000) {
@@ -601,13 +608,13 @@ fun Thumbnail(
                                                 if ((layoutDirection == LayoutDirection.Ltr && offset.x < size.width / 2) ||
                                                     (layoutDirection == LayoutDirection.Rtl && offset.x > size.width / 2)
                                                 ) {
-                                                    playerConnection.player.seekTo(
+                                                    playerConnection.seekTo(
                                                         (currentPosition - skipAmount).coerceAtLeast(0)
                                                     )
                                                     seekDirection = "-${skipAmount / 1000}s"
 
                                                 } else {
-                                                    playerConnection.player.seekTo(
+                                                    playerConnection.seekTo(
                                                         (currentPosition + skipAmount).coerceAtMost(duration)
                                                     )
                                                     seekDirection = "+${skipAmount / 1000}s"

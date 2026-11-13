@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: ["main", "velune-offline-fixes", "Testing-features"]
+    branches: ["main", "velune-offline-fixes", "Testing-features", "tv"]
     tags: ["v*"]
   pull_request:
     branches: ["main"]
@@ -38,11 +38,13 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Test YouTube search filters
-        run: ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
+      - name: Test search filters, playback handover and library merge
+        run: |
+          ./gradlew :innertube:test --no-daemon --no-parallel --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx2g
+          ./gradlew :app:testMobileUniversalReleaseUnitTest --tests com.nikhil.yt.utils.ResumableUpdateDownloadTest --tests com.nikhil.yt.utils.UpdateAssetSelectorTest --tests com.nikhil.yt.utils.UpdatePackagePolicyTest --tests com.nikhil.yt.handover.HandoverSessionTest :app:testTvUniversalReleaseUnitTest --tests com.nikhil.yt.localsync.LibraryMergeTest --tests com.nikhil.yt.together.TogetherCoreTest --tests com.nikhil.yt.together.TogetherGuestPlaybackPlannerTest --no-daemon --no-parallel --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx3g
 
       # Repository secrets are not available to pull_request workflows from forks.
-      # Pushes and manual runs use the project signing key; fork PRs use the local fallback.
+      # Pushes and manual runs use the publishing key; fork PRs validate unsigned Release builds.
       - name: Prepare release signing key
         if: github.event_name != 'pull_request'
         env:
@@ -78,13 +80,13 @@ jobs:
           echo "RELEASE_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "RELEASE_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           if [[ "$GITHUB_REF_NAME" == "Testing-features" || "$GITHUB_REF_NAME" == velune-testing-* ]]; then
-            APK_TAG="velune-testing-v$VERSION"
+            APK_TAG="velune-mobile-testing-v$VERSION"
           else
-            APK_TAG="velune-v$VERSION"
+            APK_TAG="velune-mobile-v$VERSION"
           fi
           echo "APK_TAG=$APK_TAG" >> "$GITHUB_ENV"
 
-      - name: Build Universal Release APK
+      - name: Build Mobile and TV Release APKs
         env:
           REQUIRE_SIGNING: ${{ github.event_name != 'pull_request' }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -96,15 +98,17 @@ jobs:
             test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
             test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
           fi
-          ./gradlew :app:assembleUniversalRelease
+          ./gradlew :app:assembleMobileUniversalRelease :app:assembleTvUniversalRelease --no-daemon --no-parallel --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx4g
 
       - name: Name Release APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/universal/release/*.apk "dist/$APK_TAG.apk"
+          cp app/build/outputs/apk/mobileUniversal/release/*.apk "dist/$APK_TAG.apk"
+          cp app/build/outputs/apk/tvUniversal/release/*.apk "dist/velune-tv-v$RELEASE_VERSION_NAME.apk"
 
       - name: Upload Release APK artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_TAG }}-Release
@@ -112,11 +116,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish GitHub Release
+      - name: Publish mobile APK first for legacy updaters
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Velune ${{ github.ref_name }}
           generate_release_notes: true
-          files: dist/*.apk
+          files: dist/${{ env.APK_TAG }}.apk
+
+      # Legacy mobile updaters pick the first APK. The explicit mobile filename sorts before TV;
+      # publishing it separately also makes mobile available before the TV upload starts.
+      - name: Attach Android TV APK after mobile
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/velune-tv-v${{ env.RELEASE_VERSION_NAME }}.apk

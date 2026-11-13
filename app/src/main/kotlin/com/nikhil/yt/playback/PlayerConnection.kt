@@ -24,6 +24,7 @@ import com.nikhil.yt.extensions.currentMetadata
 import com.nikhil.yt.extensions.getCurrentQueueIndex
 import com.nikhil.yt.extensions.getQueueWindows
 import com.nikhil.yt.extensions.metadata
+import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.playback.MusicService.MusicBinder
 import com.nikhil.yt.playback.queues.Queue
 import com.nikhil.yt.utils.reportException
@@ -32,8 +33,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerConnection(
@@ -43,14 +46,14 @@ class PlayerConnection(
     scope: CoroutineScope,
 ) : Player.Listener {
     val service = binder.service
-    val player = service.player
+    val player = service.sessionPlayer
 
     val playbackState = MutableStateFlow(player.playbackState)
     private val playWhenReady = MutableStateFlow(player.playWhenReady)
     val playbackParameters = MutableStateFlow(player.playbackParameters)
     val isPlaying =
-        combine(playbackState, playWhenReady) { playbackState, playWhenReady ->
-            playWhenReady && playbackState != STATE_ENDED
+        combine(playbackState, playWhenReady, service.handoverController.selected, service.handoverController.playback) { playbackState, playWhenReady, target, remote ->
+            if (target != null) remote?.playing == true else playWhenReady && playbackState != STATE_ENDED
         }.stateIn(
             scope,
             SharingStarted.Lazily,
@@ -85,7 +88,24 @@ class PlayerConnection(
     val queueRestoreCompleted = service.queueRestoreCompleted
 
     init {
+        service.handoverController.resumeFromUi()
         player.addListener(this)
+        scope.launch {
+            combine(service.handoverController.selected, service.handoverController.playback) { target, remote ->
+                if (target != null) remote?.song else player.currentMetadata
+            }.collect {
+                mediaMetadata.value = it
+                if (service.handoverController.selected.value != null) {
+                    queueTitle.value = service.handoverController.playback.value?.queueTitle
+                    queueWindows.value = player.getQueueWindows()
+                    currentMediaItemIndex.value = player.currentMediaItemIndex
+                    currentWindowIndex.value = player.getCurrentQueueIndex()
+                    updateCanSkipPreviousAndNext()
+                } else {
+                    updateCanSkipPreviousAndNext()
+                }
+            }
+        }
 
         playbackState.value = player.playbackState
         playWhenReady.value = player.playWhenReady
@@ -131,7 +151,24 @@ class PlayerConnection(
         service.toggleLike()
     }
 
+    fun togglePlayPause() {
+        if (service.handoverController.selected.value != null) {
+            service.handoverController.command(if (service.handoverController.playback.value?.playing == true) "pause" else "resume")
+        } else {
+            player.togglePlayPause()
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        if (service.handoverController.selected.value != null) service.handoverController.command("seek", positionMs)
+        else player.seekTo(positionMs)
+    }
+
     fun seekToNext() {
+        if (service.handoverController.selected.value != null) {
+            service.handoverController.command("next")
+            return
+        }
         val state = service.togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (state?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             service.requestTogetherControl(com.nikhil.yt.together.ControlAction.SkipNext)
@@ -149,6 +186,10 @@ class PlayerConnection(
     }
 
     fun seekToPrevious() {
+        if (service.handoverController.selected.value != null) {
+            service.handoverController.command("previous")
+            return
+        }
         val state = service.togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (state?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             service.requestTogetherControl(com.nikhil.yt.together.ControlAction.SkipPrevious)
@@ -166,8 +207,9 @@ class PlayerConnection(
     }
 
     override fun onPlaybackStateChanged(state: Int) {
-        playbackState.value = state
-        error.value = player.playerError
+        playbackState.value = if (service.handoverController.selected.value != null)
+            service.handoverController.playback.value?.playbackState ?: state else state
+        error.value = if (service.handoverController.selected.value != null) null else player.playerError
     }
 
     override fun onPlayWhenReadyChanged(
@@ -186,7 +228,7 @@ class PlayerConnection(
         reason: Int,
     ) {
         val meta = mediaItem?.metadata ?: service.currentMediaMetadata.value
-        mediaMetadata.value = meta
+        if (service.handoverController.selected.value == null) mediaMetadata.value = meta
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()

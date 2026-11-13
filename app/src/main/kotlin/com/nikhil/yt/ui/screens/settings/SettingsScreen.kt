@@ -205,6 +205,12 @@ fun SettingsScreen(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
+    var showConnect by remember { mutableStateOf(false) }
+    val connectPlayer = com.nikhil.yt.LocalPlayerConnection.current
+    if (showConnect && connectPlayer != null) {
+        com.nikhil.yt.ui.player.ConnectDialog(connectPlayer, onClose = { showConnect = false })
+    }
+
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -313,6 +319,12 @@ fun SettingsScreen(
     )
 
     val integrationActions = listOf(
+        SettingsIntegrationAction(
+            icon = painterResource(R.drawable.ic_handover),
+            label = stringResource(R.string.connect_title),
+            onClick = { showConnect = true },
+            accentColor = MaterialTheme.colorScheme.primary,
+        ),
         SettingsIntegrationAction(
             icon = painterResource(R.drawable.discord),
             label = stringResource(R.string.discord),

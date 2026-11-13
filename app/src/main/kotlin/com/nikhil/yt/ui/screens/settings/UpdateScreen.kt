@@ -82,6 +82,8 @@ import com.nikhil.yt.ui.component.EnumListPreference
 import com.nikhil.yt.ui.component.IconButton
 import com.nikhil.yt.ui.component.PreferenceGroupTitle
 import com.nikhil.yt.ui.component.SwitchPreference
+import com.nikhil.yt.ui.component.UpdateAvailableDialog
+import com.nikhil.yt.utils.ReleaseInfo
 import com.nikhil.yt.ui.utils.backToMain
 import com.nikhil.yt.utils.GitCommit
 import com.nikhil.yt.utils.UpdateNotificationManager
@@ -101,6 +103,10 @@ fun UpdateScreen(
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
+    var updateRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+    updateRelease?.let { release ->
+        UpdateAvailableDialog(release = release, onDismiss = { updateRelease = null })
+    }
     val nightlyInstallUrl = "https://github.com/mohamedbassem612/Velune/releases/latest"
 
     val (enableUpdateNotification, onEnableUpdateNotificationChange) = rememberPreference(
@@ -416,6 +422,23 @@ fun UpdateScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            item {
+                Button(onClick = {
+                    coroutineScope.launch {
+                        val cached = Updater.getCachedReleases().firstOrNull { it.apkUrl != null }
+                        val release = cached ?: Updater.getLatestReleaseInfo().getOrNull()
+                        if (release != null && Updater.isNewerThanInstalled(release)) {
+                            updateRelease = release
+                        } else {
+                            android.widget.Toast.makeText(context, R.string.update_dialog_unavailable,
+                                android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.update_dialog_open))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
             item {
                 PreferenceGroupTitle(title = stringResource(R.string.notification_settings))
             }

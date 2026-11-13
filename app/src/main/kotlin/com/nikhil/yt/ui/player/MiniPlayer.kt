@@ -209,7 +209,9 @@ private fun YtMusicMiniPlayerContent(
                 )
             }
 
-            IconButton(onClick = { playerConnection.player.togglePlayPause() }) {
+            HandoverButton(playerConnection)
+
+            IconButton(onClick = playerConnection::togglePlayPause) {
                 if (isLoading) {
                     VeluneLoader(size = 24.dp)
                 } else {
@@ -222,7 +224,7 @@ private fun YtMusicMiniPlayerContent(
                 }
             }
 
-            IconButton(onClick = { playerConnection.player.seekToNext() }) {
+            IconButton(onClick = playerConnection::seekToNext) {
                 Icon(
                     painter = painterResource(R.drawable.skip_next),
                     contentDescription = null,
@@ -341,12 +343,12 @@ private fun LegacyMiniPlayer(
                                     val isRightSwipe = currentOffset > 0
 
                                     if (isRightSwipe && canSkipPrevious) {
-                                        playerConnection.player.seekToPreviousMediaItem()
+                                        playerConnection.seekToPrevious()
                                         if (com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.isRunning()) {
                                             try { com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.restart() } catch (_: Exception) {}
                                         }
                                     } else if (!isRightSwipe && canSkipNext) {
-                                        playerConnection.player.seekToNext()
+                                        playerConnection.seekToNext()
                                         if (com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.isRunning()) {
                                             try { com.nikhil.yt.ui.screens.settings.DiscordPresenceManager.restart() } catch (_: Exception) {}
                                         }
@@ -393,13 +395,15 @@ private fun LegacyMiniPlayer(
                 }
             }
 
+            HandoverButton(playerConnection)
+
             IconButton(
                 onClick = {
-                    if (playbackState == Player.STATE_ENDED) {
+                    if (playbackState == Player.STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                         playerConnection.player.seekTo(0, 0)
                         playerConnection.player.playWhenReady = true
                     } else {
-                        playerConnection.player.togglePlayPause()
+                        playerConnection.togglePlayPause()
                     }
                 },
             ) {
@@ -408,7 +412,7 @@ private fun LegacyMiniPlayer(
                 } else {
                     Icon(
                         painter = painterResource(
-                            if (playbackState == Player.STATE_ENDED) {
+                            if (playbackState == Player.STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                                 R.drawable.replay
                             } else if (isPlaying) {
                                 R.drawable.pause
@@ -607,7 +611,7 @@ private fun FloatingMiniPlayerContent(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .clickable { playerConnection.player.togglePlayPause() }
+                    .clickable { playerConnection.togglePlayPause() }
             )
 
             if (!isPlaying || isLoading) {
@@ -615,7 +619,7 @@ private fun FloatingMiniPlayerContent(
                     modifier = Modifier
                         .size(44.dp)
                         .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                        .clickable { playerConnection.player.togglePlayPause() },
+                        .clickable { playerConnection.togglePlayPause() },
                     contentAlignment = Alignment.Center
                 ) {
                     if (isLoading) {

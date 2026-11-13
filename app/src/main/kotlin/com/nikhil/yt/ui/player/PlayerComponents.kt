@@ -752,11 +752,11 @@ fun PlayerPlaybackControls(
 
                     FilledIconButton(
                         onClick = {
-                            if (playbackState == STATE_ENDED) {
+                            if (playbackState == STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                                 playerConnection.player.seekTo(0, 0)
                                 playerConnection.player.playWhenReady = true
                             } else {
-                                playerConnection.player.togglePlayPause()
+                                playerConnection.togglePlayPause()
                             }
                         },
                         colors = IconButtonDefaults.filledIconButtonColors(
@@ -871,11 +871,11 @@ fun PlayerPlaybackControls(
                             .clip(RoundedCornerShape(50))
                             .background(textBackgroundColor)
                             .clickable {
-                                if (playbackState == STATE_ENDED) {
+                                if (playbackState == STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                                     playerConnection.player.seekTo(0, 0)
                                     playerConnection.player.playWhenReady = true
                                 } else {
-                                    playerConnection.player.togglePlayPause()
+                                    playerConnection.togglePlayPause()
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -1048,11 +1048,11 @@ fun PlayerPlaybackControls(
 
                     Surface(
                         onClick = {
-                            if (playbackState == STATE_ENDED) {
+                            if (playbackState == STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                                 playerConnection.player.seekTo(0, 0)
                                 playerConnection.player.playWhenReady = true
                             } else {
-                                playerConnection.player.togglePlayPause()
+                                playerConnection.togglePlayPause()
                             }
                         },
                         shape = RoundedCornerShape(28.dp),
@@ -1219,11 +1219,11 @@ fun PlayerPlaybackControls(
                         .clip(RoundedCornerShape(playPauseRoundness))
                         .background(textButtonColor)
                         .clickable {
-                            if (playbackState == STATE_ENDED) {
+                            if (playbackState == STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
                                 playerConnection.player.seekTo(0, 0)
                                 playerConnection.player.playWhenReady = true
                             } else {
-                                playerConnection.player.togglePlayPause()
+                                playerConnection.togglePlayPause()
                             }
                         },
                 ) {
@@ -1353,6 +1353,8 @@ fun PlayerControlsContent(
         }
 
         Spacer(modifier = Modifier.width(12.dp))
+
+        HandoverButton(playerConnection)
 
         PlayerTopActions(
             mediaMetadata = mediaMetadata,

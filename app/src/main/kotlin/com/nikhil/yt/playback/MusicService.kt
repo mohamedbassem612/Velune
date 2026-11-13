@@ -10,6 +10,8 @@
 
 package com.nikhil.yt.playback
 
+import com.nikhil.yt.BuildConfig
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -234,8 +236,15 @@ class MusicService :
     MediaLibraryService(),
     Player.Listener,
     PlaybackStatsListener.Callback {
+    val handoverController by lazy { com.nikhil.yt.handover.HandoverController(this) }
+    val sessionPlayer by lazy { com.nikhil.yt.handover.HandoverPlayer(player, handoverController) }
     @Inject
     lateinit var database: MusicDatabase
+
+    @Inject
+    lateinit var localLibrarySync: com.nikhil.yt.localsync.LocalLibrarySync
+
+    private var localLibrarySyncJob: Job? = null
 
     @Inject
     lateinit var lyricsHelper: LyricsHelper
@@ -574,6 +583,18 @@ class MusicService :
                 }
 
         com.nikhil.yt.utils.StartupTrace.mark("MusicService player built")
+        handoverController.attach()
+        scope.launch {
+            togetherSessionState.collect { state ->
+                // A failed startup may have no transport to clean up (e.g. missing online config).
+                // Established sessions release the Connect lease only after stopTogetherInternal.
+                if (state is com.nikhil.yt.together.TogetherSessionState.Error &&
+                    togetherClient == null && togetherServer == null && togetherOnlineHost == null) {
+                    handoverController.allowAfterTogether()
+                }
+            }
+        }
+        if (packageName.startsWith("com.nikhil.yt.tv")) handoverController.startTvHost()
         ioScope.launch { runCatching { YTPlayerUtils.warmUp() } }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupAudioFocusRequest()
@@ -585,7 +606,7 @@ class MusicService :
         }
         mediaSession =
             MediaLibrarySession
-                .Builder(this, player, mediaLibrarySessionCallback)
+                .Builder(this, sessionPlayer, mediaLibrarySessionCallback)
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         this,
@@ -1427,10 +1448,54 @@ class MusicService :
             CacheAvailability.isCached(playerCache, id, fallbackContentLength = length)
     }
 
+    /** Installs the same queue on an inactive mirror or the newly chosen renderer. */
+    fun applyHandoverState(state: com.nikhil.yt.handover.HandoverPlayback, renderLocally: Boolean) {
+        val items = state.queue.map { it.toMediaItem() }
+        val queueChanged = player.mediaItems.map { it.metadata } != state.queue
+        suppressAutoPlayback = !renderLocally
+        if (queueChanged || renderLocally) {
+            ++queueRevision
+            clearAutomix()
+            currentQueue = com.nikhil.yt.playback.queues.ListQueue(state.queueTitle, items, state.index.coerceAtLeast(0), state.positionMs)
+        }
+        queueTitle = state.queueTitle
+        if (!renderLocally) {
+            player.pause()
+            if (player.playbackState != Player.STATE_IDLE) player.stop()
+        }
+        if (items.isEmpty()) {
+            player.stop(); player.clearMediaItems(); currentQueue = EmptyQueue
+            currentMediaMetadata.value = null
+            return
+        }
+        val index = state.index.coerceIn(0, items.lastIndex)
+        if (queueChanged) player.setMediaItems(items, index, state.positionMs)
+        else if (renderLocally || player.currentMediaItemIndex != index)
+            player.seekTo(index, state.positionMs)
+        player.repeatMode = state.repeatMode
+        if (state.order.size == items.size && state.order.toSet() == items.indices.toSet() &&
+            (queueChanged || com.nikhil.yt.handover.playbackOrder(player) != state.order))
+            player.setShuffleOrder(DefaultShuffleOrder(state.order.toIntArray(), 0L))
+        player.shuffleModeEnabled = state.shuffle
+        if (player.playbackParameters.speed != state.speed) player.setPlaybackSpeed(state.speed)
+        currentMediaMetadata.value = state.song
+        if (renderLocally) { player.prepare(); player.playWhenReady = state.playing }
+    }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
     ) {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            scope.launch(SilentHandler) {
+                val status = withContext(Dispatchers.IO) {
+                    queue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false))
+                        .filterVideo(dataStore.get(HideVideoKey, false))
+                }
+                handoverController.sendQueue(status, playWhenReady)
+            }
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (!isTogetherApplyingRemote() && joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToControlPlayback) {
@@ -1542,6 +1607,7 @@ class MusicService :
                         initialStatus.items.size
                     )
                 )
+                if (initialStatus.position > 0L) player.seekTo(initialStatus.position)
                 if (player.shuffleModeEnabled) {
                     applyCurrentFirstShuffleOrder()
                 }
@@ -1609,6 +1675,10 @@ class MusicService :
     }
 
     fun startRadioSeamlessly() {
+        if (handoverController.selected.value != null) {
+            handoverController.playback.value?.song?.let { playQueue(YouTubeQueue.radio(it)) }
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (!isTogetherApplyingRemote() && joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToControlPlayback) {
@@ -2000,6 +2070,10 @@ class MusicService :
     }
 
     fun stopAndClearPlayback() {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            handoverController.command("clear")
+            return
+        }
         suppressAutoPlayback = true
         clearAutomix()
         currentQueue = EmptyQueue
@@ -2016,6 +2090,10 @@ class MusicService :
     }
 
     fun playNext(items: List<MediaItem>) {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            handoverController.addTracks(items, next = true)
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToAddTracks) {
@@ -2045,6 +2123,10 @@ class MusicService :
     }
 
     fun addToQueue(items: List<MediaItem>) {
+        if (!handoverController.applyingState && handoverController.selected.value != null) {
+            handoverController.addTracks(items, next = false)
+            return
+        }
         val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
         if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToAddTracks) {
@@ -2075,6 +2157,8 @@ class MusicService :
         displayName: String,
         settings: com.nikhil.yt.together.TogetherRoomSettings,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         scope.launch(SilentHandler) {
             togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
@@ -2093,6 +2177,7 @@ class MusicService :
                     port = port,
                     sessionId = sessionId,
                     sessionKey = sessionKey,
+                    syncLibrary = settings.localLibrarySyncEnabled,
                 )
             val joinLink = com.nikhil.yt.together.TogetherLink.encode(joinInfo)
 
@@ -2103,6 +2188,7 @@ class MusicService :
                     sessionKey = sessionKey,
                     hostDisplayName = displayName.trim().ifBlank { getString(R.string.app_name) },
                     initialSettings = settings,
+                    librarySync = if (settings.localLibrarySyncEnabled) localLibrarySync else null,
                 )
 
             server.onEvent = { event ->
@@ -2173,6 +2259,8 @@ class MusicService :
         displayName: String,
         settings: com.nikhil.yt.together.TogetherRoomSettings,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         scope.launch(SilentHandler) {
             togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
@@ -2314,7 +2402,10 @@ class MusicService :
     fun joinTogether(
         rawLink: String,
         displayName: String,
+        syncLibrary: Boolean = false,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         val joinInfo = com.nikhil.yt.together.TogetherLink.decode(rawLink)
         if (joinInfo == null) {
@@ -2394,6 +2485,24 @@ class MusicService :
 
                         is com.nikhil.yt.together.TogetherClientEvent.RoomState -> {
                             applyRemoteRoomState(event.state)
+                            val self = togetherSelfParticipantId
+                            val accepted = event.state.participants.any { it.id == self && !it.isPending }
+                            if ((syncLibrary || joinInfo.syncLibrary) && event.state.settings.localLibrarySyncEnabled &&
+                                accepted && self != null && localLibrarySyncJob?.isActive != true
+                            ) {
+                                localLibrarySyncJob = ioScope.launch {
+                                    while (isActive) {
+                                        try {
+                                            com.nikhil.yt.together.TogetherLibraryExchange.exchange(localLibrarySync, joinInfo, self)
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Exception) {
+                                            localLibrarySync.status.value = com.nikhil.yt.localsync.LibrarySyncStatus.Retrying
+                                        }
+                                        kotlinx.coroutines.delay(15_000)
+                                    }
+                                }
+                            }
                         }
 
                         is com.nikhil.yt.together.TogetherClientEvent.JoinDecision -> {
@@ -2496,6 +2605,8 @@ class MusicService :
         code: String,
         displayName: String,
     ) {
+        if (!BuildConfig.LISTEN_TOGETHER_ENABLED) return
+        handoverController.isolateForTogether()
         ensureScopesActive()
         val trimmedCode = code.trim()
         if (trimmedCode.isBlank()) {
@@ -2738,10 +2849,13 @@ class MusicService :
 
     fun leaveTogether() {
         ensureScopesActive()
-        scope.launch(SilentHandler) {
-            togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
+        ioScope.launch(SilentHandler) {
+            stopTogetherInternal()
+            withContext(Dispatchers.Main) {
+                togetherSessionState.value = com.nikhil.yt.together.TogetherSessionState.Idle
+                handoverController.allowAfterTogether()
+            }
         }
-        ioScope.launch(SilentHandler) { stopTogetherInternal() }
     }
 
     fun updateTogetherSettings(settings: com.nikhil.yt.together.TogetherRoomSettings) {
@@ -3123,6 +3237,9 @@ class MusicService :
     }
 
     private suspend fun stopTogetherInternal() {
+        localLibrarySyncJob?.cancel()
+        localLibrarySyncJob = null
+        localLibrarySync.status.value = com.nikhil.yt.localsync.LibrarySyncStatus.Idle
         togetherBroadcastJob?.cancel()
         togetherBroadcastJob = null
 
@@ -3162,6 +3279,9 @@ class MusicService :
             togetherServer?.stop()
         } catch (_: Exception) {}
         togetherServer = null
+        if (togetherSessionState.value is com.nikhil.yt.together.TogetherSessionState.Error) {
+            withContext(Dispatchers.Main) { handoverController.allowAfterTogether() }
+        }
     }
 
     private fun com.nikhil.yt.together.TogetherTrack.toMediaMetadata(): com.nikhil.yt.models.MediaMetadata {
@@ -3438,6 +3558,10 @@ class MusicService :
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+    if (handoverController.applyingState || handoverController.selected.value != null) {
+        currentMediaMetadata.value = mediaItem?.metadata
+        return
+    }
     super.onMediaItemTransition(mediaItem, reason)
     mediaItem?.let { saveCoverFor(it) }
 
@@ -3726,6 +3850,7 @@ class MusicService :
 
 
     override fun onEvents(player: Player, events: Player.Events) {
+    if (handoverController.applyingState || handoverController.selected.value != null) return
     val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
     if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest &&
         events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)
@@ -4726,6 +4851,7 @@ class MusicService :
 
 
     override fun onDestroy() {
+        if (this::player.isInitialized) handoverController.close()
         super.onDestroy()
         unregisterBluetoothReceiver()
         try {
@@ -4830,6 +4956,10 @@ class MusicService :
         lastPresenceToken = null
 
         val stopMusicOnTaskClearEnabled = dataStore.get(StopMusicOnTaskClearKey, false)
+        val isTvClient = packageName.startsWith("com.nikhil.yt.tv")
+        // Closing the phone UI releases its Connect attachment even if local audio
+        // is allowed to continue as a background service by the user's settings.
+        if (!isTvClient) handoverController.prepareForTaskRemoval()
 
         try {
             val state = togetherSessionState.value
@@ -4850,6 +4980,9 @@ class MusicService :
                 }
 
                 if (stopMusicOnTaskClearEnabled) {
+                    // Detach before clearing the local player, including when this phone was
+                    // the renderer. The TV must retain its last checkpoint and playback ownership.
+                    if (isTvClient) handoverController.prepareForTaskRemoval()
                     if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
                         runBlocking { saveQueueToDisk() }
                     }
@@ -4924,6 +5057,9 @@ class MusicService :
     }
 
     companion object {
+        internal fun shouldDetachConnectOnTaskRemoved(isTv: Boolean, hasRemoteRenderer: Boolean): Boolean =
+            !isTv && hasRemoteRenderer
+
         internal fun shouldStopServiceOnTaskRemoved(
             stopMusicOnTaskClearEnabled: Boolean,
             isHostSessionActive: Boolean,

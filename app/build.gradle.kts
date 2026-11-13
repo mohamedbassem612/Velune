@@ -18,6 +18,7 @@ if (localPropertiesFile.exists()) {
 android {
     namespace = "com.nikhil.yt"
     compileSdk = 36
+    testBuildType = providers.gradleProperty("connectTestBuildType").orElse("release").get()
 
     defaultConfig {
     applicationId = "com.nikhil.yt"
@@ -47,8 +48,19 @@ android {
         buildConfigField("String", "TOGETHER_BEARER_TOKEN", "\"$togetherBearerToken\"")
     }
 
-    flavorDimensions += "abi"
+    flavorDimensions += listOf("device", "abi")
     productFlavors {
+        create("mobile") {
+            dimension = "device"
+            buildConfigField("boolean", "LISTEN_TOGETHER_ENABLED", "true")
+        }
+        create("tv") {
+            dimension = "device"
+            buildConfigField("boolean", "LISTEN_TOGETHER_ENABLED", "false")
+            buildConfigField("String", "TOGETHER_BEARER_TOKEN", "\"\"")
+            applicationIdSuffix = ".tv"
+            versionNameSuffix = "-tv"
+        }
         create("universal") {
             dimension = "abi"
             ndk {
@@ -92,17 +104,18 @@ android {
 
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Local test builds: without the release keystore, sign with the debug key so the
-            // release build can still be installed and its real speed measured.
+            // Release APKs must never silently fall back to the Android debug certificate.
+            // Without the publishing key, build unsigned APKs for validation only.
             signingConfig =
                 if (file("keystore/release.keystore").exists()) signingConfigs.getByName("release")
-                else signingConfigs.getByName("debug")
+                else null
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -163,6 +176,7 @@ ksp {
 }
 
 dependencies {
+    add("tvImplementation", "com.google.zxing:core:3.5.4")
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
     implementation(libs.concurrent.futures)
@@ -243,6 +257,9 @@ dependencies {
 
     implementation(libs.timber)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     // Ensure ProcessLifecycleOwner is available for the presence manager and CI unit tests
     implementation("com.github.therealbush:translator:1.1.1")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")

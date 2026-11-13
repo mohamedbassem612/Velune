@@ -1,0 +1,7 @@
+<resources>
+    <string name="local_sync_title">مزامنة المكتبة على الشبكة المحلية</string>
+    <string name="local_sync_description">مزامنة المفضلة والقوائم وسجل الاستماع الأخير في الجلسات المحلية. الحسابات وملفات الصوت تفضل على كل جهاز.</string>
+    <string name="local_sync_done">تمت مزامنة المكتبة</string>
+    <string name="local_sync_retry">المزامنة انقطعت. بنحاول مرة تانية…</string>
+    <string name="local_sync_working">جارٍ مزامنة المكتبة…</string>
+</resources>
