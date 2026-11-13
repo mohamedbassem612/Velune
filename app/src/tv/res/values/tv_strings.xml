@@ -34,4 +34,10 @@
     <string name="tv_phone_connected">Phone connected</string>
     <string name="tv_phone_waiting">Waiting for a phone. Choose this TV from the phone player.</string>
     <string name="tv_phone_back">Back to settings</string>
+    <string name="tv_language">App language</string>
+    <string name="tv_language_system">Use TV system language</string>
+    <string name="tv_language_english">English</string>
+    <string name="tv_language_arabic">العربية</string>
+    <string name="tv_language_selected">Selected</string>
+    <string name="tv_language_choose">Select</string>
 </resources>

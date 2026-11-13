@@ -20,6 +20,7 @@ data class HandoverPlayback(
     val revision: Long = 0,
     val queueRevision: Long = 0,
     val playbackState: Int = 3,
+    val deviceVolume: HandoverVolume = HandoverVolume(),
 ) {
     val song: MediaMetadata? get() = queue.getOrNull(index)
 }
@@ -50,3 +51,23 @@ internal class HandoverSessionAuthority(initial: HandoverPlayback) {
 /** Restart never reuses an ownership epoch and never starts unsolicited audio. */
 internal fun recoverHandoverSession(saved: HandoverPlayback): HandoverPlayback =
     saved.copy(playing = false, epoch = saved.epoch + 1, revision = saved.revision + 1)
+
+/** Losing a controller never changes a TV renderer; losing the renderer freezes its last checkpoint. */
+internal fun HandoverSessionAuthority.deviceDisconnected(deviceId: String): Boolean =
+    if (state.rendererId == deviceId) update(deviceId, state.epoch, state.copy(playing = false)) else false
+
+/** Explicit local playback after a lost renderer starts from the last received position, never an estimate. */
+internal fun HandoverSessionAuthority.claimOfflinePlayback(localId: String): HandoverPlayback {
+    update(state.rendererId, state.epoch, state.copy(playing = false))
+    return transfer(localId)
+}
+
+internal fun HandoverPlayback.offlineMirror(): HandoverPlayback = copy(playing = false)
+
+
+/** Real STREAM_MUSIC range, independent of per-track normalization/player gain. */
+data class HandoverVolume(val level: Int = 0, val min: Int = 0, val max: Int = 0,
+                         val muted: Boolean = false, val fixed: Boolean = false) {
+    val adjustable get() = !fixed && max > min
+    fun clamp(requested: Int): Int = requested.coerceIn(min.coerceAtLeast(0), max.coerceAtLeast(min.coerceAtLeast(0)))
+}

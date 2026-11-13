@@ -1,92 +1,79 @@
 package com.nikhil.yt.ui.player
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nikhil.yt.R
 import com.nikhil.yt.handover.HandoverController
-import com.nikhil.yt.localsync.LibrarySyncStatus
 
-/** Shared management UI; pairing consent explicitly covers playback and mirrored library access. */
+/** Choose the audio output directly; connection mechanics stay out of the picker. */
 @Composable
-fun ConnectPanel(controller: HandoverController, tv: Boolean = false, entryFocus: FocusRequester? = null) {
+fun ConnectPanel(controller: HandoverController, tv: Boolean = false, currentSong: String? = null) {
     val devices by controller.devices.collectAsState()
-    val trusted by controller.trustedDevices.collectAsState()
-    val pairing by controller.pairing.collectAsState()
-    val pairingOpen by controller.pairingOpen.collectAsState()
     val coordinator by controller.coordinator.collectAsState()
     val connected by controller.connected.collectAsState()
-    val selected by controller.selected.collectAsState()
     val state by controller.playback.collectAsState()
     val peers by controller.connectedDevices.collectAsState()
-    val status by controller.libraryStatus.collectAsState()
     val error by controller.error.collectAsState()
-    val transfer by controller.transferStatus.collectAsState()
-    val approvalFocus = remember { FocusRequester() }
-    LaunchedEffect(pairing?.deviceId) { if (pairing != null) approvalFocus.requestFocus() }
-    var revokeId by remember { mutableStateOf<String?>(null) }
+    val pending by controller.pendingDeviceId.collectAsState()
 
     LaunchedEffect(controller) { if (!tv) controller.startDiscovery() }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(stringResource(R.string.connect_title), style = MaterialTheme.typography.titleLarge)
-        Text(stringResource(R.string.connect_library_notice), style = MaterialTheme.typography.bodySmall)
-        Text(stringResource(if (connected) R.string.connect_connected else R.string.connect_disconnected))
-        Text(stringResource(if (state?.rendererId == controller.localId) R.string.connect_audio_here else R.string.connect_audio_remote))
-        coordinator?.let { Text(stringResource(R.string.connect_peer, it.name)) }
-        if (selected != null) Text(selected!!.name)
-        Text(stringResource(when (status) {
-            LibrarySyncStatus.Idle -> R.string.connect_sync_idle
-            LibrarySyncStatus.Syncing -> R.string.connect_syncing
-            LibrarySyncStatus.Synced -> R.string.connect_synced
-            LibrarySyncStatus.Retrying -> R.string.connect_sync_retry
-        }))
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(stringResource(R.string.connect_devices), style = MaterialTheme.typography.headlineSmall)
         if (tv) {
-            Button(onClick = { if (pairingOpen) controller.closePairing() else controller.openPairing() },
-                modifier = if (entryFocus != null) Modifier.focusRequester(entryFocus) else Modifier) {
-                Text(stringResource(if (pairingOpen) R.string.connect_close_pairing else R.string.connect_open_pairing))
-            }
+            Text(stringResource(R.string.connect_lan_ready))
             peers.forEach { Text(stringResource(R.string.connect_peer, it.name)) }
-            Text(stringResource(R.string.connect_tv_independent), style = MaterialTheme.typography.bodySmall)
         } else {
-            Text(stringResource(R.string.connect_available), style = MaterialTheme.typography.titleMedium)
-            devices.forEach { device ->
-                OutlinedButton(onClick = { controller.select(device) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(device.name + if (trusted.any { it.id == device.id }) " ✓" else "")
-                }
+            val phoneActive = state == null || state?.rendererId == controller.localId
+            DeviceRow(stringResource(R.string.connect_this_phone), R.drawable.ic_connect_phone,
+                active = phoneActive, pending = pending == controller.localId, enabled = pending == null,
+                song = if (phoneActive) currentSong else null,
+                onClick = { if (!phoneActive) controller.choosePhone() })
+            val outputs = (devices + listOfNotNull(coordinator)).distinctBy { it.id }
+            outputs.forEach { device ->
+                val active = connected && state?.rendererId == device.id
+                DeviceRow(device.name, R.drawable.ic_handover,
+                    active = active, pending = pending == device.id, enabled = pending == null,
+                    song = if (active) state?.song?.title else null,
+                    offline = !connected && coordinator?.id == device.id,
+                    onClick = { if (!active) controller.select(device) })
             }
-            if (devices.isEmpty()) Text(stringResource(R.string.connect_searching))
-            if (connected) {
-                Button(onClick = { controller.transferToTv() }, enabled = transfer == null) { Text(stringResource(R.string.connect_transfer_tv)) }
-                OutlinedButton(onClick = { controller.choosePhone() }, enabled = transfer == null) { Text(stringResource(R.string.connect_transfer_phone)) }
-            }
-            OutlinedButton(onClick = { controller.disconnect() }) { Text(stringResource(R.string.connect_disconnect)) }
+            if (outputs.isEmpty()) Text(stringResource(R.string.connect_searching),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        pairing?.let { request ->
-            HorizontalDivider()
-            Text(stringResource(R.string.connect_compare, request.name, request.code), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.connect_consent))
-            Button(onClick = { controller.approvePairing(true) }, modifier = Modifier.focusRequester(approvalFocus)) { Text(stringResource(R.string.connect_approve)) }
-            OutlinedButton(onClick = { controller.approvePairing(false) }) { Text(stringResource(R.string.connect_reject)) }
-        }
-        Text(stringResource(R.string.connect_trusted), style = MaterialTheme.typography.titleMedium)
-        if (trusted.isEmpty()) Text(stringResource(R.string.connect_no_trust))
-        trusted.forEach { device ->
-            Text("${device.name} · ${device.id.take(12)}")
-            OutlinedButton(onClick = { revokeId = device.id }) { Text(stringResource(R.string.connect_revoke)) }
-        }
-        transfer?.let { Text(stringResource(R.string.connect_transferring)) }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
     }
-    revokeId?.let { id ->
-        AlertDialog(onDismissRequest = { revokeId = null },
-            title = { Text(stringResource(R.string.connect_revoke)) },
-            text = { Text(stringResource(R.string.connect_revoke_notice)) },
-            confirmButton = { TextButton(onClick = { controller.revoke(id); revokeId = null }) { Text(stringResource(R.string.connect_revoke)) } },
-            dismissButton = { TextButton(onClick = { revokeId = null }) { Text(stringResource(R.string.connect_cancel)) } })
+}
+
+@Composable
+private fun DeviceRow(name: String, icon: Int, active: Boolean, pending: Boolean,
+                      enabled: Boolean, song: String?, offline: Boolean = false, onClick: () -> Unit) {
+    val color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    Surface(shape = RoundedCornerShape(16.dp),
+        color = if (active) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().selectable(selected = active, enabled = enabled,
+            role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(28.dp), tint = color)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(name, style = MaterialTheme.typography.titleMedium, color = color,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (pending) Text(stringResource(R.string.connect_transferring), style = MaterialTheme.typography.bodySmall)
+                else if (offline) Text(stringResource(R.string.connect_device_offline), style = MaterialTheme.typography.bodySmall)
+                else if (active) Text(song ?: stringResource(R.string.connect_current_device),
+                    style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (pending) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            else if (active) Icon(painterResource(R.drawable.check), stringResource(R.string.connect_current_device), tint = color)
+        }
     }
 }

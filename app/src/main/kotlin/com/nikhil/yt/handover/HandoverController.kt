@@ -29,10 +29,30 @@ import javax.net.ssl.SSLSocket
 
 /** Velune Connect: the TV coordinates one authenticated LAN session and one audio renderer. */
 class HandoverController(private val service: MusicService) : Player.Listener {
+    private val audio by lazy { service.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
+    val controlsTvVolume get() = !isTv && connected.value && playback.value?.rendererId == hostId
+    private fun currentDeviceVolume(): HandoverVolume {
+        val stream = android.media.AudioManager.STREAM_MUSIC
+        return HandoverVolume(audio.getStreamVolume(stream),
+            if (android.os.Build.VERSION.SDK_INT >= 28) audio.getStreamMinVolume(stream) else 0,
+            audio.getStreamMaxVolume(stream), audio.isStreamMute(stream), audio.isVolumeFixed)
+    }
+    fun adjustTvVolume(direction: Int) {
+        if (controlsTvVolume && direction in listOf(-1, 1))
+            request(JSONObject().put("name", "deviceVolume").put("operation", "adjust").put("value", direction))
+    }
+    fun setTvVolume(level: Int) {
+        if (controlsTvVolume) request(JSONObject().put("name", "deviceVolume").put("operation", "set").put("value", level))
+    }
+    fun muteTvVolume(muted: Boolean) {
+        if (controlsTvVolume) request(JSONObject().put("name", "deviceVolume").put("operation", "mute").put("muted", muted))
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val identity = ConnectIdentity()
     private val trust = ConnectTrustStore(service)
-    private val transport = ConnectTransport(identity, trust, android.os.Build.MODEL)
+    private val deviceName = android.provider.Settings.Global.getString(service.contentResolver, "device_name")
+        ?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL
+    private val transport = ConnectTransport(identity, trust, deviceName, localNetworkAccess = true)
     val localId = identity.id
     private val isTv = service.packageName.startsWith("com.nikhil.yt.tv")
     private val preferences = service.getSharedPreferences("connect_v3", Context.MODE_PRIVATE)
@@ -48,10 +68,12 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     val connectedDevices = MutableStateFlow<List<ConnectTrustedDevice>>(emptyList())
     val error = MutableStateFlow<String?>(null)
     val transferStatus = MutableStateFlow<String?>(null)
+    val pendingDeviceId = MutableStateFlow<String?>(null)
     val libraryStatus get() = service.localLibrarySync.status
     var applyingState = false
         private set
     private var receivedAt = 0L
+    private var offlineCheckpoint: HandoverPlayback? = null
     private var attached = false
     private var closing = false
     private val mode = ConnectModeGate()
@@ -165,7 +187,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             player.currentPosition.coerceAtLeast(0), player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0,
             player.playWhenReady, service.queueTitle, player.repeatMode, player.shuffleModeEnabled,
             order.takeIf { it.size == queue.size && it.toSet() == queue.indices.toSet() } ?: queue.indices.toList(),
-            player.playbackParameters.speed, rendererId = localId, playbackState = player.playbackState)
+            player.playbackParameters.speed, rendererId = localId, playbackState = player.playbackState, deviceVolume = currentDeviceVolume())
     }
 
     private fun publishLocal() {
@@ -238,8 +260,8 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             try {
                 val listener = transport.server(); server = listener
                 val info = NsdServiceInfo().apply {
-                    serviceName = "Velune TV"; serviceType = HANDOVER_SERVICE_TYPE; port = listener.localPort
-                    setAttribute("id", localId); setAttribute("protocol", "3")
+                    serviceName = deviceName; serviceType = HANDOVER_SERVICE_TYPE; port = listener.localPort
+                    setAttribute("id", localId); setAttribute("protocol", "4")
                 }
                 registration = object : NsdManager.RegistrationListener {
                     override fun onServiceRegistered(info: NsdServiceInfo) = Unit
@@ -255,6 +277,12 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             } catch (e: Exception) { if (!closing) error.value = e.message ?: "TV connection failed" }
         }
     }
+    fun resumeFromUi() {
+        if (isTv || closing || !preferences.getBoolean("reconnect", false)) return
+        reconnectEnabled = true
+        startDiscovery()
+        found[preferences.getString("tvId", null)]?.let { connect(it, pair = false) }
+    }
     fun startDiscovery() {
         if (isTv || discovery != null || closing) return
         discovery = object : NsdManager.DiscoveryListener {
@@ -267,7 +295,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                     override fun onResolveFailed(info: NsdServiceInfo, code: Int) = Unit
                     override fun onServiceResolved(resolved: NsdServiceInfo) {
                         val address = resolved.host?.hostAddress ?: return
-                        if (resolved.attributes["protocol"]?.toString(Charsets.UTF_8) != "3") return
+                        if (resolved.attributes["protocol"]?.toString(Charsets.UTF_8) != "4") return
                         val id = resolved.attributes["id"]?.toString(Charsets.UTF_8) ?: return
                         if (!id.matches(Regex("[0-9a-f]{64}"))) return
                         scope.launch {
@@ -285,27 +313,42 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             }
         }.also { nsd.discoverServices(HANDOVER_SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, it) }
     }
-    /** Selection attaches first; transferring playback is a separate, explicit UI action. */
+    /** A user selection transfers playback; background reconnect only attaches to current state. */
     fun select(device: HandoverDevice) {
         if (!available()) return
-        if (connected.value && target?.id == device.id) return
-        disconnect(); transport.openPairing(); reconnectEnabled = true
+        if (connected.value && target?.id == device.id) { transferToTv(); return }
+        disconnect(); error.value = null; pendingDeviceId.value = device.id; reconnectEnabled = true
         preferences.edit().putBoolean("reconnect", true).putString("tvId", device.id).apply()
-        connect(device, pair = !trust.contains(device.id))
+        connect(device, pair = false, startPlayback = true)
     }
     fun transferToTv() {
         if (!available()) return
         val state = playback.value ?: return
+        if (state.rendererId == hostId) return
+        error.value = null; pendingDeviceId.value = hostId
         clientPeer?.send(JSONObject().put("type", "transfer").put("target", hostId)
             .put("sessionId", state.sessionId).put("epoch", state.epoch))
     }
     fun choosePhone() {
         if (!available()) return
         val state = playback.value ?: return
+        if (state.rendererId == localId) return
+        if (!connected.value) {
+            val checkpoint = offlineCheckpoint ?: state
+            disconnect()
+            error.value = null
+            applyingState = true
+            try { service.applyHandoverState(checkpoint, renderLocally = true) }
+            finally { applyingState = false }
+            return
+        }
+        error.value = null; pendingDeviceId.value = localId
         clientPeer?.send(JSONObject().put("type", "transfer").put("target", localId)
             .put("sessionId", state.sessionId).put("epoch", state.epoch))
     }
     fun disconnect() {
+        pendingDeviceId.value = null; transferStatus.value = null
+        offlineCheckpoint = null
         reconnectEnabled = false
         preferences.edit().putBoolean("reconnect", false).apply()
         clientPeer?.close(); clientPeer = null
@@ -321,15 +364,17 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         if (!isTv) {
             releasedTransferId = null; releasedEpoch = -1
             coordinator.value = null; selected.value = null; playback.value = null
+            service.sessionPlayer.notifyDeviceVolumeChanged()
         }
     }
 
-    private fun connect(device: HandoverDevice, pair: Boolean) {
+    private fun connect(device: HandoverDevice, pair: Boolean, startPlayback: Boolean = false) {
         if (!available() || clientJob?.isActive == true) return
         target = device
         clientJob = scope.launch(Dispatchers.IO) {
             var attempt = 0
             var needsPairing = pair
+            var requestPlayback = startPlayback
             while (isActive && reconnectEnabled && !isolated && !closing) {
                 var peer: Peer? = null
                 try {
@@ -347,20 +392,25 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                             delay(15_000)
                         }
                     }
+                    var heartbeat: Job? = null
                     try {
                         val hello = withContext(Dispatchers.Main) {
                             service.awaitStartupRestore()
                             clientPeer = connection; rendererSequence = 0
                             JSONObject().put("type", "connect").put("state", capture().toSessionJson())
+                                .put("startPlayback", requestPlayback)
                         }
                         connection.send(hello)
+                        heartbeat = launch { while (isActive) { delay(5000); connection.send(JSONObject().put("type", "ping")) } }
+                        // A lost reply must not replay the selection and overwrite the TV session.
+                        requestPlayback = false
                         while (isActive) {
                             val message = channel.read() ?: break
                             check(trust.contains(channel.id))
                             withContext(Dispatchers.Main) { handleClientMessage(connection, message) }
                             attempt = 0
                         }
-                    } finally { writer.cancel(); libraryJob.cancel() }
+                    } finally { heartbeat?.cancel(); writer.cancel(); libraryJob.cancel() }
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { if (!closing) error.value = e.message ?: "TV is unavailable" }
                 finally {
@@ -368,12 +418,26 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                     withContext(NonCancellable + Dispatchers.Main) {
                         if (clientPeer === peer) {
                             clientPeer = null; connected.value = false
+                            // Cancel preparation and release locks, but never resume an uncertain source.
+                            preparedJob?.cancel()
+                            preparedId?.let { abortPreparation(it) }
+                            if (releasedTransferId != null) {
+                                applyingState = true
+                                try { service.player.pause() } finally { applyingState = false }
+                                releasedTransferId = null; releasedEpoch = -1
+                            }
+                            if (selected.value != null) {
+                                val checkpoint = playback.value
+                                if (offlineCheckpoint == null) offlineCheckpoint = checkpoint
+                                checkpoint?.let { acceptState(it.offlineMirror()) }
+                            }
+                            pendingDeviceId.value = null; transferStatus.value = null
                             pendingCommands.values.forEach { it.completeExceptionally(IllegalStateException("Disconnected; command outcome may be unknown")) }
                             pendingCommands.clear()
                         }
                     }
                 }
-                if (needsPairing || !trust.contains(device.id)) break
+                if (needsPairing) break
                 delay(ConnectPolicy.retryDelay(attempt++, kotlin.random.Random.nextLong(1000)))
             }
         }
@@ -387,8 +451,10 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 require(message.getString("hostId") == peer.id)
                 if (old == null || old.sessionId != state.sessionId || state.revision > old.revision || !connected.value) {
                     hostId = peer.id; coordinator.value = target; connected.value = true; error.value = null
+                    offlineCheckpoint = null
                     if (preparedId != null && state.rendererId == localId) finishPreparation()
                     acceptState(state)
+                    if (state.rendererId == pendingDeviceId.value) { pendingDeviceId.value = null; transferStatus.value = null }
                     if (releasedTransferId != null && (state.epoch > releasedEpoch || !state.playing)) {
                         releasedTransferId = null; releasedEpoch = -1
                     }
@@ -409,20 +475,35 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                     releasedEpoch = message.getLong("epoch")
                     applyingState = true
                     try { service.player.pause() } finally { applyingState = false }
-                    peer.send(JSONObject().put("type", "released").put("transferId", message.getString("transferId"))
-                        .put("state", snapshot.toSessionJson()))
+                    peer.send(playback.value!!.releaseAcknowledgement(message.getString("transferId"), snapshot))
                 }
             }
             "abort" -> abortPreparation(message.getString("transferId"))
             "library" -> peer.work.launch { runCatching { peer.library.receive(message) { peer.send(it) } }
                 .onFailure { service.localLibrarySync.status.value = com.nikhil.yt.localsync.LibrarySyncStatus.Retrying } }
             "libraryAck" -> scope.launch { peer.library.acknowledge(message) }
+            "transferProgress" -> {
+                if (validSession(message)) {
+                    transferStatus.value = message.getString("stage")
+                    pendingDeviceId.value = message.getString("target")
+                }
+            }
+            "transferFailed" -> {
+                if (validSession(message)) {
+                    if (message.optBoolean("pauseSource") && playback.value?.rendererId == localId) {
+                        applyingState = true
+                        try { service.player.pause() } finally { applyingState = false }
+                    }
+                    transferStatus.value = null; pendingDeviceId.value = null
+                    error.value = service.getString(com.nikhil.yt.R.string.connect_transfer_failed)
+                }
+            }
             "pong" -> Unit
         }
     }
     private fun validSession(message: JSONObject): Boolean {
         val state = if (isTv) authority?.state else playback.value
-        return state != null && message.optString("sessionId") == state.sessionId && message.optLong("epoch") == state.epoch
+        return state?.acceptsEnvelope(message) == true
     }
     private fun sessionEnvelope(type: String): JSONObject {
         val state = if (isTv) authority?.state else playback.value
@@ -461,7 +542,14 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         if (owner == null || owner.state.rendererId == localId) { execute(command); publishLocal() }
         else {
             val peer = peers[owner.state.rendererId]
-            if (peer == null) error.value = "Playback device is offline"
+            if (peer == null && command.optString("name") in setOf("resume", "replace", "next", "previous")) {
+                // A remote-control Play is an explicit request to use this TV after the phone vanished.
+                val checkpoint = owner.claimOfflinePlayback(localId)
+                persistAuthority(true)
+                acceptState(checkpoint)
+                error.value = null
+                execute(command); publishLocal(); broadcast()
+            } else if (peer == null) error.value = service.getString(com.nikhil.yt.R.string.connect_device_offline)
             else peer.send(sessionEnvelope("command").put("commandId", UUID.randomUUID().toString()).put("command", command))
         }
     }
@@ -472,6 +560,21 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             return (0 until array.length()).map { array.getJSONObject(it).handoverSong().toMediaItem() }
         }
         when (command.getString("name")) {
+            "deviceVolume" -> {
+                if (!isTv || authority?.state?.rendererId != localId) return
+                val volume = currentDeviceVolume()
+                if (!volume.adjustable) return
+                val stream = android.media.AudioManager.STREAM_MUSIC
+                val flags = android.media.AudioManager.FLAG_SHOW_UI
+                when (command.optString("operation")) {
+                    "adjust" -> command.optInt("value").takeIf { it == -1 || it == 1 }?.let {
+                        audio.adjustStreamVolume(stream, it, flags)
+                    }
+                    "set" -> audio.setStreamVolume(stream, volume.clamp(command.getInt("value")), flags)
+                    "mute" -> audio.adjustStreamVolume(stream,
+                        if (command.getBoolean("muted")) android.media.AudioManager.ADJUST_MUTE else android.media.AudioManager.ADJUST_UNMUTE, flags)
+                }
+            }
             "pause" -> player.pause()
             "resume" -> { player.prepare(); player.play() }
             "next" -> { player.seekToNext(); player.prepare(); player.play() }
@@ -577,7 +680,9 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             var released = false
             val before = if (sourceId == localId) capture().copy(sessionId = owner.state.sessionId, epoch = owner.state.epoch)
                 else owner.state.copy(positionMs = currentPosition())
+            error.value = null
             transferStatus.value = "Preparing destination"
+            peers.values.forEach { it.send(sessionEnvelope("transferProgress").put("target", targetId).put("stage", "preparing")) }
             try {
                 if (targetId == localId) { preparedId = id; preparedBackup = capture(); buffer(before) }
                 else {
@@ -608,11 +713,15 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 transaction.commit(owner.state.rendererId, owner.state.epoch)
                 owner.update(sourceId, before.epoch, finalState.copy(sessionId = before.sessionId, epoch = before.epoch))
                 owner.transfer(targetId)
+                if (targetId == localId) owner.update(localId, owner.state.epoch,
+                    owner.state.copy(deviceVolume = currentDeviceVolume()))
                 persistAuthority(true)
                 if (targetId == localId) finishPreparation()
                 acceptState(owner.state); broadcast()
                 transferStatus.value = null
             } catch (e: Exception) {
+                android.util.Log.w("VeluneConnect", "Transfer failed at ${transaction.stage}", e)
+                peers.values.forEach { it.send(sessionEnvelope("transferFailed").put("pauseSource", released)) }
                 destination?.send(sessionEnvelope("abort").put("transferId", id))
                 if (targetId == localId) abortPreparation(id)
                 if (released) {
@@ -640,6 +749,13 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 service.awaitStartupRestore()
                 restoreAuthority()
                 peers.put(channel.id, connection)?.close()
+                val requestedPlayback = first.optBoolean("startPlayback")
+                val phoneState = first.getJSONObject("state").sessionState()
+                if (requestedPlayback && phoneState.queue.isNotEmpty() && transferJob?.isActive != true) {
+                    authority = HandoverSessionAuthority(phoneState.copy(sessionId = UUID.randomUUID().toString(),
+                        rendererId = channel.id, epoch = 1, revision = 1, queueRevision = 1))
+                    persistAuthority(true)
+                }
                 if (authority == null) {
                     val tv = capture()
                     val phone = first.getJSONObject("state").sessionState()
@@ -652,6 +768,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 connected.value = true
                 connectedDevices.value = peers.values.map { ConnectTrustedDevice(it.id, it.channel.name) }
                 acceptState(authority!!.state); broadcast()
+                if (requestedPlayback && authority!!.state.queue.isNotEmpty()) transfer(localId)
             }
             libraryJob = launch {
                 while (isActive) {
@@ -709,15 +826,24 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                     connected.value = peers.isNotEmpty()
                     // Losing a phone never pauses a TV renderer or discards its queue.
                     val owner = authority
-                    if (owner?.state?.rendererId == p.id) {
-                        owner.update(p.id, owner.state.epoch, owner.state.copy(playing = false))
-                        acceptState(owner.state); persistAuthority(true)
+                    if (owner?.deviceDisconnected(p.id) == true) {
+                        acceptState(owner.state); broadcast(); persistAuthority(true)
                     }
                 }
             }
         }
     }
+    /** Task cleanup must not publish an empty local queue into the retained session. */
+    fun prepareForTaskRemoval() {
+        if (isTv) close()
+        else {
+            val reconnectOnReturn = reconnectEnabled
+            disconnect()
+            preferences.edit().putBoolean("reconnect", reconnectOnReturn).apply()
+        }
+    }
     fun close() {
+        if (closing) return
         closing = true; transport.closePairing()
         if (attached) service.player.removeListener(this)
         runCatching { persistAuthority(true) }

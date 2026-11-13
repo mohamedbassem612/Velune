@@ -21,9 +21,10 @@ import org.json.JSONObject
 
 data class ConnectPairingRequest(val deviceId: String, val name: String, val code: String)
 
-/** TLS authenticates key possession; only pins or explicit dual-screen approval grant access. */
+/** TLS proves key possession. LAN mode admits local peers without a pairing ceremony. */
 internal class ConnectTransport(
     private val identity: ConnectCredentials, private val trust: ConnectPins, private val deviceName: String = "Velune",
+    private val localNetworkAccess: Boolean = false,
 ) {
     val pairing = MutableStateFlow<ConnectPairingRequest?>(null)
     val pairingOpen = MutableStateFlow(false)
@@ -55,7 +56,7 @@ internal class ConnectTransport(
                 val cert = chain?.singleOrNull() ?: throw CertificateException("Missing device identity")
                 cert.checkValidity()
                 val id = publicKeyId(cert)
-                if (!ConnectPolicy.mayAuthenticate(trust.contains(id), allowPair && mayPair(), expected, id))
+                if (!ConnectPolicy.mayAuthenticate(trust.contains(id), localNetworkAccess || (allowPair && mayPair()), expected, id))
                     throw CertificateException("Device is not paired or its identity changed")
             }
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = check(chain)
@@ -64,16 +65,24 @@ internal class ConnectTransport(
         return SSLContext.getInstance("TLS").apply { init(arrayOf(keys), arrayOf(pins), SecureRandom()) }
     }
 
+    private fun requireLocalPeer(socket: Socket) {
+        val address = socket.inetAddress
+        require(address.isSiteLocalAddress || address.isLinkLocalAddress || address.isLoopbackAddress) {
+            "Velune Connect requires a local network connection"
+        }
+    }
+
     fun server(): SSLServerSocket = (context(null, true).serverSocketFactory.createServerSocket(0) as SSLServerSocket).apply {
         needClientAuth = true
         enabledProtocols = supportedProtocols.filter { it == "TLSv1.3" || it == "TLSv1.2" }.toTypedArray()
     }
 
     suspend fun connect(host: String, port: Int, expected: String, pair: Boolean): SSLSocket = withContext(Dispatchers.IO) {
-        if (pair) openPairing()
+        if (pair && !localNetworkAccess) openPairing()
         val raw = Socket()
         try {
             raw.connect(java.net.InetSocketAddress(host, port), 5000)
+            if (localNetworkAccess) requireLocalPeer(raw)
             (context(expected, pair).socketFactory.createSocket(raw, host, port, true) as SSLSocket).apply {
                 enabledProtocols = supportedProtocols.filter { it == "TLSv1.3" || it == "TLSv1.2" }.toTypedArray()
                 soTimeout = 10_000; startHandshake()
@@ -84,9 +93,20 @@ internal class ConnectTransport(
     /** No queue, commands or library records are sent before this returns. */
     suspend fun authorize(socket: SSLSocket, server: Boolean): ConnectChannel = withContext(Dispatchers.IO) {
         socket.soTimeout = 10_000
+        if (localNetworkAccess) requireLocalPeer(socket)
         if (server) socket.startHandshake()
         val id = publicKeyId(socket.session.peerCertificates.single() as X509Certificate)
         val channel = ConnectChannel(socket, id)
+        if (localNetworkAccess) {
+            channel.write(JSONObject().put("type", "identity").put("id", identity.id)
+                .put("name", deviceName.take(100)).put("protocol", 4))
+            val hello = channel.read() ?: error("Peer disconnected")
+            require(hello.getString("type") == "identity" && hello.getInt("protocol") == 4 && hello.getString("id") == id)
+            channel.name = hello.getString("name").take(100)
+            trust.trust(id, channel.name)
+            socket.soTimeout = 15_000
+            return@withContext channel
+        }
         val nonce = UUID.randomUUID().toString()
         channel.write(JSONObject().put("type", "identity").put("id", identity.id)
             .put("name", if (server) "Velune TV" else deviceName.take(100))

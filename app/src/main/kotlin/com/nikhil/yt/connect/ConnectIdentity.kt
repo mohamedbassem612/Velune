@@ -22,14 +22,18 @@ import javax.security.auth.x500.X500Principal
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** No exportable private keys or account credentials are stored in the application files. */
-internal class ConnectIdentity(private val alias: String = "velune.connect.identity.v1") : ConnectCredentials {
+internal class ConnectIdentity(private val alias: String = "velune.connect.identity.v2") : ConnectCredentials {
     private val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     init {
         if (!store.containsAlias(alias)) {
             KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore").apply {
                 initialize(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
-                    .setKeySize(2048).setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
+                    // Conscrypt can hash/pad TLS signatures itself before invoking Keystore.
+                    // These raw-operation authorizations do not export the key or remove TLS padding.
+                    .setKeySize(2048).setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256,
+                        KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
                     .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1, KeyProperties.SIGNATURE_PADDING_RSA_PSS)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setCertificateSubject(X500Principal("CN=Velune Connect"))
                     .setCertificateSerialNumber(BigInteger(128, SecureRandom()))
                     .setCertificateNotBefore(Date(1577836800000L))

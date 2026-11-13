@@ -33,4 +33,12 @@
     <string name="tv_phone_connected">الموبايل متصل</string>
     <string name="tv_phone_waiting">في انتظار الموبايل. اختار التلفزيون من مشغّل الموبايل.</string>
     <string name="tv_phone_back">الرجوع للإعدادات</string>
+    <string name="tv_language">لغة التطبيق</string>
+    <string name="tv_language_system">استخدم لغة التلفزيون</string>
+    <string name="tv_language_english">English</string>
+    <string name="tv_language_arabic">العربية</string>
+    <string name="tv_language_selected">محددة حاليًا</string>
+    <string name="tv_language_choose">اختيار</string>
+    <string name="hide_explicit">إخفاء المحتوى الصريح</string>
+    <string name="loading">جارٍ التحميل…</string>
 </resources>

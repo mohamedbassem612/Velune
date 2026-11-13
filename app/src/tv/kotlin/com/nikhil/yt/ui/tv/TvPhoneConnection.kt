@@ -29,9 +29,9 @@ internal fun TvPhoneConnection(
         if (connection == null) {
             Text(stringResource(R.string.tv_connection_wait))
         } else {
-            com.nikhil.yt.ui.player.ConnectPanel(connection.service.handoverController, tv = true, entryFocus = actionFocus)
+            com.nikhil.yt.ui.player.ConnectPanel(connection.service.handoverController, tv = true)
         }
-        TvButton(stringResource(R.string.tv_phone_back), onBack, (if (connection == null) Modifier.focusRequester(actionFocus) else Modifier).focusProperties { left = railFocus })
+        TvButton(stringResource(R.string.tv_phone_back), onBack, Modifier.focusRequester(actionFocus).focusProperties { left = railFocus })
     }
     LaunchedEffect(connection) { actionFocus.requestFocus() }
 }

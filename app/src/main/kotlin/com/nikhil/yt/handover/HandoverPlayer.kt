@@ -1,5 +1,6 @@
 package com.nikhil.yt.handover
 
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.FlagSet
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
@@ -17,6 +18,63 @@ import java.util.concurrent.CopyOnWriteArraySet
 class HandoverPlayer(private val local: ExoPlayer, private val session: HandoverController) : ForwardingPlayer(local) {
     private val listeners = CopyOnWriteArraySet<Player.Listener>()
     private val remote get() = session.selected.value != null
+
+    private val remoteVolume get() = session.controlsTvVolume
+    private var lastDeviceInfo = local.deviceInfo
+    private var lastDeviceVolume = local.deviceVolume
+    private var lastDeviceMuted = local.isDeviceMuted
+
+    override fun getDeviceInfo(): DeviceInfo = if (remoteVolume) DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE)
+        .setMinVolume(session.playback.value?.deviceVolume?.min ?: 0)
+        .setMaxVolume(session.playback.value?.deviceVolume?.max ?: 0).build() else local.deviceInfo
+    override fun getDeviceVolume(): Int = if (remoteVolume) session.playback.value?.deviceVolume?.level ?: 0 else local.deviceVolume
+    override fun isDeviceMuted(): Boolean = if (remoteVolume) session.playback.value?.deviceVolume?.muted == true else local.isDeviceMuted
+    override fun getAvailableCommands(): Player.Commands {
+        val commands = local.availableCommands.buildUpon()
+        if (remoteVolume) {
+            commands.add(Player.COMMAND_GET_DEVICE_VOLUME)
+            val adjustable = session.playback.value?.deviceVolume?.adjustable == true
+            for (command in listOf(Player.COMMAND_SET_DEVICE_VOLUME, Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
+                Player.COMMAND_ADJUST_DEVICE_VOLUME, Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                if (adjustable) commands.add(command) else commands.remove(command)
+            }
+        }
+        return commands.build()
+    }
+    override fun isCommandAvailable(command: Int): Boolean = availableCommands.contains(command)
+    override fun setDeviceVolume(volume: Int) = setDeviceVolume(volume, 0)
+    override fun setDeviceVolume(volume: Int, flags: Int) {
+        if (remoteVolume) session.setTvVolume(volume) else local.setDeviceVolume(volume, flags)
+    }
+    override fun increaseDeviceVolume() = increaseDeviceVolume(0)
+    override fun increaseDeviceVolume(flags: Int) {
+        if (remoteVolume) session.adjustTvVolume(1) else local.increaseDeviceVolume(flags)
+    }
+    override fun decreaseDeviceVolume() = decreaseDeviceVolume(0)
+    override fun decreaseDeviceVolume(flags: Int) {
+        if (remoteVolume) session.adjustTvVolume(-1) else local.decreaseDeviceVolume(flags)
+    }
+    override fun setDeviceMuted(muted: Boolean) = setDeviceMuted(muted, 0)
+    override fun setDeviceMuted(muted: Boolean, flags: Int) {
+        if (remoteVolume) session.muteTvVolume(muted) else local.setDeviceMuted(muted, flags)
+    }
+
+    fun notifyDeviceVolumeChanged() {
+        val info = deviceInfo
+        val changedInfo = info != lastDeviceInfo
+        val changedVolume = deviceVolume != lastDeviceVolume || isDeviceMuted != lastDeviceMuted
+        if (!changedInfo && !changedVolume) return
+        lastDeviceInfo = info; lastDeviceVolume = deviceVolume; lastDeviceMuted = isDeviceMuted
+        val flags = FlagSet.Builder()
+        if (changedInfo) { flags.add(Player.EVENT_DEVICE_INFO_CHANGED); flags.add(Player.EVENT_AVAILABLE_COMMANDS_CHANGED) }
+        if (changedVolume || changedInfo) flags.add(Player.EVENT_DEVICE_VOLUME_CHANGED)
+        val events = Player.Events(flags.build())
+        listeners.forEach {
+            if (changedInfo) { it.onDeviceInfoChanged(info); it.onAvailableCommandsChanged(availableCommands) }
+            it.onDeviceVolumeChanged(deviceVolume, isDeviceMuted)
+            it.onEvents(this, events)
+        }
+    }
 
     override fun addListener(listener: Player.Listener) { listeners.add(listener); super.addListener(listener) }
     override fun removeListener(listener: Player.Listener) { listeners.remove(listener); super.removeListener(listener) }
@@ -108,6 +166,7 @@ class HandoverPlayer(private val local: ExoPlayer, private val session: Handover
     }
 
     fun onSessionStateChanged(previous: HandoverPlayback?, state: HandoverPlayback) {
+        notifyDeviceVolumeChanged()
         if (!remote) return
         if (previous != null && previous.playing == state.playing && previous.playbackState == state.playbackState && previous.rendererId == state.rendererId) return
         val events = Player.Events(FlagSet.Builder().add(Player.EVENT_PLAY_WHEN_READY_CHANGED)

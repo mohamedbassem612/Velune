@@ -1459,7 +1459,10 @@ class MusicService :
             currentQueue = com.nikhil.yt.playback.queues.ListQueue(state.queueTitle, items, state.index.coerceAtLeast(0), state.positionMs)
         }
         queueTitle = state.queueTitle
-        if (!renderLocally) player.pause()
+        if (!renderLocally) {
+            player.pause()
+            if (player.playbackState != Player.STATE_IDLE) player.stop()
+        }
         if (items.isEmpty()) {
             player.stop(); player.clearMediaItems(); currentQueue = EmptyQueue
             currentMediaMetadata.value = null
@@ -1467,7 +1470,7 @@ class MusicService :
         }
         val index = state.index.coerceIn(0, items.lastIndex)
         if (queueChanged) player.setMediaItems(items, index, state.positionMs)
-        else if (renderLocally || player.currentMediaItemIndex != index || kotlin.math.abs(player.currentPosition - state.positionMs) > 1000)
+        else if (renderLocally || player.currentMediaItemIndex != index)
             player.seekTo(index, state.positionMs)
         player.repeatMode = state.repeatMode
         if (state.order.size == items.size && state.order.toSet() == items.indices.toSet() &&
@@ -4953,6 +4956,10 @@ class MusicService :
         lastPresenceToken = null
 
         val stopMusicOnTaskClearEnabled = dataStore.get(StopMusicOnTaskClearKey, false)
+        val isTvClient = packageName.startsWith("com.nikhil.yt.tv")
+        // Closing the phone UI releases its Connect attachment even if local audio
+        // is allowed to continue as a background service by the user's settings.
+        if (!isTvClient) handoverController.prepareForTaskRemoval()
 
         try {
             val state = togetherSessionState.value
@@ -4973,13 +4980,9 @@ class MusicService :
                 }
 
                 if (stopMusicOnTaskClearEnabled) {
-                    if (shouldDetachConnectOnTaskRemoved(
-                            isTv = packageName.startsWith("com.nikhil.yt.tv"),
-                            hasRemoteRenderer = handoverController.selected.value != null,
-                        )) {
-                        // Local app cleanup must not forward Clear to an independently playing TV.
-                        handoverController.disconnect()
-                    }
+                    // Detach before clearing the local player, including when this phone was
+                    // the renderer. The TV must retain its last checkpoint and playback ownership.
+                    if (isTvClient) handoverController.prepareForTaskRemoval()
                     if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
                         runBlocking { saveQueueToDisk() }
                     }

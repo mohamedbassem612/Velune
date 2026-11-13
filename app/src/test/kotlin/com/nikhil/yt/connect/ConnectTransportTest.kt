@@ -41,6 +41,34 @@ class ConnectTransportTest {
     private val phone by lazy { credentials() }
     private val tv by lazy { credentials() }
 
+    @Test fun localDevicesConnectAndReconnectWithoutOpeningPairing() = runBlocking {
+        val ap = Pins(); val bp = Pins()
+        val a = ConnectTransport(phone, ap, localNetworkAccess = true)
+        val b = ConnectTransport(tv, bp, localNetworkAccess = true)
+        val listener = b.server()
+        try {
+            repeat(2) {
+                val server = async(Dispatchers.IO) {
+                    val socket = listener.accept() as SSLSocket
+                    try { b.authorize(socket, true) } catch (e: Exception) { socket.close(); throw e }
+                }
+                val client = async(Dispatchers.IO) {
+                    val socket = a.connect("127.0.0.1", listener.localPort, tv.id, false)
+                    try { a.authorize(socket, false) } catch (e: Exception) { socket.close(); throw e }
+                }
+                val left = withTimeout(15_000) { client.await() }
+                val right = withTimeout(15_000) { server.await() }
+                try {
+                    assertNull(a.pairing.value); assertNull(b.pairing.value)
+                    assertFalse(a.pairingOpen.value); assertFalse(b.pairingOpen.value)
+                    left.write(JSONObject().put("type", "pause"))
+                    assertEquals("pause", right.read()!!.getString("type"))
+                    assertTrue(ap.contains(tv.id)); assertTrue(bp.contains(phone.id))
+                } finally { left.close(); right.close() }
+            }
+        } finally { listener.close() }
+    }
+
     @Test fun unknownPeerCannotSendCommandsWithPairingClosed() = runBlocking {
         val a = ConnectTransport(phone, Pins()); val b = ConnectTransport(tv, Pins())
         val listener = b.server()

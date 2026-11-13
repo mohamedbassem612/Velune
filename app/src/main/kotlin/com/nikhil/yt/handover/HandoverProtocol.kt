@@ -44,6 +44,8 @@ internal fun HandoverPlayback.toSessionJson(includeQueue: Boolean = true) = JSON
     put("playing", playing); put("playbackState", playbackState)
     put("queueTitle", queueTitle); put("repeat", repeatMode); put("shuffle", shuffle); put("speed", speed)
     put("song", song?.toHandoverJson())
+    put("deviceVolume", JSONObject().put("level", deviceVolume.level).put("min", deviceVolume.min)
+        .put("max", deviceVolume.max).put("muted", deviceVolume.muted).put("fixed", deviceVolume.fixed))
     if (includeQueue) {
         put("queue", JSONArray(queue.map { it.toHandoverJson() }))
         put("order", JSONArray(order))
@@ -70,6 +72,12 @@ internal fun JSONObject.sessionState(base: HandoverPlayback? = null): HandoverPl
         sessionId = optString("sessionId"), rendererId = optString("rendererId"),
         epoch = optLong("epoch"), revision = optLong("revision"), queueRevision = optLong("queueRevision"),
         playbackState = optInt("playbackState", 3),
+        deviceVolume = optJSONObject("deviceVolume")?.let {
+            val min = it.optInt("min").coerceAtLeast(0)
+            val max = it.optInt("max").coerceAtLeast(min)
+            HandoverVolume(it.optInt("level").coerceIn(min, max), min, max,
+                it.optBoolean("muted"), it.optBoolean("fixed"))
+        } ?: base?.deviceVolume ?: HandoverVolume(),
     )
 }
 
@@ -83,3 +91,11 @@ internal fun playbackOrder(player: androidx.media3.common.Player): List<Int> {
     }
     return order
 }
+
+/** Release acknowledgement must carry the session envelope, not only the player snapshot. */
+internal fun HandoverPlayback.releaseAcknowledgement(transferId: String, snapshot: HandoverPlayback) =
+    JSONObject().put("type", "released").put("sessionId", sessionId).put("epoch", epoch)
+        .put("transferId", transferId).put("state", snapshot.toSessionJson())
+
+internal fun HandoverPlayback.acceptsEnvelope(message: JSONObject): Boolean =
+    message.optString("sessionId") == sessionId && message.optLong("epoch") == epoch

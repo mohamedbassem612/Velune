@@ -1,14 +1,28 @@
+# Current LAN behavior (2026-11-13)
+
+The app now uses protocol 4: selecting a discovered TV connects over TLS without
+PIN entry, approval, or a pairing window. Local/private/link-local peers are admitted;
+the selected TV certificate must still match its discovery identity. Protocol 3
+manual pairing remains a transport test fixture only, not the app's connection mode.
+Both clients must be updated together. Saved identities are remembered automatically,
+not presented as an access-control list in the device picker.
+
+An explicit selection carries startPlayback once: a nonempty local phone queue becomes
+the session source and the existing prepare/release/commit handshake moves it to TV.
+Background reconnect attaches to the current TV session without importing stale phone
+state. Selecting an already attached TV transfers the current session to TV.
+No Cast, Together, cloud service, release publication, or account-token transfer is involved.
+
+The sections below preserve the original protocol 3 design notes and later fixes.
+They are historical; the protocol 4 behavior above and the final sections below
+reflect the current app.
+
 # Velune Connect architecture and implementation record
 
-## Scope and audit (2026-11-11)
+## Historical audit (2026-11-11)
 
-Work remains on `tv` at base `e6103ea`. Existing uncommitted mobile-only Together
-changes and the session report are preserved. A pre-Connect patch and copies of
-previously untracked files are in `/workspace/scratch/velune-connect-baseline`.
-No commits, publishing, installation, cloud backend or changes to main are authorized.
-
-Audit: Handover already has queue replication, a TV coordinator, renderer epochs,
-queue revisions and a ForwardingPlayer facade. Its protocol 2 uses plaintext TCP,
+At the original `e6103ea` base, Handover already had queue replication,
+a TV coordinator, renderer epochs, queue revisions and a ForwardingPlayer facade. Its protocol 2 uses plaintext TCP,
 an NSD bearer token, name-based reconnect, immediate ownership transfer and no
 readiness acknowledgement. It does not persist coordinator authority. LocalLibrarySync
 has versioned likes and playlist tombstones, ordered playlist contents and deduplicated
@@ -195,9 +209,11 @@ not clear them to resolve connectivity issues. There is no account-token migrati
 
 ## Validation ledger and reproducible commands
 
-The project explicitly uses `testBuildType = "release"`; Debug unit/Android test
-task names do not exist. Initial attempts using those names failed before task
-execution. The initial Gradle wrapper download failed, then was recovered by using
+The original test setup targeted Release. The current Gradle setup defaults to
+Release, and `-PconnectTestBuildType=debug` targets an installed Debug APK for
+Android instrumentation. Initial attempts using Debug tasks without that override
+failed before task execution. The initial Gradle wrapper download failed, then
+was recovered by using
 the inherited proxy with a checksum-verified Gradle 9.4.0. User-local JDK 21 and
 Android SDK 36/build tools were prepared; the JDK uses the environment's CA trust.
 No network verification was disabled. An initial build raced an edit to the Room
@@ -318,8 +334,90 @@ Recheck the patch if you make additional changes before rollback. Do not clear
 user data or reset the branch as a rollback shortcut. Device journal downgrade
 cautions in phase 3 still apply if these changes are deployed later.
 
-Final branch/ref checks: `tv` remains at `e6103ea`, `main` remains at `05e6c98`.
-All implementation changes are uncommitted. The original Arabic session report
-was compared byte-for-byte with its pre-Connect copy and is unchanged. No commit,
-push, pull request, release publication, external cloud service or APK installation
-was performed.
+Historical check from the initial audit: `tv` was at `e6103ea` and `main` at
+`05e6c98`. The original Arabic session report was unchanged. This paragraph
+records that audit only; later sections and commits supersede its deployment state.
+
+## Local Android TLS correction — 2026-11-13
+
+Real phone-to-TV testing exposed a Conscrypt/Android Keystore compatibility issue:
+the SHARP Android 11 TV rejected `RSA/ECB/NoPadding` during TLS signing with
+`Incompatible padding mode`. The original signing-only key specification did not
+authorize the raw digest/padding operations used by the platform TLS provider.
+The JVM tests use software keys and could not detect that Android authorization
+failure.
+
+Connect RSA identities now authorize `DIGEST_NONE` and
+`ENCRYPTION_PADDING_NONE` in addition to the existing SHA digests and PKCS#1/PSS
+signature padding. Conscrypt still applies the TLS signature padding; TLS peer
+authentication and key identity checks remain enforced. Bilateral approval applies
+only to the historical protocol 3 test mode; active LAN protocol 4 admits local peers
+without a code. See
+[Android KeyGenParameterSpec.Builder](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder)
+and [Conscrypt's explanation](https://github.com/google/conscrypt/issues/1201).
+
+The default identity alias is now `velune.connect.identity.v2`, since existing
+non-exportable v1 keys cannot have their authorizations changed in place. The v1
+key and stored pins are retained. Upgraded devices must pair their new identities;
+an identity change does not inherit trust by display name. Application data is
+retained, and no cleartext or unpinned fallback was added.
+
+`-PconnectTestBuildType=debug` enables building the existing Android
+instrumentation test against the installed Debug package; the default remains
+Release. The test now also checks the required key authorizations, non-exportable
+private-key encoding and identity reuse. On the actual SHARP TV, this Android
+test passed (`OK (1 test)`), exercising dual approval, encrypted frame exchange,
+persisted trust and trusted reconnection. This is executed Android Keystore/TLS
+coverage, distinct from the earlier JVM-only results. The temporary test APK was
+removed afterward. These corrections were first validated locally before branch publication.
+
+## Device picker and source-release correction (2026-11-13)
+
+The mobile picker is now a bottom sheet with This phone and discovered TV names.
+Choosing a row switches output; the current output is marked and a pending target
+shows progress. Transfer buttons, pairing controls, library diagnostics and trust
+management are not shown in this picker. TV discovery uses the Android device name.
+
+A phone's `released` response previously omitted the top-level sessionId and epoch.
+The coordinator rejected it through validSession(), then timed out waiting for a
+release that had already occurred. The response now uses the active session envelope
+and includes the final source playback snapshot. HandoverReleaseTest exercises the
+wire round trip, coordinator acceptance, final-position commit and stale rejection.
+
+Inactive mirrors stop their local decoder instead of seeking it on each remote
+progress frame. Destination buffering still explicitly prepares the local player.
+An independent ping keeps the channel alive during destination preparation, when
+normal playback publishing is deliberately frozen. Transfer progress/failure is
+reported to the phone; the selected device changes only after ownership commits.
+
+## Approved disconnection policy (2026-11-13)
+
+- Closing or disconnecting a phone does not pause an independently rendering TV.
+- A paused TV remains paused; Play on its remote resumes without a phone.
+- If a phone renderer disappears, the TV freezes the last received checkpoint. An
+  explicit TV Play (or queue-play command) claims a new epoch and resumes locally.
+- If the TV disappears, the phone shows it offline and freezes the remote progress.
+  Choosing This phone explicitly detaches auto-reconnect and restores the retained
+  checkpoint locally, preserving the previous play/pause intent.
+- Automatic reconnect follows the TV's current session, without importing an old
+  phone queue. An explicit local fallback disables that automatic reconnect.
+- Transfer failure before release leaves the source alone. After an ambiguous
+  release the source stays paused; disconnection clears preparation/release locks
+  so the user can explicitly resume rather than remaining permanently frozen.
+- TV restart restores its queue and position paused, with a new ownership epoch.
+
+HandoverDisconnectionTest covers checkpoint/ownership transitions, controller loss,
+paused TV resume, stale state rejection and restart. ConnectTransferTest covers
+failure before and after source release. Actual device interaction remains with
+ the user; no automatic playback testing is performed on their devices.
+
+## TV volume through Android media controls
+
+When a connected TV is the renderer, the phone's HandoverPlayer exposes a remote
+DeviceInfo with the TV's real STREAM_MUSIC range. Media3 then supplies Android's
+remote VolumeProvider, routing hardware volume keys/system volume controls through
+Connect. Relative commands are applied against the TV's current system volume,
+not a cached phone value. Absolute set and mute commands use the same channel.
+The TV publishes its actual volume in session updates, including remote-control
+changes. Returning to phone playback or losing the TV connection restores the
+local Android device volume route. Player gain/normalization is unchanged.

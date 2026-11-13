@@ -18,7 +18,7 @@ if (localPropertiesFile.exists()) {
 android {
     namespace = "com.nikhil.yt"
     compileSdk = 36
-    testBuildType = "release"
+    testBuildType = providers.gradleProperty("connectTestBuildType").orElse("release").get()
 
     defaultConfig {
     applicationId = "com.nikhil.yt"

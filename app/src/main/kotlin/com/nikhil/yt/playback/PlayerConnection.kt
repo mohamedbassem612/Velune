@@ -88,6 +88,7 @@ class PlayerConnection(
     val queueRestoreCompleted = service.queueRestoreCompleted
 
     init {
+        service.handoverController.resumeFromUi()
         player.addListener(this)
         scope.launch {
             combine(service.handoverController.selected, service.handoverController.playback) { target, remote ->

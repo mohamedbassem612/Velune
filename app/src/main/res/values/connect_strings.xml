@@ -1,6 +1,6 @@
 <resources>
     <string name="connect_title" translatable="false">Velune Connect</string>
-    <string name="connect_library_notice">Paired library mirror — pairing does not sign this device into your Google account. Account-restricted music needs separate authorization on the playback device.</string>
+    <string name="connect_library_notice">Playback and library sync over your local network.</string>
     <string name="connect_connected">Device connected</string>
     <string name="connect_disconnected">No device connected</string>
     <string name="connect_audio_here">Audio renderer: this device</string>
@@ -14,10 +14,10 @@
     <string name="connect_peer">Connected: %1$s</string>
     <string name="connect_tv_independent">This TV streams independently while it is the audio renderer. A phone connection is not required to keep listening.</string>
     <string name="connect_available">Available devices</string>
-    <string name="connect_searching">Looking for Velune TV on your Wi-Fi. Open pairing on the TV for a new connection.</string>
+    <string name="connect_searching">Looking for Velune TV on your Wi-Fi. Keep Velune open on the TV.</string>
     <string name="connect_transfer_tv">Transfer playback to TV</string>
     <string name="connect_transfer_phone">Transfer playback to this phone</string>
-    <string name="connect_disconnect">Disconnect (keep trust)</string>
+    <string name="connect_disconnect">Disconnect</string>
     <string name="connect_compare">Compare with %1$s:\n%2$s</string>
     <string name="connect_consent">Approve only if the code matches on both screens. This grants persistent playback control and bidirectional library sharing, including likes, playlist changes and listening history. Google login credentials are never shared.</string>
     <string name="connect_approve">Codes match — trust device</string>
@@ -29,4 +29,10 @@
     <string name="connect_cancel">Cancel</string>
     <string name="connect_close">Close</string>
     <string name="connect_transferring">Transferring playback…</string>
+    <string name="connect_lan_ready">Ready. Select this TV from Velune on your phone on the same Wi-Fi.</string>
+    <string name="connect_devices">Devices</string>
+    <string name="connect_this_phone">This phone</string>
+    <string name="connect_current_device">Current device</string>
+    <string name="connect_transfer_failed">Could not switch devices. Try again.</string>
+    <string name="connect_device_offline">Device offline</string>
 </resources>

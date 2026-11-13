@@ -1,5 +1,5 @@
 <resources>
-    <string name="connect_library_notice">نسخة متزامنة من المكتبة — الاقتران لا يسجّل هذا الجهاز في حساب Google. الموسيقى المقيّدة بالحساب تحتاج تفويضًا مستقلًا على جهاز التشغيل.</string>
+    <string name="connect_library_notice">تشغيل ومزامنة المكتبة عبر الشبكة المحلية.</string>
     <string name="connect_connected">الجهاز متصل</string>
     <string name="connect_disconnected">لا يوجد جهاز متصل</string>
     <string name="connect_audio_here">الصوت يعمل على هذا الجهاز</string>
@@ -13,10 +13,10 @@
     <string name="connect_peer">متصل: %1$s</string>
     <string name="connect_tv_independent">التلفزيون يشغّل الموسيقى بشكل مستقل عندما يكون جهاز إخراج الصوت، ولا يحتاج لبقاء الموبايل متصلًا.</string>
     <string name="connect_available">الأجهزة المتاحة</string>
-    <string name="connect_searching">نبحث عن Velune TV على شبكة الواي فاي. افتح الاقتران على التلفزيون للاتصال لأول مرة.</string>
+    <string name="connect_searching">نبحث عن Velune TV على شبكة الواي فاي. اترك Velune مفتوحًا على التلفزيون.</string>
     <string name="connect_transfer_tv">نقل التشغيل للتلفزيون</string>
     <string name="connect_transfer_phone">نقل التشغيل لهذا الموبايل</string>
-    <string name="connect_disconnect">قطع الاتصال مع الاحتفاظ بالثقة</string>
+    <string name="connect_disconnect">قطع الاتصال</string>
     <string name="connect_compare">قارن الرمز مع %1$s:\n%2$s</string>
     <string name="connect_consent">وافق فقط إذا تطابق الرمز على الشاشتين. الموافقة تسمح بالتحكم المستمر ومشاركة المكتبة في الاتجاهين، بما فيها المفضلة وتغييرات القوائم وسجل الاستماع. بيانات تسجيل الدخول إلى Google لا تُنقل.</string>
     <string name="connect_approve">الرمزان متطابقان — الوثوق بالجهاز</string>
@@ -28,4 +28,10 @@
     <string name="connect_cancel">إلغاء</string>
     <string name="connect_close">إغلاق</string>
     <string name="connect_transferring">جارٍ نقل التشغيل…</string>
+    <string name="connect_lan_ready">جاهز. اختَر التلفزيون من Velune على موبايلك المتصل بنفس شبكة Wi-Fi.</string>
+    <string name="connect_devices">الأجهزة</string>
+    <string name="connect_this_phone">هذا الهاتف</string>
+    <string name="connect_current_device">الجهاز الحالي</string>
+    <string name="connect_transfer_failed">تعذّر نقل التشغيل. حاول مرة أخرى.</string>
+    <string name="connect_device_offline">الجهاز غير متصل</string>
 </resources>
