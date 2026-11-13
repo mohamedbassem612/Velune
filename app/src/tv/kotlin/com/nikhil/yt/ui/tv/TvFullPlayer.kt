@@ -202,7 +202,12 @@ internal fun TvFullPlayer(connection: PlayerConnection, onClose: () -> Unit, onN
     }.focusRequester(idleFocus).focusable()) {
         // This view owns the flag only while this screen is mounted, including paused playback.
         AndroidView(factory = { View(it).apply { keepScreenOn = true } }, modifier = Modifier.size(1.dp))
-        TvArtistBackdrop(background)
+        // Prefer artist photography, but keep the player from going black when
+        // every artist-photo source fails by falling back to the album artwork.
+        TvArtistBackdrop(
+            background,
+            track?.thumbnailUrl ?: connection.player.currentMediaItem?.mediaMetadata?.artworkUri?.toString(),
+        )
         AnimatedVisibility(controlsVisible && panel == null, modifier = Modifier.align(Alignment.TopStart),
             enter = fadeIn(tween(450)) + slideInVertically(tween(450)) { -it / 5 },
             exit = fadeOut(tween(350)) + slideOutVertically(tween(450)) { -it / 5 }) {
@@ -316,10 +321,11 @@ private fun TvUpNextCard(item: MediaItem, modifier: Modifier = Modifier, onFocus
 }
 
 @Composable
-private fun TvArtistBackdrop(url: String?) {
-    if (url == null) return
+private fun TvArtistBackdrop(url: String?, fallbackUrl: String?) {
+    val displayUrl = url ?: fallbackUrl
+    if (displayUrl == null) return
     Box(Modifier.fillMaxSize()) {
-        Crossfade(url, animationSpec = tween(900), modifier = Modifier.align(Alignment.TopEnd).fillMaxWidth(.82f).fillMaxHeight(.86f), label = "artist photo") { photo ->
+        Crossfade(displayUrl, animationSpec = tween(900), modifier = Modifier.align(Alignment.TopEnd).fillMaxWidth(.82f).fillMaxHeight(.86f), label = "artist photo") { photo ->
             AsyncImage(photo, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .73f)
         }
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(colorStops = arrayOf(0f to Color.Black, .28f to Color.Black.copy(alpha = .97f), .62f to Color.Black.copy(alpha = .64f), 1f to Color.Black.copy(alpha = .1f)))))
