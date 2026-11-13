@@ -40,4 +40,6 @@
     <string name="tv_language_arabic">العربية</string>
     <string name="tv_language_selected">Selected</string>
     <string name="tv_language_choose">Select</string>
+    <string name="tv_open_player">Open player</string>
+    <string name="tv_up_next">Up next</string>
 </resources>

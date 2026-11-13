@@ -34,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.C
 import coil3.compose.AsyncImage
 import com.nikhil.yt.R
@@ -45,7 +47,6 @@ import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.PlayerConnection
 import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.playback.queues.YouTubeQueue
-import com.nikhil.yt.ui.theme.VeluneTheme
 import com.nikhil.yt.viewmodels.HomeViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -56,7 +57,8 @@ fun TvApp(
     home: HomeViewModel = hiltViewModel(),
     search: TvSearchViewModel = hiltViewModel(),
 ) {
-    var page by rememberSaveable { mutableStateOf(TvPage.Home) }
+    var fullPlayer by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf(TvPage.Home) }
     var showPhoneConnection by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var librarySelection by rememberSaveable { mutableStateOf<String?>(null) }
@@ -94,7 +96,10 @@ fun TvApp(
     val currentRail = navigation.getValue(page)
     fun play(songs: List<MediaMetadata>, selected: MediaMetadata) {
         val index = songs.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
-        connection?.playQueue(ListQueue(items = songs.map { it.toMediaItem() }, startIndex = index))
+        connection?.let {
+            it.playQueue(ListQueue(items = songs.map { it.toMediaItem() }, startIndex = index))
+            fullPlayer = true
+        }
     }
     fun submitSearch() {
         if (query.isBlank()) return
@@ -102,8 +107,13 @@ fun TvApp(
         search.search(query)
     }
 
-    LaunchedEffect(Unit) { navigation.getValue(TvPage.Home).requestFocus() }
-    BackHandler(enabled = !railFocused || page != TvPage.Home || showPhoneConnection) {
+    LaunchedEffect(fullPlayer) { if (!fullPlayer) currentRail.requestFocus() }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        page = TvPage.Home
+        fullPlayer = false
+        showPhoneConnection = false
+    }
+    BackHandler(enabled = !fullPlayer && (!railFocused || page != TvPage.Home || showPhoneConnection)) {
         keyboard?.hide()
         when {
             page == TvPage.Settings && showPhoneConnection -> { showPhoneConnection = false; currentRail.requestFocus() }
@@ -112,7 +122,7 @@ fun TvApp(
         }
     }
 
-    VeluneTheme(darkTheme = true, pureBlack = true) {
+    TvAmoledTheme {
         Surface(Modifier.fillMaxSize(), color = TvBackground, contentColor = Color.White) {
             Box {
                 // The artwork stays behind the shelves and fades into the fixed left rail.
@@ -129,7 +139,11 @@ fun TvApp(
                         colorStops = arrayOf(0f to TvBackground.copy(alpha = .08f), .3f to TvBackground.copy(alpha = .24f), .72f to TvBackground.copy(alpha = .94f), 1f to TvBackground),
                     )))
                 }
-                Row(Modifier.fillMaxSize()) {
+                if (fullPlayer && connection != null) {
+                    TvFullPlayer(connection, onClose = { fullPlayer = false }, onNavigate = {
+                        page = it; fullPlayer = false
+                    })
+                } else Row(Modifier.fillMaxSize()) {
                     TvNavigationRail(
                         page, navigation,
                         contentFocus,
@@ -145,7 +159,7 @@ fun TvApp(
                                     onSearch = { page = TvPage.Search },
                                     onFocusTrack = { focusedSong = it },
                                     onPlay = ::play,
-                                    onRadio = { connection?.playQueue(YouTubeQueue.radio(it)) },
+                                    onRadio = { connection?.playQueue(YouTubeQueue.radio(it)); if (connection != null) fullPlayer = true },
                                 )
                                 TvPage.Search -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
                                     Text(stringResource(R.string.search), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
@@ -200,7 +214,7 @@ fun TvApp(
                                 }
                             }
                         }
-                        TvPlayer(connection)
+                        TvPlayer(connection, onExpand = { fullPlayer = true })
                     }
                 }
             }
@@ -234,7 +248,7 @@ private fun TvSongGrid(
 }
 
 @Composable
-private fun TvPlayer(connection: PlayerConnection?) {
+private fun TvPlayer(connection: PlayerConnection?, onExpand: () -> Unit) {
     if (connection == null) {
         Text(stringResource(R.string.tv_connection_wait), Modifier.padding(24.dp), color = Color.White.copy(alpha = .5f))
         return
@@ -266,7 +280,7 @@ private fun TvPlayer(connection: PlayerConnection?) {
             )
             if (error != null) Text(stringResource(R.string.tv_playback_failed), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xFF1D222B))) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(7.dp)).background(TvSurface)) {
                     Icon(painterResource(R.drawable.music_note), null, Modifier.align(Alignment.Center).size(22.dp), tint = Color.White.copy(alpha = .2f))
                     AsyncImage(track?.thumbnailUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 }
@@ -274,6 +288,7 @@ private fun TvPlayer(connection: PlayerConnection?) {
                     Text(track?.title ?: stringResource(R.string.tv_no_track), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White, fontSize = 14.sp)
                     Text(track?.artists?.joinToString { it.name }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White.copy(alpha = .5f), fontSize = 11.sp)
                 }
+                TvPlayerAction(R.drawable.expand_less, stringResource(R.string.tv_open_player), track != null, onClick = onExpand)
                 TvPlayerAction(R.drawable.skip_previous, stringResource(R.string.tv_previous), track != null && previous) { connection.seekToPrevious() }
                 TvPlayerAction(if (playing) R.drawable.pause else R.drawable.play, stringResource(if (playing) R.string.tv_pause else R.string.play), track != null, prominent = true) { connection.player.togglePlayPause() }
                 TvPlayerAction(R.drawable.skip_next, stringResource(R.string.tv_next), track != null && next) { connection.seekToNext() }
@@ -284,16 +299,16 @@ private fun TvPlayer(connection: PlayerConnection?) {
 }
 
 @Composable
-private fun TvPlayerAction(icon: Int, label: String, enabled: Boolean, prominent: Boolean = false, onClick: () -> Unit) {
+internal fun TvPlayerAction(icon: Int, label: String, enabled: Boolean, prominent: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick, enabled = enabled,
-        modifier = Modifier.size(42.dp).onFocusChanged { focused = it.isFocused },
+        modifier = modifier.size(42.dp).onFocusChanged { focused = it.isFocused },
         color = if (prominent || focused) Color.White else Color.Transparent,
         shape = RoundedCornerShape(50), border = BorderStroke(2.dp, if (focused) TvAccent else Color.Transparent),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), label, Modifier.size(23.dp), tint = if (!enabled) Color(0xFF50545D) else if (prominent || focused) Color.Black else Color.White)
+            Icon(painterResource(icon), label, Modifier.size(23.dp), tint = if (!enabled) Color(0xFF505050) else if (prominent || focused) Color.Black else Color.White)
         }
     }
 }
@@ -306,7 +321,7 @@ internal fun TvButton(label: String, onClick: () -> Unit, modifier: Modifier = M
         modifier = modifier.onFocusChanged { focused = it.isFocused }.heightIn(min = 40.dp),
         border = BorderStroke(2.dp, if (focused) TvAccent else Color.Transparent),
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected || focused) Color.White else Color(0xFF242831),
+            containerColor = if (selected || focused) Color.White else TvSurface,
             contentColor = if (selected || focused) Color.Black else Color.White,
         ),
     ) { Text(label, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }

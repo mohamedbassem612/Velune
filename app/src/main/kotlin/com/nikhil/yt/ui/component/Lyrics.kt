@@ -423,6 +423,9 @@ private fun KaraokeWord(
 fun Lyrics(
     sliderPositionProvider: () -> Long?,
     modifier: Modifier = Modifier,
+    keepScreenOn: Boolean = true,
+    contentColor: Color? = null,
+    showResumeAutoscrollButton: Boolean = true,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val menuState = LocalMenuState.current
@@ -430,11 +433,11 @@ fun Lyrics(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
 
-    DisposableEffect(Unit) {
+    DisposableEffect(keepScreenOn) {
         val window = (context as? android.app.Activity)?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (keepScreenOn) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (keepScreenOn) window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -571,8 +574,8 @@ fun Lyrics(
             !lyrics.isNullOrEmpty() && (lyrics.startsWith("[") || isTtml(lyrics))
         }
 
-    val lyricsBaseColor = if (useDarkTheme || playerBackground != PlayerBackgroundStyle.DEFAULT) Color.White else Color.Black
-    val lyricsGlowColor = if (useDarkTheme || playerBackground != PlayerBackgroundStyle.DEFAULT) Color.White else Color.Black
+    val lyricsBaseColor = contentColor ?: if (useDarkTheme || playerBackground != PlayerBackgroundStyle.DEFAULT) Color.White else Color.Black
+    val lyricsGlowColor = lyricsBaseColor
     val textColor = lyricsBaseColor
 
     val wordSyncLeadMs = remember(lyrics) {
@@ -717,7 +720,7 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(currentLineIndex, lastPreviewTime, initialScrollDone) {
+    LaunchedEffect(currentLineIndex, lastPreviewTime, initialScrollDone, isManualScrolling, scrollLyrics) {
 
         fun calculateOffset() = with(density) {
             if (currentLineIndex < 0 || currentLineIndex >= lines.size) return@with 0
@@ -794,10 +797,8 @@ fun Lyrics(
                 val seekCenterIndex = kotlin.math.max(0, currentLineIndex)
                 performSmoothPageScroll(seekCenterIndex, isSeek = true)
             } else if ((lastPreviewTime == 0L || currentLineIndex != previousLineIndex) && scrollLyrics && !isManualScrolling) {
-                if (currentLineIndex != previousLineIndex) {
-                    val centerTargetIndex = kotlin.math.max(0, currentLineIndex)
-                    performSmoothPageScroll(centerTargetIndex)
-                }
+                val centerTargetIndex = kotlin.math.max(0, currentLineIndex)
+                performSmoothPageScroll(centerTargetIndex)
             }
         }
         if(currentLineIndex > 0) {
@@ -979,6 +980,8 @@ fun Lyrics(
                                     }
                                 } else if (isSynced && changeLyrics) {
                                     playerConnection.player.seekTo(item.time)
+                                    isManualScrolling = false
+                                    lastPreviewTime = 0L
                                     scope.launch {
                                         val itemInfo = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
                                         if (itemInfo != null) {
@@ -2098,7 +2101,7 @@ fun Lyrics(
         }
 
             AnimatedVisibility(
-                visible = isManualScrolling && scrollLyrics && !isSelectionModeActive,
+                visible = showResumeAutoscrollButton && isManualScrolling && scrollLyrics && !isSelectionModeActive,
                 enter = slideInVertically(
                     animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
                     initialOffsetY = { it * 2 }

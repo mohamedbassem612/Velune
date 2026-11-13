@@ -98,7 +98,7 @@ private fun TvSettingsTile(title: String, description: String, modifier: Modifie
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(.86f).onFocusChanged { focused = it.isFocused },
-        color = if (focused) Color(0xFF272C36) else Color(0xFF151A22),
+        color = if (focused) TvFocusedSurface else TvBackground,
         border = BorderStroke(2.dp, if (focused) Color.White else Color.Transparent),
         shape = RoundedCornerShape(12.dp),
     ) {

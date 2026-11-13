@@ -39,7 +39,7 @@ internal fun TvNavigationRail(
 ) {
     Surface(
         modifier = Modifier.fillMaxHeight().width(88.dp).onFocusChanged { onRailFocus(it.hasFocus) }.focusGroup(),
-        color = Color(0xFF090C11).copy(alpha = .98f),
+        color = Color.Black,
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 22.dp),
@@ -57,7 +57,7 @@ internal fun TvNavigationRail(
                         .focusProperties { if (selected) right = contentFocus }
                         .onFocusChanged { focused = it.isFocused },
                     shape = RoundedCornerShape(14.dp),
-                    color = when { focused -> Color.White; selected -> Color(0xFF25232C); else -> Color.Transparent },
+                    color = when { focused -> Color.White; selected -> TvSurface; else -> Color.Transparent },
                     border = BorderStroke(2.dp, if (focused) TvAccent else Color.Transparent),
                 ) {
                     Column(
@@ -65,15 +65,15 @@ internal fun TvNavigationRail(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Icon(painterResource(target.icon), null, Modifier.size(23.dp), tint = if (focused) Color.Black else if (selected) Color.White else Color(0xFF81858E))
+                        Icon(painterResource(target.icon), null, Modifier.size(23.dp), tint = if (focused) Color.Black else if (selected) Color.White else Color.White.copy(alpha = .5f))
                         Spacer(Modifier.height(5.dp))
-                        Text(stringResource(target.label), fontSize = 10.sp, color = if (focused) Color.Black else if (selected) Color.White else Color(0xFF81858E), maxLines = 1)
+                        Text(stringResource(target.label), fontSize = 10.sp, color = if (focused) Color.Black else if (selected) Color.White else Color.White.copy(alpha = .5f), maxLines = 1)
                     }
                 }
                 Spacer(Modifier.height(5.dp))
             }
             Spacer(Modifier.weight(1f))
-            Text("VELUNE", color = Color(0xFF666B75), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text("VELUNE", color = Color.White.copy(alpha = .4f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

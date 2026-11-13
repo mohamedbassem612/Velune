@@ -31,9 +31,6 @@ import coil3.compose.AsyncImage
 import com.nikhil.yt.R
 import com.nikhil.yt.models.MediaMetadata
 
-internal val TvBackground = Color(0xFF080B10)
-internal val TvAccent = Color(0xFFF07888)
-
 @Composable
 internal fun TvHomeScreen(
     personal: List<MediaMetadata>,
@@ -190,12 +187,12 @@ internal fun TvTrackCard(
             focused = it.isFocused
             if (it.isFocused) onFocused()
         },
-        color = if (focused) Color(0xFF21252E) else Color(0xFF11151C).copy(alpha = .84f),
+        color = if (focused) TvFocusedSurface else TvBackground,
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(2.dp, if (focused) Color.White else Color.White.copy(alpha = .06f)),
     ) {
         Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Box(Modifier.fillMaxWidth().height(if (radio) 92.dp else 104.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xFF202632))) {
+            Box(Modifier.fillMaxWidth().height(if (radio) 92.dp else 104.dp).clip(RoundedCornerShape(7.dp)).background(TvSurface)) {
                 Icon(painterResource(R.drawable.music_note), null, Modifier.size(32.dp).align(Alignment.Center), tint = Color.White.copy(alpha = .15f))
                 AsyncImage(song.thumbnailUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 if (radio) {

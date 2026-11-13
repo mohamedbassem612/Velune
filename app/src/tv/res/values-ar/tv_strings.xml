@@ -41,4 +41,6 @@
     <string name="tv_language_choose">اختيار</string>
     <string name="hide_explicit">إخفاء المحتوى الصريح</string>
     <string name="loading">جارٍ التحميل…</string>
+    <string name="tv_open_player">فتح المشغّل الكبير</string>
+    <string name="tv_up_next">التالي</string>
 </resources>
