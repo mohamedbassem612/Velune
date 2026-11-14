@@ -43,4 +43,7 @@
     <string name="loading">جارٍ التحميل…</string>
     <string name="tv_open_player">فتح المشغّل الكبير</string>
     <string name="tv_up_next">التالي</string>
+    <string name="tv_connected_to">متصل بـ %1$s</string>
+    <string name="tv_importing_library">بنجهّز مكتبتك على التلفزيون</string>
+    <string name="tv_importing_library_detail">جاري مزامنة الموسيقى وقوائم التشغيل والمفضلة من %1$s</string>
 </resources>

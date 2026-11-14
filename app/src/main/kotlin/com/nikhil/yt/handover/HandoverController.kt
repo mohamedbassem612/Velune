@@ -69,6 +69,8 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     val error = MutableStateFlow<String?>(null)
     val transferStatus = MutableStateFlow<String?>(null)
     val pendingDeviceId = MutableStateFlow<String?>(null)
+    // Only a successfully imported library completes onboarding for this peer identity.
+    val firstLibrarySync = MutableStateFlow<Map<String, String>>(emptyMap())
     val libraryStatus get() = service.localLibrarySync.status
     var applyingState = false
         private set
@@ -87,6 +89,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     private var discovery: NsdManager.DiscoveryListener? = null
     private val found = mutableMapOf<String, HandoverDevice>()
     private val peers = mutableMapOf<String, Peer>()
+    @Volatile private var libraryPeerId: String? = null
     private var clientPeer: Peer? = null
     private var clientJob: Job? = null
     private var target: HandoverDevice? = null
@@ -118,11 +121,21 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             { service.createConnectMediaSource() }, service::exportConnectAssets)
         val commands = ConnectCommandWindow()
         var rendererSequence = -1L
-        val library = ConnectLibraryExchange(service.localLibrarySync) { trust.contains(channel.id) && !isolated }
+        val library = ConnectLibraryExchange(service.localLibrarySync, onReceived = {
+            if (isTv && peers[id] === this) {
+                firstLibrarySync.value = firstLibrarySync.value - id
+            }
+        }, tvPeer = id.takeIf { isTv }, enabled = { !isTv || libraryPeerId == id }) { trust.contains(channel.id) && !isolated }
         fun send(message: JSONObject) {
             if (!outgoing.trySend(message).isSuccess) close()
         }
-        fun close() { media.close(); jobs.cancel(); outgoing.close(); channel.close() }
+        fun close() {
+            media.close()
+            scope.launch {
+                if (peers[id] === this@Peer) firstLibrarySync.value = firstLibrarySync.value - id
+            }
+            jobs.cancel(); outgoing.close(); channel.close()
+        }
         suspend fun writeLoop() = withContext(Dispatchers.IO) {
             try { for (message in outgoing) channel.write(message) }
             catch (e: CancellationException) { throw e }
@@ -805,6 +818,11 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 service.awaitStartupRestore()
                 restoreAuthority()
                 peers.put(channel.id, connection)?.close()
+                if (isTv) {
+                    libraryPeerId = channel.id
+                    firstLibrarySync.value = if (!service.localLibrarySync.ownsConnectLibrary(channel.id))
+                        mapOf(channel.id to channel.name) else emptyMap()
+                }
                 val requestedPlayback = first.optBoolean("startPlayback")
                 val phoneState = first.getJSONObject("state").sessionState()
                 if (requestedPlayback && phoneState.queue.isNotEmpty() && transferJob?.isActive != true) {
@@ -879,6 +897,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 val p = peer
                 if (p != null && peers[p.id] === p) {
                     peers.remove(p.id)
+                    firstLibrarySync.value = firstLibrarySync.value - p.id
                     connectedDevices.value = peers.values.map { ConnectTrustedDevice(it.id, it.channel.name) }
                     connected.value = peers.isNotEmpty()
                     // Losing a phone never pauses a TV renderer or discards its queue.

@@ -42,4 +42,7 @@
     <string name="tv_language_choose">Select</string>
     <string name="tv_open_player">Open player</string>
     <string name="tv_up_next">Up next</string>
+    <string name="tv_connected_to">Connected to %1$s</string>
+    <string name="tv_importing_library">Bringing your library to TV</string>
+    <string name="tv_importing_library_detail">Syncing music, playlists and favorites from %1$s</string>
 </resources>

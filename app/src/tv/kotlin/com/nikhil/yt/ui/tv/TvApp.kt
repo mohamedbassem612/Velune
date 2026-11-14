@@ -78,10 +78,27 @@ fun TvApp(
     val playlists by remember(home.database) { home.database.playlistsByCreateDateAsc() }.collectAsState(initial = emptyList())
     val history by remember(home.database) { home.database.recentEvents(100) }.collectAsState(initial = emptyList())
     val playlistSongs by remember(home.database, librarySelection) { home.database.playlistSongs(librarySelection.orEmpty()) }.collectAsState(initial = emptyList())
+    val libraryOwner = connection?.service?.handoverController?.let { controller ->
+        controller.firstLibrarySync.collectAsState().value
+    }.orEmpty()
+    var changingLibrary by remember { mutableStateOf(false) }
+    LaunchedEffect(libraryOwner) {
+        if (libraryOwner.isNotEmpty()) {
+            changingLibrary = true
+            focusedSong = null
+            librarySelection = null
+        } else if (changingLibrary) {
+            focusedSong = null
+            home.refresh()
+            changingLibrary = false
+        }
+    }
     val activeTrack = connection?.mediaMetadata?.collectAsState()?.value
 
     val recent = history.map { it.song.toMediaMetadata() }.distinctBy { it.id }
-    val personal = quickPicks.orEmpty().map { it.toMediaMetadata() }
+    val hasPhoneLibrary = connection?.service?.localLibrarySync?.hasConnectLibrary() == true
+    val personal = (if (hasPhoneLibrary) likedSongs.asReversed().map { it.toMediaMetadata() } + recent
+        else quickPicks.orEmpty().map { it.toMediaMetadata() })
         .ifEmpty { recent + likedSongs.asReversed().map { it.toMediaMetadata() } }.distinctBy { it.id }.take(24)
     val personalIds = personal.mapTo(mutableSetOf()) { it.id }
     val recommendations = (forYou.orEmpty().map { it.toMediaMetadata() } + suggestions.orEmpty().map { it.toMediaMetadata() } + fallback.orEmpty().map { it.toMediaMetadata() })
@@ -124,97 +141,99 @@ fun TvApp(
 
     TvAmoledTheme {
         Surface(Modifier.fillMaxSize(), color = TvBackground, contentColor = Color.White) {
-            Box {
-                // The artwork stays behind the shelves and fades into the fixed left rail.
-                if (page == TvPage.Home && hero?.thumbnailUrl != null) {
-                    AsyncImage(
-                        hero.thumbnailUrl?.toHighResThumbnail(), null,
-                        Modifier.align(Alignment.TopEnd).fillMaxWidth(.82f).fillMaxHeight(.86f),
-                        contentScale = ContentScale.Crop, alpha = .73f,
-                    )
-                    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
-                        colorStops = arrayOf(0f to TvBackground, .28f to TvBackground.copy(alpha = .97f), .62f to TvBackground.copy(alpha = .64f), 1f to TvBackground.copy(alpha = .1f)),
-                    )))
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                        colorStops = arrayOf(0f to TvBackground.copy(alpha = .08f), .3f to TvBackground.copy(alpha = .24f), .72f to TvBackground.copy(alpha = .94f), 1f to TvBackground),
-                    )))
-                }
-                if (fullPlayer && connection != null) {
-                    TvFullPlayer(connection, onClose = { fullPlayer = false }, onNavigate = {
-                        page = it; fullPlayer = false
-                    })
-                } else Row(Modifier.fillMaxSize()) {
-                    TvNavigationRail(
-                        page, navigation,
-                        contentFocus,
-                        onSelect = { keyboard?.hide(); page = it },
-                        onRailFocus = { railFocused = it },
-                    )
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            when (page) {
-                                TvPage.Home -> TvHomeScreen(
-                                    personal, recommendations, rediscover, recent, hero, homeLoading,
-                                    connection != null, contentFocus, currentRail,
-                                    onSearch = { page = TvPage.Search },
-                                    onFocusTrack = { focusedSong = it },
-                                    onPlay = ::play,
-                                    onRadio = { connection?.playQueue(YouTubeQueue.radio(it)); if (connection != null) fullPlayer = true },
-                                )
-                                TvPage.Search -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
-                                    Text(stringResource(R.string.search), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
-                                    Row(Modifier.padding(horizontal = 28.dp, vertical = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        OutlinedTextField(
-                                            value = query, onValueChange = { query = it },
-                                            modifier = Modifier.weight(1f).focusRequester(contentFocus).focusProperties { left = currentRail },
-                                            label = { Text(stringResource(R.string.tv_search_hint)) }, singleLine = true,
-                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                            keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
+            TvConnectionFeedback(connection) { feedbackModifier ->
+                Box(feedbackModifier.fillMaxSize()) {
+                    // The artwork stays behind the shelves and fades into the fixed left rail.
+                    if (page == TvPage.Home && hero?.thumbnailUrl != null) {
+                        AsyncImage(
+                            hero.thumbnailUrl?.toHighResThumbnail(), null,
+                            Modifier.align(Alignment.TopEnd).fillMaxWidth(.82f).fillMaxHeight(.86f),
+                            contentScale = ContentScale.Crop, alpha = .73f,
+                        )
+                        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
+                            colorStops = arrayOf(0f to TvBackground, .28f to TvBackground.copy(alpha = .97f), .62f to TvBackground.copy(alpha = .64f), 1f to TvBackground.copy(alpha = .1f)),
+                        )))
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                            colorStops = arrayOf(0f to TvBackground.copy(alpha = .08f), .3f to TvBackground.copy(alpha = .24f), .72f to TvBackground.copy(alpha = .94f), 1f to TvBackground),
+                        )))
+                    }
+                    if (fullPlayer && connection != null) {
+                        TvFullPlayer(connection, onClose = { fullPlayer = false }, onNavigate = {
+                            page = it; fullPlayer = false
+                        })
+                    } else Row(Modifier.fillMaxSize()) {
+                        TvNavigationRail(
+                            page, navigation,
+                            contentFocus,
+                            onSelect = { keyboard?.hide(); page = it },
+                            onRailFocus = { railFocused = it },
+                        )
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                                when (page) {
+                                    TvPage.Home -> TvHomeScreen(
+                                        personal, recommendations, rediscover, recent, hero, homeLoading,
+                                        connection != null, contentFocus, currentRail,
+                                        onSearch = { page = TvPage.Search },
+                                        onFocusTrack = { focusedSong = it },
+                                        onPlay = ::play,
+                                        onRadio = { connection?.playQueue(YouTubeQueue.radio(it)); if (connection != null) fullPlayer = true },
+                                    )
+                                    TvPage.Search -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
+                                        Text(stringResource(R.string.search), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
+                                        Row(Modifier.padding(horizontal = 28.dp, vertical = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            OutlinedTextField(
+                                                value = query, onValueChange = { query = it },
+                                                modifier = Modifier.weight(1f).focusRequester(contentFocus).focusProperties { left = currentRail },
+                                                label = { Text(stringResource(R.string.tv_search_hint)) }, singleLine = true,
+                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                                keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
+                                            )
+                                            TvButton(stringResource(R.string.search), { submitSearch() }, enabled = query.isNotBlank())
+                                        }
+                                        TvSongGrid(
+                                            songs = searchState.songs, ready = connection != null, loading = searchState.loading,
+                                            message = stringResource(when {
+                                                searchState.failed -> R.string.tv_search_failed
+                                                searchState.submitted -> R.string.no_results_found
+                                                else -> R.string.tv_search_hint
+                                            }),
+                                            railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(searchState.songs, it) },
                                         )
-                                        TvButton(stringResource(R.string.search), { submitSearch() }, enabled = query.isNotBlank())
                                     }
-                                    TvSongGrid(
-                                        songs = searchState.songs, ready = connection != null, loading = searchState.loading,
-                                        message = stringResource(when {
-                                            searchState.failed -> R.string.tv_search_failed
-                                            searchState.submitted -> R.string.no_results_found
-                                            else -> R.string.tv_search_hint
-                                        }),
-                                        railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(searchState.songs, it) },
-                                    )
-                                }
-                                TvPage.Library -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
-                                    Text(stringResource(R.string.filter_library), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
-                                    LazyRow(
-                                        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 18.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    ) {
-                                        item { TvButton(stringResource(R.string.liked_songs), { librarySelection = null }, Modifier.focusRequester(contentFocus).focusProperties { left = currentRail }, selected = librarySelection == null) }
-                                        item { TvButton(stringResource(R.string.history), { librarySelection = "#history" }, selected = librarySelection == "#history") }
-                                        items(playlists, key = { it.id }) { list -> TvButton(list.title, { librarySelection = list.id }, selected = librarySelection == list.id) }
+                                    TvPage.Library -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
+                                        Text(stringResource(R.string.filter_library), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 18.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            item { TvButton(stringResource(R.string.liked_songs), { librarySelection = null }, Modifier.focusRequester(contentFocus).focusProperties { left = currentRail }, selected = librarySelection == null) }
+                                            item { TvButton(stringResource(R.string.history), { librarySelection = "#history" }, selected = librarySelection == "#history") }
+                                            items(playlists, key = { it.id }) { list -> TvButton(list.title, { librarySelection = list.id }, selected = librarySelection == list.id) }
+                                        }
+                                        TvSongGrid(
+                                            songs = librarySongs, ready = connection != null,
+                                            message = stringResource(if (librarySelection == null) R.string.tv_likes_empty else R.string.no_results_found),
+                                            railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(librarySongs, it) },
+                                        )
                                     }
-                                    TvSongGrid(
-                                        songs = librarySongs, ready = connection != null,
-                                        message = stringResource(if (librarySelection == null) R.string.tv_likes_empty else R.string.no_results_found),
-                                        railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(librarySongs, it) },
-                                    )
-                                }
-                                TvPage.Settings -> if (showPhoneConnection) {
-                                    TvPhoneConnection(
-                                        connection, contentFocus, currentRail,
-                                        onBack = { showPhoneConnection = false; currentRail.requestFocus() },
-                                        modifier = Modifier.fillMaxSize().padding(28.dp),
-                                    )
-                                } else {
-                                    TvSettingsScreen(
-                                        contentFocus = contentFocus, railFocus = currentRail,
-                                        onPhoneConnection = { showPhoneConnection = true },
-                                        onRefresh = { home.refresh(); page = TvPage.Home; navigation.getValue(TvPage.Home).requestFocus() },
-                                    )
+                                    TvPage.Settings -> if (showPhoneConnection) {
+                                        TvPhoneConnection(
+                                            connection, contentFocus, currentRail,
+                                            onBack = { showPhoneConnection = false; currentRail.requestFocus() },
+                                            modifier = Modifier.fillMaxSize().padding(28.dp),
+                                        )
+                                    } else {
+                                        TvSettingsScreen(
+                                            contentFocus = contentFocus, railFocus = currentRail,
+                                            onPhoneConnection = { showPhoneConnection = true },
+                                            onRefresh = { home.refresh(); page = TvPage.Home; navigation.getValue(TvPage.Home).requestFocus() },
+                                        )
+                                    }
                                 }
                             }
+                            TvPlayer(connection, onExpand = { fullPlayer = true })
                         }
-                        TvPlayer(connection, onExpand = { fullPlayer = true })
                     }
                 }
             }

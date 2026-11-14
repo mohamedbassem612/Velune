@@ -168,6 +168,7 @@ import com.nikhil.yt.lastfm.LastFM
 import com.nikhil.yt.lyrics.LyricsHelper
 import com.nikhil.yt.lyrics.LyricsPreloadManager
 import com.nikhil.yt.models.PersistPlayerState
+import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.models.PersistQueue
 import com.nikhil.yt.models.withStoredSong
 import com.nikhil.yt.models.toMediaMetadata
@@ -1409,24 +1410,40 @@ class MusicService :
             .onFailure { reportException(it) }
     }
 
-    private suspend fun recoverSong(
+    internal suspend fun recoverSong(
         mediaId: String,
         playbackData: YTPlayerUtils.PlaybackData? = null,
         allowNetwork: Boolean = true,
     ) {
         val song = database.song(mediaId).first()
-        val mediaMetadata = withContext(Dispatchers.Main) {
+        val queueMetadata = withContext(Dispatchers.Main) {
             player.findNextMediaItemById(mediaId)?.metadata
+        }
+        // A phone serving TV autoplay may not have received that queue item yet.
+        // The audio resolver already has its metadata; do not leave an invisible cache entry.
+        val details = playbackData?.videoDetails ?: if (allowNetwork && isOnlineNow() &&
+            ((song?.song?.duration ?: -1) <= 0 && (queueMetadata?.duration ?: -1) <= 0)
+        ) {
+            YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()?.videoDetails
+        } else null
+        val mediaMetadata = queueMetadata ?: song?.toMediaMetadata() ?: details?.let {
+            MediaMetadata(
+                id = mediaId,
+                title = it.title,
+                artists = listOf(MediaMetadata.Artist(it.channelId, it.author)),
+                duration = it.lengthSeconds.toIntOrNull() ?: -1,
+                thumbnailUrl = it.thumbnail.thumbnails.lastOrNull()?.url,
+            )
         } ?: return
-        val duration = song?.song?.duration?.takeIf { it != -1 }
-            ?: mediaMetadata.duration.takeIf { it != -1 }
-            ?: (playbackData?.videoDetails ?: if (allowNetwork && isOnlineNow()) {
-                YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()?.videoDetails
-            } else null)?.lengthSeconds?.toInt()
+        val duration = song?.song?.duration?.takeIf { it > 0 }
+            ?: mediaMetadata.duration.takeIf { it > 0 }
+            ?: details?.lengthSeconds?.toIntOrNull()
             ?: -1
-        database.query {
-            if (song == null) insert(mediaMetadata.copy(duration = duration))
-            else if (song.song.duration == -1) update(song.song.copy(duration = duration))
+        database.withTransaction {
+            // A like may have arrived while resolving metadata. Never write the stale entity.
+            val current = song(mediaId).first()
+            if (current == null) insert(mediaMetadata.copy(duration = duration))
+            else if (current.song.duration <= 0 && duration > 0) update(current.song.copy(duration = duration))
         }
         if (allowNetwork && isOnlineNow() && !database.hasRelatedSongs(mediaId)) {
             val relatedEndpoint =
@@ -1485,15 +1502,17 @@ class MusicService :
     internal suspend fun importConnectAssets(id: String, assets: org.json.JSONObject) {
         val incoming = assets.optJSONObject("metadata")?.handoverSong()?.takeIf { it.id == id }
         if (incoming != null) {
-            val saved = database.getSongById(id)
-            if (saved == null) database.insert(incoming)
-            else database.update(saved, incoming.copy(
-                title = saved.song.title.takeIf { it.isNotBlank() } ?: incoming.title,
-                duration = saved.song.duration.takeIf { it > 0 } ?: incoming.duration,
-                thumbnailUrl = saved.song.thumbnailUrl ?: incoming.thumbnailUrl,
-                artists = saved.toMediaMetadata().artists.takeIf { it.isNotEmpty() } ?: incoming.artists,
-                album = saved.toMediaMetadata().album ?: incoming.album,
-            ))
+            database.withTransaction {
+                val saved = getSongById(id)
+                if (saved == null) insert(incoming)
+                else update(saved, incoming.copy(
+                    title = saved.song.title.takeIf { it.isNotBlank() } ?: incoming.title,
+                    duration = saved.song.duration.takeIf { it > 0 } ?: incoming.duration,
+                    thumbnailUrl = saved.song.thumbnailUrl ?: incoming.thumbnailUrl,
+                    artists = saved.toMediaMetadata().artists.takeIf { it.isNotEmpty() } ?: incoming.artists,
+                    album = saved.toMediaMetadata().album ?: incoming.album,
+                ))
+            }
             incoming.thumbnailUrl?.let { com.nikhil.yt.utils.CoverStore.register(this, id, it) }
         }
         assets.optString("lyrics").takeIf { it.isNotBlank() && it != LyricsEntity.LYRICS_NOT_FOUND }?.let { text ->

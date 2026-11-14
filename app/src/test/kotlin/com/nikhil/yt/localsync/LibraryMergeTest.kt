@@ -9,6 +9,44 @@ class LibraryMergeTest {
     private val song = SyncTrack("song", "Song")
     private val like = SyncLike(song, true, SyncVersion(1, "a"))
 
+    @Test fun changingPhoneReplacesLikesPlaylistsHistoryAndOldDeletionClocks() {
+        val old = LibrarySnapshot(device = "tv", counter = 100,
+            likes = listOf(like.copy(liked = false, version = SyncVersion(100, "old-phone"))),
+            playlists = listOf(SyncPlaylist("old-list", "Old", version = SyncVersion(99, "old-phone"))),
+            history = listOf(SyncHistory(song, "2026-11-09T12:00", 100)))
+        val fresh = LibrarySnapshot(device = "new-phone", counter = 1, likes = listOf(like))
+        val result = LibraryMerge.forConnect(old, fresh, replacing = true)
+        assertEquals("tv", result.device)
+        assertEquals(fresh.likes, result.likes)
+        assertEquals(1L, result.counter)
+        assertTrue(result.playlists.isEmpty())
+        assertTrue(result.history.isEmpty())
+    }
+
+    @Test fun switchingToAnEmptyPhoneClearsThePreviousLibrary() {
+        val old = LibrarySnapshot(device = "tv", counter = 1, likes = listOf(like))
+        assertEquals(LibrarySnapshot(device = "tv"),
+            LibraryMerge.forConnect(old, LibrarySnapshot(device = "empty-phone"), replacing = true))
+    }
+
+    @Test fun reconnectingSamePhoneRetainsTvChanges() {
+        val local = LibrarySnapshot(device = "tv", counter = 2,
+            likes = listOf(like.copy(liked = false, version = SyncVersion(2, "tv"))))
+        val remote = LibrarySnapshot(device = "phone", counter = 1, likes = listOf(like))
+        assertFalse(LibraryMerge.forConnect(local, remote, replacing = false).likes.single().liked)
+    }
+
+    @Test fun returningToPreviousPhoneRestoresOnlyThatPhonesLibrary() {
+        val a = LibrarySnapshot(device = "phone-a", counter = 1, likes = listOf(like))
+        val b = LibrarySnapshot(device = "phone-b", counter = 2,
+            likes = listOf(like.copy(track = SyncTrack("other", "Other"), version = SyncVersion(2, "phone-b"))))
+        val tv = LibrarySnapshot(device = "tv")
+        val withA = LibraryMerge.forConnect(tv, a, replacing = true)
+        val withB = LibraryMerge.forConnect(withA, b, replacing = true)
+        val backToA = LibraryMerge.forConnect(withB, a, replacing = true)
+        assertEquals(listOf("song"), backToA.likes.map { it.track.id })
+    }
+
     @Test fun pairingLinkKeepsExplicitLibraryOptIn() {
         val info = TogetherJoinInfo("192.168.1.3", 42117, "session", "key", syncLibrary = true)
         assertEquals(info, TogetherLink.decode(info.toDeepLink()))
