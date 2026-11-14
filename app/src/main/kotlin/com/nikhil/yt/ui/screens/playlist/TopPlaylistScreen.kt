@@ -724,7 +724,7 @@ fun TopPlaylistScreen(
                     ) { index, songWrapper ->
                         SongListItem(
                             song = songWrapper.item,
-                            albumIndex = index + 1,
+
                             isActive = songWrapper.item.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
                             showInLibraryIcon = true,

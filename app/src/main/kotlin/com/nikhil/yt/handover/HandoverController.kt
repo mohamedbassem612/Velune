@@ -112,18 +112,70 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         val outgoing = Channel<JSONObject>(64)
         var sentQueueRevision = -1L
         var sentSessionId = ""
+        var mediaVersion = 0
+        var assetVersion = 0
+        val media = ConnectMedia(work, ::send, service::offlinePlayable,
+            { service.createConnectMediaSource() }, service::exportConnectAssets)
         val commands = ConnectCommandWindow()
         var rendererSequence = -1L
         val library = ConnectLibraryExchange(service.localLibrarySync) { trust.contains(channel.id) && !isolated }
         fun send(message: JSONObject) {
             if (!outgoing.trySend(message).isSuccess) close()
         }
-        fun close() { jobs.cancel(); outgoing.close(); channel.close() }
+        fun close() { media.close(); jobs.cancel(); outgoing.close(); channel.close() }
         suspend fun writeLoop() = withContext(Dispatchers.IO) {
             try { for (message in outgoing) channel.write(message) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { error.value = e.message ?: "Connect transport interrupted" }
             finally { channel.close() }
+        }
+    }
+
+    private val assetMutex = kotlinx.coroutines.sync.Mutex()
+    private val assetResults = mutableMapOf<String, Pair<Long, JSONObject>>()
+
+    private suspend fun fetchAssets(id: String): JSONObject? {
+        assetMutex.lock()
+        try {
+            val providers = withContext(Dispatchers.Main) {
+                if (closing || isolated) emptyList() else peers.values.filter { it.assetVersion == 1 }.map { it.media }
+            }
+            if (providers.isEmpty()) return null
+            val key = providers.joinToString { System.identityHashCode(it).toString() } + ":" + id
+            assetResults[key]?.takeIf { SystemClock.elapsedRealtime() - it.first < 30_000 }?.let { return it.second }
+            val missing = withContext(Dispatchers.IO) { service.missingConnectAssets(id) }
+            if (missing.isEmpty()) return JSONObject()
+            val combined = JSONObject()
+            for (provider in providers) {
+                try {
+                    val payload = provider.request(JSONObject().put("operation", "assets").put("song", id)
+                        .put("fields", JSONArray(missing.filterNot { combined.has(it) }))).getJSONObject("assets")
+                    for (field in listOf("metadata", "lyrics", "cover")) {
+                        if (!combined.has(field) && payload.has(field)) combined.put(field, payload.get(field))
+                    }
+                    if (missing.all { combined.has(it) }) break
+                } catch (cancel: CancellationException) { throw cancel
+                } catch (_: Exception) { /* Another provider or the normal resolver can supply missing assets. */ }
+            }
+            withContext(Dispatchers.IO) { service.importConnectAssets(id, combined) }
+            combined.remove("cover") // Persisted on disk; do not retain Base64 artwork in TV memory.
+            if (assetResults.size >= 32) assetResults.clear()
+            assetResults[key] = SystemClock.elapsedRealtime() to combined
+            return combined
+        } finally { assetMutex.unlock() }
+    }
+
+    internal val hasMediaProvider get() = isTv && peers.values.any { it.mediaVersion == 1 }
+
+    /** Snapshot peer references on Main; all byte I/O runs on the player loading thread. */
+    internal fun mediaSources(spec: androidx.media3.datasource.DataSpec): List<androidx.media3.datasource.DataSource> {
+        if (!isTv) return emptyList()
+        return ConnectMedia.blocking {
+            val providers = withContext(Dispatchers.Main) {
+                if (closing || isolated) emptyList() else peers.values.filter { it.mediaVersion == 1 }.map { it.media }
+            }
+            if (providers.isEmpty() || service.offlinePlayable(spec.key ?: return@blocking emptyList())) emptyList()
+            else providers.map { it.source(spec, cachedOnly = true) } + providers.map { it.source(spec, cachedOnly = false) }
         }
     }
 
@@ -151,6 +203,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     fun attach() {
         if (attached) return
         attached = true
+        if (isTv) ConnectAssetAccess.fetcher = { fetchAssets(it) }
         service.player.addListener(this)
         scope.launch {
             service.awaitStartupRestore()
@@ -398,7 +451,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                             service.awaitStartupRestore()
                             clientPeer = connection; rendererSequence = 0
                             JSONObject().put("type", "connect").put("state", capture().toSessionJson())
-                                .put("startPlayback", requestPlayback)
+                                .put("startPlayback", requestPlayback).put("mediaVersion", 1).put("assetVersion", 1)
                         }
                         connection.send(hello)
                         heartbeat = launch { while (isActive) { delay(5000); connection.send(JSONObject().put("type", "ping")) } }
@@ -445,6 +498,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     private fun handleClientMessage(peer: Peer, message: JSONObject) {
         if (isolated || !trust.contains(peer.id) || clientPeer !== peer) return
         when (message.optString("type")) {
+            "mediaRequest", "mediaReply" -> peer.media.receive(message)
             "state" -> {
                 val state = message.getJSONObject("state").sessionState(playback.value)
                 val old = playback.value
@@ -744,6 +798,8 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             val first = channel.read() ?: return@withContext
             require(first.optString("type") == "connect")
             val connection = Peer(channel); peer = connection
+            connection.mediaVersion = first.optInt("mediaVersion")
+            connection.assetVersion = first.optInt("assetVersion")
             writer = launch { connection.writeLoop() }
             withContext(Dispatchers.Main) {
                 service.awaitStartupRestore()
@@ -784,6 +840,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                     if (peers[channel.id] !== connection || !trust.contains(channel.id)) return@withContext
                     val owner = authority ?: return@withContext
                     when (message.optString("type")) {
+                        "mediaReply" -> connection.media.receive(message)
                         "rendererState" -> {
                             val sequence = message.getLong("rendererSequence")
                             val frame = message.getJSONObject("state").sessionState(owner.state)
@@ -817,7 +874,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* Unauthenticated sockets never reach a playback or library handler. */ }
         finally {
-            socket.close(); writer?.cancel(); libraryJob?.cancel()
+            peer?.close(); socket.close(); writer?.cancel(); libraryJob?.cancel()
             withContext(NonCancellable + Dispatchers.Main) {
                 val p = peer
                 if (p != null && peers[p.id] === p) {
@@ -845,6 +902,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     fun close() {
         if (closing) return
         closing = true; transport.closePairing()
+        if (isTv) ConnectAssetAccess.fetcher = null
         if (attached) service.player.removeListener(this)
         runCatching { persistAuthority(true) }
         peers.values.toList().forEach { it.close() }; clientPeer?.close()

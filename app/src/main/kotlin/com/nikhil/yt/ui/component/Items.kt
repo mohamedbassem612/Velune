@@ -322,6 +322,7 @@ fun SongListItem(
             thumbnailContent = {
                 ItemThumbnail(
                     thumbnailUrl = song.song.thumbnailUrl,
+                    songId = song.id,
                     albumIndex = albumIndex,
                     isSelected = isSelected,
                     isActive = isActive,
@@ -397,6 +398,7 @@ fun SongGridItem(
     thumbnailContent = {
         ItemThumbnail(
             thumbnailUrl = song.song.thumbnailUrl,
+                    songId = song.id,
             isActive = isActive,
             isPlaying = isPlaying,
             shape = RoundedCornerShape(GridThumbnailCornerRadius),
@@ -890,6 +892,7 @@ fun MediaMetadataListItem(
         thumbnailContent = {
             ItemThumbnail(
                 thumbnailUrl = mediaMetadata.thumbnailUrl,
+                songId = mediaMetadata.id,
                 albumIndex = null,
                 isSelected = isSelected,
                 isActive = isActive,
@@ -956,6 +959,7 @@ fun YouTubeListItem(
             thumbnailContent = {
                 ItemThumbnail(
                     thumbnailUrl = item.thumbnail,
+                    songId = (item as? SongItem)?.id,
                     albumIndex = albumIndex,
                     isSelected = isSelected,
                     isActive = isActive,
@@ -1045,6 +1049,7 @@ fun YouTubeGridItem(
 
         ItemThumbnail(
             thumbnailUrl = item.thumbnail,
+                    songId = (item as? SongItem)?.id,
             isActive = isActive,
             isPlaying = isPlaying,
             shape = shape,
@@ -1179,7 +1184,8 @@ fun ItemThumbnail(
     albumIndex: Int? = null,
     isSelected: Boolean = false,
     shouldLoadImage: Boolean = true,
-    thumbnailRatio: Float = 1f
+    thumbnailRatio: Float = 1f,
+    songId: String? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -1221,9 +1227,9 @@ fun ItemThumbnail(
 
         if (albumIndex == null) {
             if (shouldLoadImage) {
-                val request = remember(thumbnailUrl, widthPx, heightPx) {
+                val request = remember(songId, thumbnailUrl, widthPx, heightPx) {
                     ImageRequest.Builder(context)
-                        .data(thumbnailUrl)
+                        .data(songId?.let { com.nikhil.yt.utils.SongCover(it, thumbnailUrl) } ?: thumbnailUrl)
                         .allowHardware(true)
                         .apply {
                             if (widthPx != null && heightPx != null) {
@@ -1311,7 +1317,8 @@ fun LocalThumbnail(
     modifier: Modifier = Modifier,
     showCenterPlay: Boolean = false,
     playButtonVisible: Boolean = false,
-    thumbnailRatio: Float = 1f
+    thumbnailRatio: Float = 1f,
+    songId: String? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -1327,9 +1334,9 @@ fun LocalThumbnail(
         val shouldApplySquareCrop = cropThumbnailToSquare && isYouTubeThumb && kotlin.math.abs(thumbnailRatio - 1f) < 0.001f
         val widthPx = if (maxWidth == Dp.Infinity) null else with(density) { maxWidth.roundToPx().coerceAtLeast(1) }
         val heightPx = if (maxHeight == Dp.Infinity) null else with(density) { maxHeight.roundToPx().coerceAtLeast(1) }
-        val request = remember(thumbnailUrl, widthPx, heightPx) {
+        val request = remember(songId, thumbnailUrl, widthPx, heightPx) {
             ImageRequest.Builder(context)
-                .data(thumbnailUrl)
+                .data(songId?.let { com.nikhil.yt.utils.SongCover(it, thumbnailUrl) } ?: thumbnailUrl)
                 .allowHardware(true)
                 .apply {
                     if (widthPx != null && heightPx != null) {
