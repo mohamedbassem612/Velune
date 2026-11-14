@@ -184,6 +184,12 @@ fun Queue(
     val selectedItems = remember { mutableStateListOf<Timeline.Window>() }
     var selection by remember { mutableStateOf(false) }
 
+    LaunchedEffect(selection, selectedSongs.size) {
+        if (selection && selectedSongs.size == 0) {
+            selection = false
+        }
+    }
+
     val removedFormat = stringResource(R.string.removed_song_from_playlist)
     val undoText = stringResource(R.string.undo)
 

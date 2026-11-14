@@ -203,6 +203,12 @@ fun HistoryScreen(
         wrappedItemsMap.values.flatten()
     }
 
+    LaunchedEffect(selection, allWrappedItems.count { it.isSelected }) {
+        if (selection && allWrappedItems.count { it.isSelected } == 0) {
+            selection = false
+        }
+    }
+
     val lazyListState = rememberLazyListState()
 
     val color1 = MaterialTheme.colorScheme.primary

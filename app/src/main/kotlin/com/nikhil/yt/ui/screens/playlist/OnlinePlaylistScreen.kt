@@ -214,6 +214,12 @@ fun OnlinePlaylistScreen(
         remember(filteredSongs) { filteredSongs.map { item -> ItemWrapper(item) } }
             .toMutableStateList()
 
+    LaunchedEffect(selection, wrappedSongs.count { it.isSelected }) {
+        if (selection && wrappedSongs.count { it.isSelected } == 0) {
+            selection = false
+        }
+    }
+
     val showTopBarTitle by remember { derivedStateOf { lazyListState.firstVisibleItemIndex > 0 } }
 
     // Gradient colors state for playlist cover
