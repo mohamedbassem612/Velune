@@ -118,7 +118,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         var mediaVersion = 0
         var assetVersion = 0
         val media = ConnectMedia(work, ::send, service::offlinePlayable,
-            { service.createConnectMediaSource() }, service::exportConnectAssets, service::cacheConnectSong)
+            { service.createProgressiveConnectSource() }, service::exportConnectAssets, service::cacheConnectSong)
         val commands = ConnectCommandWindow()
         var rendererSequence = -1L
         val library = ConnectLibraryExchange(service.localLibrarySync, onReceived = {

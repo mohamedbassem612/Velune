@@ -4425,7 +4425,7 @@ class MusicService :
             ).setCacheWriteDataSinkFactory(null)
             .setFlags(FLAG_IGNORE_CACHE_ON_ERROR or if (blockOnCache) FLAG_BLOCK_ON_CACHE else 0)
 
-    private val connectCacheLoader by lazy {
+    private val connectCacheLoader: com.nikhil.yt.connect.ConnectCacheLoader by lazy {
         com.nikhil.yt.connect.ConnectCacheLoader({ ioScope }) { id ->
             val started = android.os.SystemClock.elapsedRealtime()
             if (!offlinePlayable(id)) {
@@ -4433,6 +4433,7 @@ class MusicService :
                     chunkSize = CHUNK_LENGTH,
                     contentLength = { database.format(id).first()?.contentLength },
                 ) { position, length ->
+                    connectCacheLoader.awaitTurn(id)
                     val source = createConnectMediaSource()
                     var received = 0L
                     try {
@@ -4459,7 +4460,48 @@ class MusicService :
         }
     }
 
-    internal suspend fun cacheConnectSong(id: String) = connectCacheLoader.prepare(id)
+    internal suspend fun cacheConnectSong(id: String) {
+        if (!offlinePlayable(id)) connectCacheLoader.start(id, prioritize = true)
+    }
+
+    internal fun createProgressiveConnectSource(): DataSource = com.nikhil.yt.connect.ProgressiveCacheSource(
+        chunkSize = CHUNK_LENGTH,
+        awaitRange = { id, position, requested ->
+            val started = android.os.SystemClock.elapsedRealtime()
+            if (mp3Library.playableUri(id) != null) {
+                C.LENGTH_UNSET.toLong()
+            } else {
+                var total = 0L
+                kotlinx.coroutines.withTimeout(120_000L) {
+                    connectCacheLoader.prepareUntil(id) {
+                        if (total <= 0) total = database.format(id).first()?.contentLength?.takeIf { it > 0 }
+                            ?: playerCache.getContentMetadata(id).get(androidx.media3.datasource.cache.ContentMetadata.KEY_CONTENT_LENGTH, -1L)
+                                .takeIf { it > 0 }
+                            ?: downloadCache.getContentMetadata(id).get(androidx.media3.datasource.cache.ContentMetadata.KEY_CONTENT_LENGTH, -1L)
+                        if (total <= 0) false
+                        else if (position >= total) true
+                        else {
+                            val length = minOf(requested, total - position)
+                            CacheAvailability.isCached(playerCache, id, position, length, total) ||
+                                CacheAvailability.isCached(downloadCache, id, position, length, total)
+                        }
+                    }
+                }
+                Timber.tag("ConnectMedia").d("Phone range ready: %s at %d (%dms)",
+                    id, position, android.os.SystemClock.elapsedRealtime() - started)
+                total
+            }
+        },
+        cachedSource = {
+            // No network upstream: every byte sent to the TV must already be committed on the phone.
+            CacheDataSource.Factory().setCache(downloadCache).setCacheWriteDataSinkFactory(null)
+                .setUpstreamDataSourceFactory(
+                    CacheDataSource.Factory().setCache(playerCache).setCacheWriteDataSinkFactory(null)
+                        .setUpstreamDataSourceFactory(null)
+                ).createDataSource()
+        },
+        localSource = { createConnectMediaSource() },
+    )
 
     internal fun createConnectMediaSource(): DataSource = createDataSourceFactory(peerMedia = false).createDataSource()
 

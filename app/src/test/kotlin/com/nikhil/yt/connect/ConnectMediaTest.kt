@@ -66,7 +66,7 @@ class ConnectMediaTest {
         media.close()
     }
 
-    @Test fun audioCannotOpenUntilTheWholePhoneCacheIsReady() = runBlocking {
+    @Test fun audioPreparationFailureDoesNotBlockOtherRequests() = runBlocking {
         val sent = Channel<JSONObject>(4)
         val preparing = CompletableDeferred<Unit>()
         val finish = CompletableDeferred<Unit>()

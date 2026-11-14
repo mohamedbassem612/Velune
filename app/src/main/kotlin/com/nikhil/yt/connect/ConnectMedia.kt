@@ -38,7 +38,7 @@ internal class ConnectMedia(
         var answered = false
         try {
             send(message.put("type", "mediaRequest").put("requestId", id))
-            return withTimeout(if (message.optString("operation") == "open") 120_000L else 30_000L) { reply.await() }.also {
+            return withTimeout(if (message.optString("operation") in setOf("open", "read")) 120_000L else 30_000L) { reply.await() }.also {
                 answered = true
                 if (!it.optBoolean("ok")) throw IOException("Peer media unavailable")
             }
@@ -68,7 +68,8 @@ internal class ConnectMedia(
         val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             val response = JSONObject().put("type", "mediaReply").put("requestId", id)
             try {
-                // Preparing the full phone cache must not block reads from another cached song.
+                // Waiting for cache bytes must not hold the shared reader lock.
+                var preparedSource: DataSource? = null
                 if (message.optString("operation") == "open") {
                     val song = message.getString("song")
                     require(song.isNotBlank() && song.length <= 256)
@@ -76,6 +77,15 @@ internal class ConnectMedia(
                     require(message.getLong("length").let { it == -1L || it > 0 })
                     if (message.optBoolean("cachedOnly")) check(available(song))
                     else ensureCached(song)
+                    preparedSource = factory()
+                    (preparedSource as? ProgressiveCacheSource)?.prepareOpen(
+                        DataSpec.Builder().setUri(Uri.parse(song)).setKey(song)
+                            .setPosition(message.getLong("position")).setLength(message.getLong("length")).build()
+                    )
+                } else if (message.optString("operation") == "read") {
+                    val source = lock.withLock { readers[message.getString("handle")] }
+                        ?: error("Unknown media handle")
+                    (source as? ProgressiveCacheSource)?.prepareRead()
                 }
                 lock.withLock {
                     check(!closed)
@@ -96,7 +106,7 @@ internal class ConnectMedia(
                             val offset = message.getLong("position")
                             val length = message.getLong("length")
                             require(offset >= 0 && (length == -1L || length > 0))
-                            val source = factory()
+                            val source = checkNotNull(preparedSource)
                             try {
                                 val size = source.open(DataSpec.Builder().setUri(Uri.parse(song)).setKey(song)
                                     .setPosition(offset).setLength(length).build())
