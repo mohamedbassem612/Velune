@@ -34,6 +34,7 @@ import com.nikhil.yt.models.MediaMetadata
 @Composable
 internal fun TvHomeScreen(
     personal: List<MediaMetadata>,
+    radioSeeds: List<MediaMetadata>,
     recommendations: List<MediaMetadata>,
     rediscover: List<MediaMetadata>,
     recent: List<MediaMetadata>,
@@ -94,7 +95,7 @@ internal fun TvHomeScreen(
         }
         item(key = "radio") {
             TvMusicShelf(
-                title = stringResource(R.string.tv_your_radio), songs = personal.take(12),
+                title = stringResource(R.string.tv_your_radio), songs = radioSeeds,
                 emptyMessage = stringResource(R.string.tv_radio_empty), railFocus = railFocus,
                 radio = true, ready = ready, onFocusTrack = onFocusTrack, onClick = onRadio,
             )

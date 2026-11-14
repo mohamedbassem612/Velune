@@ -7,6 +7,8 @@ import com.nikhil.yt.constants.HideExplicitKey
 import com.nikhil.yt.constants.HideVideoKey
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.innertube.models.SongItem
+import com.nikhil.yt.innertube.models.AlbumItem
+import com.nikhil.yt.innertube.models.PlaylistItem
 import com.nikhil.yt.innertube.models.filterExplicit
 import com.nikhil.yt.innertube.models.filterVideo
 import com.nikhil.yt.models.MediaMetadata
@@ -27,6 +29,7 @@ import kotlinx.coroutines.withContext
 
 data class TvSearchState(
     val songs: List<MediaMetadata> = emptyList(),
+    val collections: List<TvCollection> = emptyList(),
     val loading: Boolean = false,
     val failed: Boolean = false,
     val submitted: Boolean = false,
@@ -38,23 +41,34 @@ class TvSearchViewModel @Inject constructor(@ApplicationContext private val cont
     val state = mutableState.asStateFlow()
     private var searchJob: Job? = null
 
-    fun search(query: String) {
+    fun search(query: String, type: Int = 0) {
         val term = query.trim()
         if (term.isEmpty()) return
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             mutableState.value = TvSearchState(loading = true, submitted = true)
             try {
-                val songs = withContext(Dispatchers.IO) {
-                    YouTube.search(term, YouTube.SearchFilter.FILTER_SONG).getOrThrow().items
+                val items = withContext(Dispatchers.IO) {
+                    val filter = when (type) {
+                        1 -> YouTube.SearchFilter.FILTER_ALBUM
+                        2 -> YouTube.SearchFilter.FILTER_COMMUNITY_PLAYLIST
+                        else -> YouTube.SearchFilter.FILTER_SONG
+                    }
+                    YouTube.search(term, filter).getOrThrow().items
                         .filterExplicit(context.dataStore.get(HideExplicitKey, false))
                         .filterVideo(context.dataStore.get(HideVideoKey, false))
-                        .filterIsInstance<SongItem>()
                         .distinctBy { it.id }
-                        .map { it.toMediaMetadata() }
                 }
                 ensureActive()
-                mutableState.value = TvSearchState(songs = songs, submitted = true)
+                mutableState.value = TvSearchState(
+                    songs = items.filterIsInstance<SongItem>().map { it.toMediaMetadata() },
+                    collections = items.mapNotNull { when (it) {
+                        is AlbumItem -> it.toTvCollection()
+                        is PlaylistItem -> it.toTvCollection()
+                        else -> null
+                    } },
+                    submitted = true,
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

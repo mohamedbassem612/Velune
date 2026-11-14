@@ -1,7 +1,7 @@
 <resources>
     <string name="tv_app_name" translatable="false">Velune TV</string>
     <string name="tv_home_title">Music for your big screen</string>
-    <string name="tv_search_hint">Search for a song or artist</string>
+    <string name="tv_search_hint">Search songs, albums or playlists</string>
     <string name="tv_search_failed">Couldn’t load songs. Check your connection and try again.</string>
     <string name="tv_home_empty">Search for music to start building your recommendations.</string>
     <string name="tv_likes_empty">Songs you like on this TV will appear here.</string>
@@ -45,4 +45,19 @@
     <string name="tv_connected_to">Connected to %1$s</string>
     <string name="tv_importing_library">Bringing your library to TV</string>
     <string name="tv_importing_library_detail">Syncing music, playlists and favorites from %1$s</string>
+    <string name="tv_back">Back</string>
+    <string name="tv_album">Album</string>
+    <string name="tv_playlist">Playlist</string>
+    <string name="tv_collection_count">%1$d songs</string>
+    <string name="tv_collection_failed">Couldn’t load this collection. Check your connection and try again.</string>
+    <string name="tv_collections_empty">Save albums or playlists from Search to see them here.</string>
+    <string name="tv_saved_library">Saved to library</string>
+    <string name="tv_song_options">Song options</string>
+    <string name="tv_action_failed">Couldn’t complete this action. Please try again.</string>
+    <string name="tv_song_added">Song added to playlist</string>
+    <string name="tv_queued">Added to queue</string>
+    <string name="tv_artist">Artist</string>
+    <string name="tv_liked">Liked</string>
+    <string name="tv_radio">Radio</string>
+    <string name="tv_radio_title">%1$s radio</string>
 </resources>

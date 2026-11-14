@@ -1,6 +1,6 @@
 <resources>
     <string name="tv_home_title">موسيقتك على الشاشة الكبيرة</string>
-    <string name="tv_search_hint">ابحث عن أغنية أو فنان</string>
+    <string name="tv_search_hint">ابحث عن أغاني أو ألبومات أو قوائم تشغيل</string>
     <string name="tv_search_failed">تعذّر تحميل الأغاني. تأكد من اتصالك وحاول مرة أخرى.</string>
     <string name="tv_home_empty">ابحث عن موسيقى لبدء اقتراح أغاني تناسبك.</string>
     <string name="tv_likes_empty">الأغاني التي تعجبك على التلفزيون ستظهر هنا.</string>
@@ -46,4 +46,19 @@
     <string name="tv_connected_to">متصل بـ %1$s</string>
     <string name="tv_importing_library">بنجهّز مكتبتك على التلفزيون</string>
     <string name="tv_importing_library_detail">جاري مزامنة الموسيقى وقوائم التشغيل والمفضلة من %1$s</string>
+    <string name="tv_back">رجوع</string>
+    <string name="tv_album">ألبوم</string>
+    <string name="tv_playlist">قائمة تشغيل</string>
+    <string name="tv_collection_count">%1$d أغنية</string>
+    <string name="tv_collection_failed">تعذّر تحميل القائمة. تأكد من الاتصال وحاول مجددًا.</string>
+    <string name="tv_collections_empty">احفظ ألبومات أو قوائم تشغيل من البحث لعرضها هنا.</string>
+    <string name="tv_saved_library">تم الحفظ في المكتبة</string>
+    <string name="tv_song_options">خيارات الأغنية</string>
+    <string name="tv_action_failed">تعذّر إكمال العملية. حاول مجددًا.</string>
+    <string name="tv_song_added">تمت إضافة الأغنية إلى قائمة التشغيل</string>
+    <string name="tv_queued">تمت الإضافة إلى قائمة الانتظار</string>
+    <string name="tv_artist">فنان</string>
+    <string name="tv_liked">الإعجابات</string>
+    <string name="tv_radio">راديو</string>
+    <string name="tv_radio_title">راديو %1$s</string>
 </resources>

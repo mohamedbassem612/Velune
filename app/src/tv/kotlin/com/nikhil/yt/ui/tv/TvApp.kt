@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -46,7 +47,6 @@ import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.models.toMediaMetadata
 import com.nikhil.yt.playback.PlayerConnection
 import com.nikhil.yt.playback.queues.ListQueue
-import com.nikhil.yt.playback.queues.YouTubeQueue
 import com.nikhil.yt.viewmodels.HomeViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -56,28 +56,38 @@ fun TvApp(
     connection: PlayerConnection?,
     home: HomeViewModel = hiltViewModel(),
     search: TvSearchViewModel = hiltViewModel(),
+    collections: TvCollectionViewModel = hiltViewModel(),
 ) {
     var fullPlayer by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(TvPage.Home) }
     var showPhoneConnection by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var librarySelection by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchType by rememberSaveable { mutableIntStateOf(0) }
+    var libraryTab by rememberSaveable { mutableIntStateOf(0) }
     var focusedSong by remember { mutableStateOf<MediaMetadata?>(null) }
     var railFocused by remember { mutableStateOf(true) }
     val navigation = remember { TvPage.entries.associateWith { FocusRequester() } }
     val contentFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val searchState by search.state.collectAsState()
+    val collectionState by collections.state.collectAsState()
+    val context = LocalContext.current
+    LaunchedEffect(collections) {
+        collections.messages.collect { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
+    }
     val quickPicks by home.quickPicks.collectAsState()
     val suggestions by home.moodQuickPicks.collectAsState()
     val forYou by home.forYouSuggestions.collectAsState()
     val fallback by home.quickPicksFallback.collectAsState()
     val forgotten by home.forgottenFavorites.collectAsState()
     val homeLoading by home.isLoading.collectAsState()
+    val online by home.isOnline.collectAsState()
     val likedSongs by remember(home.database) { home.database.likedSongsByCreateDateAsc() }.collectAsState(initial = emptyList())
     val playlists by remember(home.database) { home.database.playlistsByCreateDateAsc() }.collectAsState(initial = emptyList())
     val history by remember(home.database) { home.database.recentEvents(100) }.collectAsState(initial = emptyList())
-    val playlistSongs by remember(home.database, librarySelection) { home.database.playlistSongs(librarySelection.orEmpty()) }.collectAsState(initial = emptyList())
+    val mostPlayed by remember(home.database) {
+        home.database.mostPlayedSongs(System.currentTimeMillis() - 60L * 24 * 60 * 60 * 1000, limit = 60)
+    }.collectAsState(initial = emptyList())
     val libraryOwner = connection?.service?.handoverController?.let { controller ->
         controller.firstLibrarySync.collectAsState().value
     }.orEmpty()
@@ -86,7 +96,8 @@ fun TvApp(
         if (libraryOwner.isNotEmpty()) {
             changingLibrary = true
             focusedSong = null
-            librarySelection = null
+            libraryTab = 0
+            collections.close()
         } else if (changingLibrary) {
             focusedSong = null
             home.refresh()
@@ -96,41 +107,47 @@ fun TvApp(
     val activeTrack = connection?.mediaMetadata?.collectAsState()?.value
 
     val recent = history.map { it.song.toMediaMetadata() }.distinctBy { it.id }
-    val hasPhoneLibrary = connection?.service?.localLibrarySync?.hasConnectLibrary() == true
-    val personal = (if (hasPhoneLibrary) likedSongs.asReversed().map { it.toMediaMetadata() } + recent
-        else quickPicks.orEmpty().map { it.toMediaMetadata() })
-        .ifEmpty { recent + likedSongs.asReversed().map { it.toMediaMetadata() } }.distinctBy { it.id }.take(24)
-    val personalIds = personal.mapTo(mutableSetOf()) { it.id }
-    val recommendations = (forYou.orEmpty().map { it.toMediaMetadata() } + suggestions.orEmpty().map { it.toMediaMetadata() } + fallback.orEmpty().map { it.toMediaMetadata() })
-        .distinctBy { it.id }.filterNot { it.id in personalIds }.take(24)
+    val discovery = (forYou.orEmpty().map { it.toMediaMetadata() } + suggestions.orEmpty().map { it.toMediaMetadata() } + fallback.orEmpty().map { it.toMediaMetadata() })
+        .distinctBy { it.id }
+    val offlineIds = (quickPicks.orEmpty() + fallback.orEmpty()).mapTo(mutableSetOf()) { it.id }
+    fun List<MediaMetadata>.availableForHome() = if (online) this else filter { it.id in offlineIds }
+    val shelves = TvHomeSelector.select(
+        liked = likedSongs.asReversed().map { it.toMediaMetadata() }.availableForHome(),
+        mostPlayed = mostPlayed.map { it.toMediaMetadata() }.availableForHome(),
+        recent = (recent + quickPicks.orEmpty().map { it.toMediaMetadata() }).distinctBy { it.id }.availableForHome(),
+        discovery = discovery.availableForHome(),
+    )
+    val personal = shelves.personal
+    val shownIds = (personal + shelves.radio).mapTo(mutableSetOf()) { it.id }
+    val recommendations = discovery.availableForHome().filterNot { it.id in shownIds }.take(24)
     val rediscover = forgotten.orEmpty().map { it.toMediaMetadata() }.distinctBy { it.id }.take(18)
     val hero = focusedSong ?: activeTrack ?: personal.firstOrNull() ?: recommendations.firstOrNull()
-    val librarySongs = when (librarySelection) {
-        null -> likedSongs.asReversed().map { it.toMediaMetadata() }
-        "#history" -> recent
-        else -> playlistSongs.map { it.song.toMediaMetadata() }.distinctBy { it.id }
-    }
     val currentRail = navigation.getValue(page)
-    fun play(songs: List<MediaMetadata>, selected: MediaMetadata) {
-        val index = songs.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
+    fun playAt(songs: List<MediaMetadata>, index: Int) {
+        if (songs.isEmpty()) return
         connection?.let {
             it.playQueue(ListQueue(items = songs.map { it.toMediaItem() }, startIndex = index))
             fullPlayer = true
         }
     }
+    fun play(songs: List<MediaMetadata>, selected: MediaMetadata) {
+        playAt(songs, songs.indexOfFirst { it.id == selected.id }.coerceAtLeast(0))
+    }
     fun submitSearch() {
         if (query.isBlank()) return
         keyboard?.hide()
-        search.search(query)
+        search.search(query, searchType)
     }
 
-    LaunchedEffect(fullPlayer) { if (!fullPlayer) currentRail.requestFocus() }
+    LaunchedEffect(fullPlayer, collectionState.collection) {
+        if (!fullPlayer && collectionState.collection == null) currentRail.requestFocus()
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         page = TvPage.Home
         fullPlayer = false
         showPhoneConnection = false
     }
-    BackHandler(enabled = !fullPlayer && (!railFocused || page != TvPage.Home || showPhoneConnection)) {
+    BackHandler(enabled = !fullPlayer && collectionState.collection == null && (!railFocused || page != TvPage.Home || showPhoneConnection)) {
         keyboard?.hide()
         when {
             page == TvPage.Settings && showPhoneConnection -> { showPhoneConnection = false; currentRail.requestFocus() }
@@ -159,8 +176,28 @@ fun TvApp(
                     }
                     if (fullPlayer && connection != null) {
                         TvFullPlayer(connection, onClose = { fullPlayer = false }, onNavigate = {
-                            page = it; fullPlayer = false
+                            collections.close(); page = it; fullPlayer = false
                         })
+                    } else if (collectionState.collection != null) {
+                        Column(Modifier.fillMaxSize()) {
+                            Box(Modifier.weight(1f)) {
+                                TvCollectionScreen(
+                                    state = collectionState, ready = connection != null,
+                                    likedIds = likedSongs.mapTo(mutableSetOf()) { it.id }, playlists = playlists,
+                                    onBack = collections::close,
+                                    onRetry = { collectionState.collection?.let(collections::open) },
+                                    onSave = { collections.save() }, onPlay = ::playAt,
+                                    onQueue = { songs ->
+                                        connection?.addToQueue(songs.map { it.toMediaItem() })
+                                        android.widget.Toast.makeText(context, R.string.tv_queued, android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    onNext = { connection?.playNext(it.toMediaItem()) },
+                                    onLike = { collections.toggleLike(it) },
+                                    onAddToPlaylist = { song, playlist, name -> collections.addToPlaylist(song, playlist, name) },
+                                )
+                            }
+                            TvPlayer(connection, onExpand = { fullPlayer = true })
+                        }
                     } else Row(Modifier.fillMaxSize()) {
                         TvNavigationRail(
                             page, navigation,
@@ -172,12 +209,15 @@ fun TvApp(
                             Box(Modifier.weight(1f).fillMaxWidth()) {
                                 when (page) {
                                     TvPage.Home -> TvHomeScreen(
-                                        personal, recommendations, rediscover, recent, hero, homeLoading,
+                                        personal, shelves.radio, recommendations, rediscover, recent, hero, homeLoading,
                                         connection != null, contentFocus, currentRail,
                                         onSearch = { page = TvPage.Search },
                                         onFocusTrack = { focusedSong = it },
                                         onPlay = ::play,
-                                        onRadio = { connection?.playQueue(YouTubeQueue.radio(it)); if (connection != null) fullPlayer = true },
+                                        onRadio = { song -> collections.open(TvCollection(
+                                            id = "#radio:${song.id}", title = context.getString(R.string.tv_radio_title, song.title),
+                                            thumbnail = song.thumbnailUrl, radioSeed = song.id,
+                                        )) },
                                     )
                                     TvPage.Search -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
                                         Text(stringResource(R.string.search), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
@@ -191,7 +231,19 @@ fun TvApp(
                                             )
                                             TvButton(stringResource(R.string.search), { submitSearch() }, enabled = query.isNotBlank())
                                         }
-                                        TvSongGrid(
+                                        Row(Modifier.padding(horizontal = 28.dp).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf(R.string.songs, R.string.albums, R.string.playlists).forEachIndexed { index, title ->
+                                                TvButton(stringResource(title), {
+                                                    searchType = index
+                                                    if (query.isNotBlank()) search.search(query, index)
+                                                }, selected = searchType == index)
+                                            }
+                                        }
+                                        if (searchType != 0) TvCollectionGrid(
+                                            collections = searchState.collections, railFocus = currentRail,
+                                            onOpen = collections::open, loading = searchState.loading,
+                                            message = stringResource(if (searchState.failed) R.string.tv_collection_failed else R.string.no_results_found),
+                                        ) else TvSongGrid(
                                             songs = searchState.songs, ready = connection != null, loading = searchState.loading,
                                             message = stringResource(when {
                                                 searchState.failed -> R.string.tv_search_failed
@@ -201,22 +253,12 @@ fun TvApp(
                                             railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(searchState.songs, it) },
                                         )
                                     }
-                                    TvPage.Library -> Column(Modifier.fillMaxSize().padding(top = 28.dp)) {
-                                        Text(stringResource(R.string.filter_library), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 28.dp))
-                                        LazyRow(
-                                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 18.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            item { TvButton(stringResource(R.string.liked_songs), { librarySelection = null }, Modifier.focusRequester(contentFocus).focusProperties { left = currentRail }, selected = librarySelection == null) }
-                                            item { TvButton(stringResource(R.string.history), { librarySelection = "#history" }, selected = librarySelection == "#history") }
-                                            items(playlists, key = { it.id }) { list -> TvButton(list.title, { librarySelection = list.id }, selected = librarySelection == list.id) }
-                                        }
-                                        TvSongGrid(
-                                            songs = librarySongs, ready = connection != null,
-                                            message = stringResource(if (librarySelection == null) R.string.tv_likes_empty else R.string.no_results_found),
-                                            railFocus = currentRail, onFocusTrack = { focusedSong = it }, onPlay = { play(librarySongs, it) },
-                                        )
-                                    }
+                                    TvPage.Library -> TvLibraryScreen(
+                                        database = home.database, ready = connection != null,
+                                        selected = libraryTab, onSelect = { libraryTab = it },
+                                        contentFocus = contentFocus, railFocus = currentRail,
+                                        onOpen = collections::open, onFocusTrack = { focusedSong = it }, onPlay = ::play,
+                                    )
                                     TvPage.Settings -> if (showPhoneConnection) {
                                         TvPhoneConnection(
                                             connection, contentFocus, currentRail,
@@ -242,7 +284,44 @@ fun TvApp(
 }
 
 @Composable
-private fun TvSongGrid(
+internal fun TvCollectionGrid(
+    collections: List<TvCollection>, railFocus: FocusRequester,
+    onOpen: (TvCollection) -> Unit, message: String, loading: Boolean = false,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(174.dp), modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (loading || collections.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (loading) CircularProgressIndicator(Modifier.size(22.dp), color = TvAccent)
+                Text(if (loading) stringResource(R.string.loading) else message, color = Color.White.copy(alpha = .6f))
+            }
+        }
+        items(collections, key = { "${it.typeLabel}:${it.id}" }) { collection ->
+            var focused by remember { mutableStateOf(false) }
+            Surface(
+                onClick = { onOpen(collection) },
+                modifier = Modifier.onFocusChanged { focused = it.isFocused }.focusProperties {
+                    if (collection == collections.firstOrNull()) left = railFocus
+                },
+                shape = RoundedCornerShape(12.dp),
+                color = if (focused) Color.White.copy(alpha = .16f) else TvSurface,
+                border = BorderStroke(2.dp, if (focused) TvAccent else Color.Transparent),
+            ) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    TvCollectionArtwork(collection.thumbnail, Modifier.fillMaxWidth().aspectRatio(1f), artwork = collection.artwork, artist = collection.artist)
+                    Text(collection.title, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(collection.typeLabel), fontSize = 11.sp, color = Color.White.copy(alpha = .5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TvSongGrid(
     songs: List<MediaMetadata>, ready: Boolean, message: String,
     railFocus: FocusRequester, onFocusTrack: (MediaMetadata) -> Unit,
     onPlay: (MediaMetadata) -> Unit, loading: Boolean = false,
