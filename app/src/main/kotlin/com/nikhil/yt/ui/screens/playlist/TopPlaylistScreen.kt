@@ -163,6 +163,12 @@ fun TopPlaylistScreen(
     }
 
     var selection by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selection, wrappedSongs.count { it.isSelected }) {
+        if (selection && wrappedSongs.count { it.isSelected } == 0) {
+            selection = false
+        }
+    }
     val (disableBlur) = rememberPreference(DisableBlurKey, false)
 
     if (isSearching) {

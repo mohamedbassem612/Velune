@@ -381,7 +381,7 @@ fun SongMenu(
     val addToQueueText = stringResource(R.string.add_to_queue)
     val addToPlaylistText = stringResource(R.string.add_to_playlist)
     val shareText = stringResource(R.string.share)
-    val editText = stringResource(R.string.edit)
+    val copyLinkText = stringResource(R.string.copy_link)
 
     val primaryActions = remember(
         song,
@@ -390,7 +390,7 @@ fun SongMenu(
         addToQueueText,
         addToPlaylistText,
         shareText,
-        editText,
+        copyLinkText,
         onDismiss,
         playerConnection,
     ) {
@@ -476,14 +476,24 @@ fun SongMenu(
             NewAction(
                 icon = {
                     Icon(
-                        painter = painterResource(R.drawable.edit),
+                        painter = painterResource(R.drawable.link),
                         contentDescription = null,
                         modifier = Modifier.size(28.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 },
-                text = editText,
-                onClick = { showEditDialog = true },
+                text = copyLinkText,
+                onClick = {
+                    val clipboard =
+                        context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText(
+                        copyLinkText,
+                        "https://music.youtube.com/watch?v=${song.id}",
+                    )
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(context, R.string.link_copied, Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                },
             ),
         )
     }

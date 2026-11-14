@@ -185,6 +185,12 @@ fun AutoPlaylistScreen(
 
     var selection by remember { mutableStateOf(false) }
 
+    LaunchedEffect(selection, wrappedSongs.count { it.isSelected }) {
+        if (selection && wrappedSongs.count { it.isSelected } == 0) {
+            selection = false
+        }
+    }
+
     if (isSearching) {
         BackHandler {
             isSearching = false
