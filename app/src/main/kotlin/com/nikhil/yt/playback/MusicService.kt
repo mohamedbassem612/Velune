@@ -4427,23 +4427,35 @@ class MusicService :
 
     private val connectCacheLoader by lazy {
         com.nikhil.yt.connect.ConnectCacheLoader({ ioScope }) { id ->
+            val started = android.os.SystemClock.elapsedRealtime()
             if (!offlinePlayable(id)) {
-                val source = createConnectMediaSource()
-                try {
-                    source.open(DataSpec.Builder().setUri(id.toUri()).setKey(id).build())
-                    val bytes = ByteArray(64 * 1024)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        if (source.read(bytes, 0, bytes.size) == C.RESULT_END_OF_INPUT) break
+                com.nikhil.yt.connect.cachePhoneSongInChunks(
+                    chunkSize = CHUNK_LENGTH,
+                    contentLength = { database.format(id).first()?.contentLength },
+                ) { position, length ->
+                    val source = createConnectMediaSource()
+                    var received = 0L
+                    try {
+                        source.open(DataSpec.Builder().setUri(id.toUri()).setKey(id)
+                            .setPosition(position).setLength(length).build())
+                        val bytes = ByteArray(64 * 1024)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = source.read(bytes, 0, bytes.size)
+                            if (count == C.RESULT_END_OF_INPUT) break
+                            received += count
+                        }
+                    } finally {
+                        // Each bounded request commits and releases its cache span immediately.
+                        source.close()
                     }
-                } finally {
-                    // Closing commits the final cache span before the TV may open a reader.
-                    source.close()
+                    Timber.tag("ConnectMedia").d("Cached %s range %d + %d", id, position, received)
+                    received
                 }
                 check(offlinePlayable(id)) { "Phone cache could not retain the complete song" }
             }
             recoverSong(id, includeRelated = false)
-            Timber.tag("ConnectMedia").i("Phone cache ready: %s", id)
+            Timber.tag("ConnectMedia").i("Phone cache ready: %s (%dms)", id, android.os.SystemClock.elapsedRealtime() - started)
         }
     }
 

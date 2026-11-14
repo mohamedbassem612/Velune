@@ -25,6 +25,8 @@ internal class ConnectMedia(
 ) {
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     private val readers = mutableMapOf<String, DataSource>()
+    private val readerRequests = mutableMapOf<String, String>()
+    private val inbound = ConcurrentHashMap<String, Job>()
     private val lock = Mutex()
     @Volatile private var closed = false
 
@@ -33,12 +35,19 @@ internal class ConnectMedia(
         val id = UUID.randomUUID().toString()
         val reply = CompletableDeferred<JSONObject>()
         pending[id] = reply
+        var answered = false
         try {
             send(message.put("type", "mediaRequest").put("requestId", id))
             return withTimeout(if (message.optString("operation") == "open") 120_000L else 30_000L) { reply.await() }.also {
+                answered = true
                 if (!it.optBoolean("ok")) throw IOException("Peer media unavailable")
             }
-        } finally { pending.remove(id) }
+        } finally {
+            pending.remove(id)
+            if (!answered && !closed) runCatching {
+                send(JSONObject().put("type", "mediaCancel").put("requestId", id))
+            }
+        }
     }
 
     fun receive(message: JSONObject) {
@@ -46,8 +55,18 @@ internal class ConnectMedia(
             pending[message.optString("requestId")]?.complete(message)
             return
         }
-        scope.launch(Dispatchers.IO) {
-            val response = JSONObject().put("type", "mediaReply").put("requestId", message.optString("requestId"))
+        val id = message.optString("requestId")
+        if (message.optString("type") == "mediaCancel") {
+            inbound.remove(id)?.cancel()
+            scope.launch(Dispatchers.IO) {
+                lock.withLock {
+                    readerRequests.remove(id)?.let { readers.remove(it)?.close() }
+                }
+            }
+            return
+        }
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            val response = JSONObject().put("type", "mediaReply").put("requestId", id)
             try {
                 // Preparing the full phone cache must not block reads from another cached song.
                 if (message.optString("operation") == "open") {
@@ -83,6 +102,7 @@ internal class ConnectMedia(
                                     .setPosition(offset).setLength(length).build())
                                 val handle = UUID.randomUUID().toString()
                                 readers[handle] = source
+                                readerRequests[id] = handle
                                 response.put("handle", handle).put("length", size)
                                 timber.log.Timber.tag("ConnectMedia").i("Serving %s at %d (cachedOnly=%s)", song, offset, message.optBoolean("cachedOnly"))
                             } catch (e: Exception) { source.close(); throw e }
@@ -94,7 +114,11 @@ internal class ConnectMedia(
                             response.put("eof", count == C.RESULT_END_OF_INPUT)
                             response.put("data", if (count > 0) Base64.getEncoder().encodeToString(bytes.copyOf(count)) else "")
                         }
-                        "close" -> readers.remove(message.getString("handle"))?.close()
+                        "close" -> {
+                            val handle = message.getString("handle")
+                            readers.remove(handle)?.close()
+                            readerRequests.entries.removeAll { it.value == handle }
+                        }
                         else -> error("Unknown media operation")
                     }
                     response.put("ok", true)
@@ -107,14 +131,19 @@ internal class ConnectMedia(
             }
             send(response)
         }
+        inbound[id] = job
+        job.invokeOnCompletion { inbound.remove(id, job) }
+        job.start()
     }
 
     fun close() {
         closed = true
         pending.values.forEach { it.completeExceptionally(IOException("Media peer disconnected")) }
         pending.clear()
+        inbound.values.forEach { it.cancel() }
+        inbound.clear()
         // Cleanup survives cancellation of the peer's work scope.
-        cleanup.launch { lock.withLock { readers.values.forEach { runCatching { it.close() } }; readers.clear() } }
+        cleanup.launch { lock.withLock { readers.values.forEach { runCatching { it.close() } }; readers.clear(); readerRequests.clear() } }
     }
 
     fun source(spec: DataSpec, cachedOnly: Boolean): DataSource = object : DataSource {

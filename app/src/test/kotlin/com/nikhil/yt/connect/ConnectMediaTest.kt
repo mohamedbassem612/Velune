@@ -96,4 +96,32 @@ class ConnectMediaTest {
         media.close()
     }
 
+    @Test fun abandoningAnOpenNotifiesThePhoneToReleaseItsReader() = runBlocking {
+        val sent = Channel<JSONObject>(4)
+        val media = ConnectMedia(this, { sent.trySend(it) }, { false }, { error("No source") })
+        val opening = launch { media.request(JSONObject().put("operation", "open")) }
+        val request = sent.receive()
+        opening.cancelAndJoin()
+        val cancel = withTimeout(2000) { sent.receive() }
+        assertEquals("mediaCancel", cancel.getString("type"))
+        assertEquals(request.getString("requestId"), cancel.getString("requestId"))
+        media.close()
+    }
+
+    @Test fun cancelingAPreparingOpenDoesNotLeaveAWaitingRpcTask() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val canceled = CompletableDeferred<Unit>()
+        val media = ConnectMedia(this, {}, { false }, { error("Audio must not open") },
+            ensureCached = {
+                started.complete(Unit)
+                try { awaitCancellation() } finally { canceled.complete(Unit) }
+            })
+        media.receive(JSONObject().put("type", "mediaRequest").put("requestId", "abandoned")
+            .put("operation", "open").put("song", "song-id").put("position", 0).put("length", -1))
+        withTimeout(2000) { started.await() }
+        media.receive(JSONObject().put("type", "mediaCancel").put("requestId", "abandoned"))
+        withTimeout(2000) { canceled.await() }
+        media.close()
+    }
+
 }

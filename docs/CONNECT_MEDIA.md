@@ -6,6 +6,9 @@ complete caches first. On a miss, the phone fills and commits the entire song to
 its player cache before returning an audio handle. This applies to manually
 selected tracks, shuffle and autoplay, even when the TV has its own cached copy.
 Initial playback of an uncached song waits for the phone download to complete.
+The fill uses bounded 512 KiB range requests, matching normal phone playback,
+and commits/releases each range before opening the next one. It does not keep
+one unbounded upstream request open for the entire file.
 
 Cache fills belong to the phone service, are deduplicated by song ID, and finish
 even if an individual TV reader is canceled. Preparing a new song does not hold
@@ -38,6 +41,11 @@ Replies have `type: "mediaReply"`, matching `requestId`, and boolean `ok`.
   and `eof`. Each handle is a sequential byte stream. EOF is a separate response
   with `eof: true` and empty data.
 * `close`: `handle`. Releases the reader; repeated close is harmless.
+
+A canceled or timed-out request sends `type: "mediaCancel"` with its original
+`requestId`. The provider cancels that RPC task and releases any reader already
+created for it. The shared phone cache fill remains independent and can finish;
+a delayed open must not leave an unreachable reader occupying a connection slot.
 
 Providers allow at most four open readers per connection. Audio opens allow up
 to 120 seconds for cache preparation; other requests time out after 30 seconds. Disconnect fails pending requests and closes provider readers.

@@ -511,7 +511,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     private fun handleClientMessage(peer: Peer, message: JSONObject) {
         if (isolated || !trust.contains(peer.id) || clientPeer !== peer) return
         when (message.optString("type")) {
-            "mediaRequest", "mediaReply" -> peer.media.receive(message)
+            "mediaRequest", "mediaReply", "mediaCancel" -> peer.media.receive(message)
             "state" -> {
                 val state = message.getJSONObject("state").sessionState(playback.value)
                 val old = playback.value
@@ -858,7 +858,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                     if (peers[channel.id] !== connection || !trust.contains(channel.id)) return@withContext
                     val owner = authority ?: return@withContext
                     when (message.optString("type")) {
-                        "mediaReply" -> connection.media.receive(message)
+                        "mediaReply", "mediaCancel" -> connection.media.receive(message)
                         "rendererState" -> {
                             val sequence = message.getLong("rendererSequence")
                             val frame = message.getJSONObject("state").sessionState(owner.state)
