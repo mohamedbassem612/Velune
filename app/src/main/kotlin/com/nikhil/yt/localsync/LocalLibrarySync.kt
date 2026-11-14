@@ -31,6 +31,9 @@ class LocalLibrarySync @Inject constructor(
 ) {
     val status = MutableStateFlow(LibrarySyncStatus.Idle)
     private val mutex = Mutex()
+    private val connectPreferences = context.getSharedPreferences("tv_library_owner", Context.MODE_PRIVATE)
+    fun hasConnectLibrary() = connectPreferences.contains("peer")
+    fun ownsConnectLibrary(peerId: String) = connectPreferences.getString("peer", null) == peerId
     private val file = AtomicFile(File(context.noBackupFilesDir, "local-library-sync.json"))
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     // Device identity and conflict clocks must not be cloned by Android backup.
@@ -100,16 +103,26 @@ class LocalLibrarySync @Inject constructor(
         mutex.withLock { capture().also { save(it) }.let { if (connect) it else it.copy(history = it.history.filterNot { event -> event.removed }) } }
     }
 
-    suspend fun accept(remote: LibrarySnapshot, connect: Boolean = false, authorized: () -> Boolean = { true }): LibrarySnapshot = withContext(Dispatchers.IO) {
+    suspend fun accept(remote: LibrarySnapshot, connect: Boolean = false, connectPeer: String? = null, authorized: () -> Boolean = { true }): LibrarySnapshot = withContext(Dispatchers.IO) {
         validate(remote)
         mutex.withLock {
             check(authorized()) { "Library peer is no longer authorized" }
-            val local = capture()
-            val merged = LibraryMerge.merge(local, remote)
+            val replacing = connectPeer != null && !ownsConnectLibrary(connectPeer)
+            val previous = capture()
+            val local = if (replacing) LibrarySnapshot(device = device) else previous
+            val merged = LibraryMerge.forConnect(previous, remote, replacing)
             val oldLikes = local.likes.associateBy { it.track.id }
             val oldLists = local.playlists.associateBy { it.id }
             database.withTransaction {
                 check(authorized()) { "Library peer is no longer authorized" }
+                if (replacing) {
+                    // The TV presents one phone library. Never export removals to the old phone.
+                    clearConnectSongLibrary()
+                    playlistsByCreateDateAsc().first().filterNot { it.playlist.isLocal }.forEach {
+                        delete(it.playlist)
+                    }
+                    clearConnectListenHistory()
+                }
                 merged.likes.filter { it.version > (oldLikes[it.track.id]?.version ?: SyncVersion()) }.forEach { item ->
                     insert(item.track.toMetadata())
                     val existing = song(item.track.id).first()?.song ?: error("Missing synced song")
@@ -147,6 +160,7 @@ class LocalLibrarySync @Inject constructor(
                 }
             }
             save(merged)
+            if (connectPeer != null) connectPreferences.edit().putString("peer", connectPeer).commit()
             status.value = LibrarySyncStatus.Synced
             if (connect) merged else merged.copy(history = merged.history.filterNot { it.removed })
         }

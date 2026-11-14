@@ -54,6 +54,10 @@ data class LibrarySnapshot(
 object LibraryMerge {
     const val HISTORY_LIMIT = 5000
 
+    /** A TV ownership change starts fresh, including clocks and deletion records. */
+    fun forConnect(local: LibrarySnapshot, remote: LibrarySnapshot, replacing: Boolean): LibrarySnapshot =
+        merge(if (replacing) LibrarySnapshot(device = local.device) else local, remote)
+
     fun merge(local: LibrarySnapshot, remote: LibrarySnapshot): LibrarySnapshot {
         require(local.schema == 1 && remote.schema == 1) { "Unsupported library sync version" }
         return local.copy(

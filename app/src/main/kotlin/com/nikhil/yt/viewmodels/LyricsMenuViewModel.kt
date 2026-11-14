@@ -88,7 +88,7 @@ constructor(
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val lyrics = lyricsHelper.getLyrics(mediaMetadata)
+                val lyrics = lyricsHelper.getLyrics(mediaMetadata, forceRefresh = true)
                 database.query {
                     lyricsEntity?.let(::delete)
                     upsert(LyricsEntity(mediaMetadata.id, lyrics))

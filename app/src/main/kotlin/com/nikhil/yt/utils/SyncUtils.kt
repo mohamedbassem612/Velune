@@ -212,13 +212,15 @@ class SyncUtils @Inject constructor(
                     if (!isSyncStillEnabled(gen)) return@launch
                     dbWriteSemaphore.withPermit {
                         if (!isSyncStillEnabled(gen)) return@withPermit
-                        val dbSong = database.song(song.id).firstOrNull()
                         database.withTransaction {
                             if (!isSyncStillEnabled(gen)) return@withTransaction
+                            // Read inside the transaction: Connect may have just imported a like.
+                            val dbSong = song(song.id).firstOrNull()
+                            val likedDate = syncedLikedDate(dbSong?.song?.liked == true, dbSong?.song?.likedDate, timestamp)
                             if (dbSong == null) {
-                                insert(song.toMediaMetadata()) { it.copy(liked = true, likedDate = timestamp) }
-                            } else if (!dbSong.song.liked || dbSong.song.likedDate != timestamp) {
-                                update(dbSong.song.copy(liked = true, likedDate = timestamp))
+                                insert(song.toMediaMetadata()) { it.copy(liked = true, likedDate = likedDate) }
+                            } else if (!dbSong.song.liked || dbSong.song.likedDate != likedDate) {
+                                update(dbSong.song.copy(liked = true, likedDate = likedDate))
                             }
                         }
                     }
@@ -252,17 +254,23 @@ class SyncUtils @Inject constructor(
             val localSongs = database.songsByNameAsc().first()
 
             if (!isSyncStillEnabled(gen)) return@onSuccess
-            localSongs.filterNot { it.id in remoteIds }
-                .forEach { database.update(it.song.copy(inLibrary = null)) }
+            localSongs.filterNot { it.id in remoteIds }.forEach { song ->
+                database.withTransaction {
+                    if (!isSyncStillEnabled(gen)) return@withTransaction
+                    val current = getSongById(song.id)?.song ?: return@withTransaction
+                    // Local/Connect likes need not have reached the YouTube library yet.
+                    if (!current.liked && !current.isLocal) update(current.copy(inLibrary = null))
+                }
+            }
 
             remoteSongs.forEach { song ->
                 launch {
                     if (!isSyncStillEnabled(gen)) return@launch
                     dbWriteSemaphore.withPermit {
                         if (!isSyncStillEnabled(gen)) return@withPermit
-                        val dbSong = database.song(song.id).firstOrNull()
                         database.withTransaction {
                             if (!isSyncStillEnabled(gen)) return@withTransaction
+                            val dbSong = getSongById(song.id)
                             if (dbSong == null) {
                                 insert(song.toMediaMetadata()) { it.toggleLibrary() }
                             } else if (dbSong.song.inLibrary == null) {
@@ -593,3 +601,7 @@ class SyncUtils @Inject constructor(
 internal fun likedSongTimestamp(baseTimestamp: LocalDateTime, index: Int): LocalDateTime {
     return baseTimestamp.minusSeconds(index.toLong())
 }
+
+/** Refreshing YouTube must not move old likes ahead of newer local/Connect likes. */
+internal fun syncedLikedDate(liked: Boolean, saved: LocalDateTime?, imported: LocalDateTime): LocalDateTime =
+    if (liked && saved != null) saved else imported

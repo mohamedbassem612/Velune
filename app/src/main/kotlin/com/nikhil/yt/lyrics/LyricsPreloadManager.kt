@@ -72,7 +72,7 @@ class LyricsPreloadManager @Inject constructor(
                     true
                 }
                 
-                if (!isNetworkAvailable) {
+                if (!isNetworkAvailable && com.nikhil.yt.connect.ConnectAssetAccess.fetcher == null) {
                     Log.w(TAG, "Network unavailable, skipping lyrics pre-load")
                     return@launch
                 }
@@ -160,7 +160,7 @@ class LyricsPreloadManager @Inject constructor(
      * This is a simplified version that gets lyrics from enabled providers.
      */
     private suspend fun fetchLyricsForSong(song: MediaMetadata): String? {
-        val lyricsHelper = LyricsHelper(context, networkConnectivity)
+        val lyricsHelper = LyricsHelper(context, networkConnectivity, database)
         
         return try {
             lyricsHelper.getLyrics(song, preferredProviderOnly = true)

@@ -1166,6 +1166,12 @@ interface DatabaseDao {
     @Query("DELETE FROM event")
     fun clearListenHistory()
 
+    @Query("DELETE FROM event WHERE songId IN (SELECT id FROM song WHERE isLocal = 0)")
+    fun clearConnectListenHistory()
+
+    @Query("UPDATE song SET liked = 0, likedDate = NULL, inLibrary = NULL, totalPlayTime = 0 WHERE isLocal = 0")
+    fun clearConnectSongLibrary()
+
     @Transaction
     @Query("SELECT * FROM search_history WHERE `query` LIKE :query || '%' ORDER BY id DESC")
     fun searchHistory(query: String = ""): Flow<List<SearchHistory>>

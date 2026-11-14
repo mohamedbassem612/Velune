@@ -9,14 +9,18 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Acknowledged per-connection deltas. Reconnect safely sends a full, idempotent snapshot. */
-internal class ConnectLibraryExchange(private val library: LocalLibrarySync, private val authorized: () -> Boolean) {
+internal class ConnectLibraryExchange(private val library: LocalLibrarySync, private val onReceived: () -> Unit = {}, private val tvPeer: String? = null, private val enabled: () -> Boolean = { true }, private val authorized: () -> Boolean) {
     private val mutex = Mutex()
+    @Volatile private var received = tvPeer == null
     private var acknowledged: LibrarySnapshot? = null
     private var pending: Pair<String, LibrarySnapshot>? = null
 
     suspend fun publish(send: (JSONObject) -> Unit) = mutex.withLock {
+        if (!enabled() || !received) return@withLock
         check(authorized()) { "Connect authorization ended" }
         val snapshot = library.snapshot(connect = true)
+        // Ownership can change while the database snapshot suspends.
+        if (!enabled() || !authorized()) return@withLock
         val base = acknowledged
         val delta = if (base == null) snapshot else libraryDelta(snapshot, base)
         if (base != null && delta.likes.isEmpty() && delta.playlists.isEmpty() && delta.history.isEmpty()) return@withLock
@@ -29,9 +33,12 @@ internal class ConnectLibraryExchange(private val library: LocalLibrarySync, pri
         send(JSONObject().put("type", "library").put("exchangeId", id).put("snapshot", JSONObject(raw)))
     }
     suspend fun receive(message: JSONObject, send: (JSONObject) -> Unit) {
+        if (!enabled()) return
         val raw = message.getJSONObject("snapshot").toString()
         require(raw.toByteArray().size <= LocalLibrarySync.MAX_BODY_BYTES)
-        library.accept(library.decode(raw), connect = true, authorized = authorized)
+        library.accept(library.decode(raw), connect = true, connectPeer = tvPeer, authorized = { authorized() && enabled() })
+        received = true
+        onReceived()
         send(JSONObject().put("type", "libraryAck").put("exchangeId", message.getString("exchangeId")))
         publish(send)
     }

@@ -235,7 +235,7 @@ internal fun TvFullPlayer(connection: PlayerConnection, onClose: () -> Unit, onN
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Box(Modifier.size(108.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .08f))) {
                     Icon(painterResource(R.drawable.music_note), null, Modifier.align(Alignment.Center).size(36.dp))
-                    AsyncImage(track?.thumbnailUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(track?.let { com.nikhil.yt.utils.SongCover(it.id, it.thumbnailUrl) }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 }
                 Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
                     Text(track?.title.orEmpty(), fontSize = 26.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -310,7 +310,7 @@ private fun TvUpNextCard(item: MediaItem, modifier: Modifier = Modifier, onFocus
             Text(stringResource(R.string.tv_up_next), color = Color.White.copy(alpha = .65f), fontSize = 10.sp, lineHeight = 12.sp)
             Box(Modifier.align(Alignment.CenterHorizontally).width(128.dp).height(88.dp).clip(RoundedCornerShape(3.dp))) {
                 Icon(painterResource(R.drawable.music_note), null, Modifier.align(Alignment.Center).size(24.dp), tint = Color.White.copy(alpha = .3f))
-                AsyncImage(metadata?.thumbnailUrl ?: item.mediaMetadata.artworkUri, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                AsyncImage(com.nikhil.yt.utils.SongCover(item.mediaId, metadata?.thumbnailUrl ?: item.mediaMetadata.artworkUri?.toString()), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             Text(metadata?.title ?: item.mediaMetadata.title?.toString() ?: stringResource(R.string.tv_next),
                 maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, lineHeight = 18.sp)
@@ -407,7 +407,7 @@ private fun TvPlayerPanel(connection: PlayerConnection, lyrics: Boolean, onClose
     }
     LaunchedEffect(track?.id, lyrics) {
         val metadata = track
-        if (lyrics && metadata != null && currentLyrics == null) {
+        if (lyrics && metadata != null && (currentLyrics == null || currentLyrics?.lyrics == LyricsEntity.LYRICS_NOT_FOUND)) {
             loading = true
             try {
                 fetched = withContext(Dispatchers.IO) { connection.service.lyricsHelper.getLyrics(metadata) }

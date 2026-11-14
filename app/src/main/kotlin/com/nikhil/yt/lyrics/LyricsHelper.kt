@@ -28,6 +28,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 class LyricsHelper
@@ -35,6 +36,7 @@ class LyricsHelper
 constructor(
     @ApplicationContext private val context: Context,
     private val networkConnectivity: NetworkConnectivityObserver,
+    private val database: com.nikhil.yt.db.MusicDatabase,
 ) {
     private val baseProviders =
         listOf(
@@ -49,15 +51,25 @@ constructor(
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
     private var currentLyricsJob: Job? = null
 
-    suspend fun getLyrics(mediaMetadata: MediaMetadata, preferredProviderOnly: Boolean = false): String {
-        currentLyricsJob?.cancel()
-
-        val cached = cache.get(mediaMetadata.id)?.firstOrNull()
-        if (cached != null) {
-            GlobalLog.append(Log.DEBUG, "LyricsHelper", "Found lyrics in cache for ${mediaMetadata.title}")
-            return cached.lyrics
+    suspend fun getLyrics(mediaMetadata: MediaMetadata, preferredProviderOnly: Boolean = false, forceRefresh: Boolean = false): String =
+        songLocks.getOrPut(mediaMetadata.id) { kotlinx.coroutines.sync.Mutex() }.withLock {
+            loadLyrics(mediaMetadata, preferredProviderOnly, forceRefresh)
         }
+
+    private suspend fun loadLyrics(mediaMetadata: MediaMetadata, preferredProviderOnly: Boolean, forceRefresh: Boolean): String {
+        currentLyricsJob?.cancel()
+        if (!forceRefresh) {
+            database.lyrics(mediaMetadata.id).first()?.lyrics?.takeIf(::isMeaningfulLyrics)?.let { return it }
+            com.nikhil.yt.connect.ConnectAssetAccess.fetch(mediaMetadata.id)?.optString("lyrics")
+                ?.takeIf(::isMeaningfulLyrics)?.let { return it }
+
+            val cached = cache.get(mediaMetadata.id)?.firstOrNull()
+            if (cached != null) {
+                GlobalLog.append(Log.DEBUG, "LyricsHelper", "Found lyrics in cache for ${mediaMetadata.title}")
+                return cached.lyrics
+            }
         
+        }
         GlobalLog.append(Log.DEBUG, "LyricsHelper", "Fetching lyrics for ${mediaMetadata.title} (Artist: ${mediaMetadata.artists.joinToString { it.name }}, Album: ${mediaMetadata.album?.title})")
 
         val isNetworkAvailable = try {
@@ -102,8 +114,10 @@ constructor(
             return@async LYRICS_NOT_FOUND
         }
 
-        val lyrics = deferred.await()
-        scope.cancel()
+        val lyrics = try { deferred.await() } finally { scope.cancel() }
+        if (isMeaningfulLyrics(lyrics)) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) { database.upsert(com.nikhil.yt.db.entities.LyricsEntity(mediaMetadata.id, lyrics)) }
+        }
         return lyrics
     }
 
@@ -117,7 +131,7 @@ constructor(
     ) {
         currentLyricsJob?.cancel()
 
-        val cacheKey = "$songArtists-$songTitle".replace(" ", "")
+        val cacheKey = mediaId
         cache.get(cacheKey)?.let { results ->
             results.forEach {
                 callback(it)
@@ -200,6 +214,7 @@ constructor(
     }
 
     companion object {
+        private val songLocks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
         private const val MAX_CACHE_SIZE = 3
         private val TIMESTAMP_REGEX = Regex("""\[[0-9]{1,2}:[0-9]{2}(?:\.[0-9]{1,3})?]""")
         private val INVISIBLE_CHARS_REGEX = Regex("""[\u200B\u200C\u200D\u2060\u00AD]""")

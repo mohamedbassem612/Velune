@@ -188,3 +188,28 @@ and its live release API was checked to return the mobile asset first. Both
 original signed APK byte contents were retained. Existing clients may still have
 cached the previous TV download URL; installing the correct mobile build once is
 required to replace their old updater.
+
+## Connection notice and active phone library
+
+The TV shows an animated notice in the upper right for each newly connected peer,
+using its advertised name and a small device outline. Notices queue when several
+peers attach together and do not take remote focus.
+
+The newest attached phone owns the TV's displayed Connect library. On a change
+of phone identity, the TV fades the interface while importing the new phone's
+full snapshot. The import replaces nonlocal favorites, bookmarked playlists and
+listening history in one database transaction. It starts a new sync baseline so
+old deletion records cannot leak to the new phone. An empty incoming library
+also replaces the previous library. Local files are retained.
+
+The TV waits for the first inbound snapshot before publishing its library, and
+older connected peers cannot exchange library data while a newer phone owns it.
+The successful owner is persisted; reconnecting that same phone keeps ordinary
+bidirectional delta sync without the full-screen transition. Returning to an
+older phone replaces the library again and shows the transition again. Failed
+or disconnected imports do not mark the new phone as successfully imported.
+
+Core regression cases cover A → B → A, switching to an empty phone, stale
+removal clocks, and keeping TV edits on a same-phone reconnect. Hardware checks
+should additionally connect two real phones in sequence and verify their library
+contents and the transition, including a disconnect during import.

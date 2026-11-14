@@ -37,31 +37,66 @@ class LocalCoverInterceptor(
 ) : Interceptor {
     private val appContext = context.applicationContext
 
+    @OptIn(ExperimentalCoilApi::class)
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
-        val url = when (val data = request.data) {
+        val song = request.data as? SongCover
+        val url = song?.url ?: when (val data = request.data) {
             is String -> data
             is android.net.Uri -> data.toString()
             else -> null
-        } ?: return chain.proceed()
-        if (!url.startsWith("http")) return chain.proceed()
-
-        val ids = CoverStore.idsForUrl(appContext, url)
-        if (ids.isEmpty()) return proceedAndHeal(chain, url)
-
-        val (id, local) = withContext(Dispatchers.IO) {
-            val mp3 = mp3Library()
-            ids.firstNotNullOfOrNull { candidate ->
-                CoverStore.localSource(appContext, candidate, mp3)?.let { candidate to it }
+        }
+        if (song == null && (url == null || !url.startsWith("http"))) return chain.proceed()
+        val ids = withContext(Dispatchers.IO) {
+            if (song != null) {
+                if (url != null) CoverStore.register(appContext, song.id, url)
+                listOf(song.id)
+            } else CoverStore.idsForUrl(appContext, url!!)
+        }
+        var local = withContext(Dispatchers.IO) {
+            ids.firstNotNullOfOrNull { id -> CoverStore.localSource(appContext, id, mp3Library())?.let { id to it } }
+        }
+        if (local == null && ids.isNotEmpty() && com.nikhil.yt.connect.ConnectAssetAccess.fetcher != null) {
+            com.nikhil.yt.connect.ConnectAssetAccess.fetch(ids.first())
+            local = withContext(Dispatchers.IO) {
+                ids.firstNotNullOfOrNull { id -> CoverStore.localSource(appContext, id, mp3Library())?.let { id to it } }
             }
-        } ?: return proceedAndHeal(chain, url)
-
-        val localRequest = request.newBuilder()
-            .data(local)
-            .memoryCacheKey("cover:$id")
-            .build()
-        val result = chain.withRequest(localRequest).proceed()
-        return if (result is SuccessResult) result else proceedAndHeal(chain, url)
+        }
+        val savedLocal = local
+        if (savedLocal != null) {
+            val result = chain.withRequest(request.newBuilder().data(savedLocal.second).memoryCacheKey("cover:${savedLocal.first}").build()).proceed()
+            if (result is SuccessResult) return result
+        }
+        val id = ids.firstOrNull()
+        val cacheKey = request.diskCacheKey ?: id?.let { "song-cover:$it" } ?: url?.let(ArtworkIdentity::canonical)
+        val remoteRequest = request.newBuilder().data(url.orEmpty()).diskCacheKey(cacheKey).build()
+        val remoteChain = chain.withRequest(remoteRequest)
+        val cache = appContext.imageLoader.diskCache
+        // Reuse older URL-keyed entries before creating a canonical entry or making a network call.
+        val legacyKeys = withContext(Dispatchers.IO) {
+            (listOfNotNull(cacheKey, url) + ids.flatMap { CoverStore.urlsForId(appContext, it) }).distinct()
+        }
+        for (key in legacyKeys) {
+            val legacy = withContext(Dispatchers.IO) { cache?.openSnapshot(key) } ?: continue
+            legacy.use { snapshot ->
+                val file = java.io.File(snapshot.data.toString())
+                val result = chain.withRequest(request.newBuilder().data(file).build()).proceed()
+                if (result is SuccessResult) {
+                    if (id != null) withContext(Dispatchers.IO) {
+                        if (file.length() <= 2 * 1024 * 1024) CoverStore.saveBytes(appContext, id, file.readBytes())
+                    }
+                    return result
+                }
+            }
+        }
+        val result = proceedAndHeal(remoteChain, url.orEmpty())
+        if (result is SuccessResult && id != null && cacheKey != null) withContext(Dispatchers.IO) {
+            cache?.openSnapshot(cacheKey)?.use { snapshot ->
+                val file = java.io.File(snapshot.data.toString())
+                if (file.length() <= 2 * 1024 * 1024) CoverStore.saveBytes(appContext, id, file.readBytes())
+            }
+        }
+        return result
     }
 
     /**

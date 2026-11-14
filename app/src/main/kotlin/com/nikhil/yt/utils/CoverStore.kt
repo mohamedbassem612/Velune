@@ -61,52 +61,93 @@ object CoverStore {
         if (loaded) return
         prefs(context).all.forEach { (id, url) ->
             if (url is String) link(id, url)
+            if (id.startsWith("aliases:") && url is Set<*>) {
+                url.filterIsInstance<String>().forEach { linkAlias(id.removePrefix("aliases:"), it) }
+            }
         }
         loaded = true
     }
 
     /** The url and its high resolution version (the Home carousel asks for that one). */
     private fun urlsOf(url: String): List<String> =
-        listOf(url, runCatching { url.toHighResThumbnail() }.getOrDefault(url)).distinct()
+        listOf(url, runCatching { url.toHighResThumbnail() }.getOrDefault(url), ArtworkIdentity.canonical(url)).distinct()
 
     private fun link(id: String, url: String) {
-        val old = idToUrl.put(id, url)
-        if (old != null && old != url) removeFromUrls(id, old)
+        idToUrl[id] = url
+        linkAlias(id, url)
+    }
+
+    private fun linkAlias(id: String, url: String) {
         urlsOf(url).forEach { u ->
             val list = urlToIds.getOrPut(u) { CopyOnWriteArrayList() }
             if (!list.contains(id)) list.add(id)
         }
     }
 
-    private fun removeFromUrls(id: String, url: String) {
-        urlsOf(url).forEach { u ->
-            urlToIds[u]?.let {
-                it.remove(id)
-                if (it.isEmpty()) urlToIds.remove(u)
-            }
-        }
-    }
-
-    private fun unlink(id: String) {
-        val url = idToUrl.remove(id) ?: return
-        removeFromUrls(id, url)
-    }
-
     fun idsForUrl(context: Context, url: String): List<String> {
         ensureLoaded(context)
-        return urlToIds[url]?.toList().orEmpty()
+        return (urlToIds[ArtworkIdentity.canonical(url)]?.toList().orEmpty() +
+            urlToIds[url]?.toList().orEmpty() + listOfNotNull(ArtworkIdentity.videoId(url))).distinct()
     }
 
     fun register(context: Context, id: String, url: String) {
         ensureLoaded(context)
         if (idToUrl[id] == url) return
         link(id, url)
-        prefs(context).edit().putString(id, url).apply()
+        val previous = prefs(context).getStringSet("aliases:$id", emptySet()).orEmpty()
+        val aliases = (previous + url).toList().takeLast(16).toSet()
+        prefs(context).edit().putString(id, url).putStringSet("aliases:$id", aliases).apply()
     }
 
     private fun dir(context: Context) = File(context.filesDir, DIR)
 
-    fun coverFile(context: Context, id: String) = File(dir(context), "$id.jpg")
+    fun coverFile(context: Context, id: String): File {
+        val key = if (id.matches(Regex("[A-Za-z0-9_-]{1,256}"))) id else
+            java.security.MessageDigest.getInstance("SHA-256").digest(id.toByteArray()).joinToString("") { "%02x".format(it) }
+        return File(dir(context), "$key.jpg")
+    }
+
+    fun urlsForId(context: Context, id: String): List<String> {
+        ensureLoaded(context)
+        return (prefs(context).getStringSet("aliases:$id", emptySet()).orEmpty() + listOfNotNull(idToUrl[id]))
+            .flatMap(::urlsOf).distinct().filter { it.startsWith("http") }
+    }
+
+    @OptIn(coil3.annotation.ExperimentalCoilApi::class)
+    fun localBytes(context: Context, id: String, mp3: Mp3Library?): ByteArray? {
+        when (val source = localSource(context, id, mp3)) {
+            is CoverBytes -> return source.bytes.takeIf { it.size <= 2 * 1024 * 1024 }
+            is File -> return source.takeIf { it.length() <= 2 * 1024 * 1024 }?.readBytes()
+        }
+        val urls = urlsForId(context, id)
+        val keys = listOf("song-cover:$id") + urls + urls.map(ArtworkIdentity::canonical)
+        for (key in keys.distinct()) {
+            context.imageLoader.diskCache?.openSnapshot(key)?.use { snapshot ->
+                val file = File(snapshot.data.toString())
+                if (file.length() in 1..(2 * 1024 * 1024L)) {
+                    val bytes = file.readBytes()
+                    if (saveBytes(context, id, bytes)) return bytes
+                }
+            }
+        }
+        return null
+    }
+
+    fun saveBytes(context: Context, id: String, bytes: ByteArray): Boolean {
+        if (bytes.isEmpty() || bytes.size > 2 * 1024 * 1024) return false
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth !in 1..8192 || bounds.outHeight !in 1..8192) return false
+        if (!saving.add(id)) return false
+        return try {
+            val file = coverFile(context, id)
+            if (file.length() > 0) return true
+            file.parentFile?.mkdirs()
+            val tmp = File.createTempFile("cover-", ".tmp", file.parentFile)
+            try { tmp.writeBytes(bytes); tmp.renameTo(file) } finally { tmp.delete() }
+        } finally { saving.remove(id) }
+    }
+
 
     fun hasSavedCover(context: Context, id: String) = coverFile(context, id).length() > 0L
 
@@ -126,7 +167,7 @@ object CoverStore {
             }
         }
         val file = coverFile(context, id)
-        return if (file.length() > 0L) file else null
+        return if (file.length() > 0L) { file.setLastModified(System.currentTimeMillis()); file } else null
     }
 
     private fun readEmbedded(context: Context, uri: Uri): ByteArray? {
@@ -159,7 +200,7 @@ object CoverStore {
             val result = context.imageLoader.execute(request) as? SuccessResult ?: return false
             val bitmap = result.image.toBitmap()
             file.parentFile?.mkdirs()
-            val tmp = File(file.parentFile, "$id.tmp")
+            val tmp = File.createTempFile("cover-", ".tmp", file.parentFile)
             tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
             if (tmp.length() > 0L && tmp.renameTo(file)) {
                 register(context, id, url)
@@ -176,26 +217,19 @@ object CoverStore {
         }
     }
 
-    /**
-     * Deletes saved covers of songs that left the player cache, and forgets index entries of songs
-     * that are neither cached nor downloaded.
-     */
+    /** Artwork has its own lifetime: removing audio must not erase covers used by other screens. */
     fun sweep(context: Context, cachedIds: Set<String>, knownIds: Set<String>) {
         ensureLoaded(context)
-        dir(context).listFiles()?.forEach { f ->
-            val id = f.name.substringBeforeLast('.')
-            if (f.name.endsWith(".tmp") || id !in cachedIds) f.delete()
+        val files = dir(context).listFiles().orEmpty()
+        val now = System.currentTimeMillis()
+        files.filter { it.name.endsWith(".tmp") && now - it.lastModified() > 86_400_000 }.forEach { it.delete() }
+        val covers = files.filter { it.name.endsWith(".jpg") }.sortedBy { it.lastModified() }
+        var size = covers.sumOf { it.length() }
+        for (file in covers) {
+            if (size <= 256L * 1024 * 1024) break
+            val bytes = file.length()
+            if (file.delete()) size -= bytes
         }
-        val stale = idToUrl.keys.filter { it !in knownIds }
-        if (stale.isNotEmpty()) {
-            val editor = prefs(context).edit()
-            stale.forEach {
-                unlink(it)
-                editor.remove(it)
-                embeddedCache.remove(it)
-                noEmbedded.remove(it)
-            }
-            editor.apply()
-        }
+        // Keep URL aliases: Coil's disk cache or an MP3 may still contain the same artwork.
     }
 }
