@@ -85,6 +85,12 @@ jobs:
             APK_TAG="velune-mobile-v$VERSION"
           fi
           echo "APK_TAG=$APK_TAG" >> "$GITHUB_ENV"
+          RELEASE_NOTES_FILE="docs/release-notes/v$VERSION.md"
+          echo "RELEASE_NOTES_FILE=$RELEASE_NOTES_FILE" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* && ! -f "$RELEASE_NOTES_FILE" ]]; then
+            echo "Missing user-facing release notes: $RELEASE_NOTES_FILE"
+            exit 1
+          fi
 
       - name: Build Mobile and TV Release APKs
         env:
@@ -122,7 +128,8 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Velune ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
+          generate_release_notes: false
           files: dist/${{ env.APK_TAG }}.apk
 
       # Legacy mobile updaters pick the first APK. The explicit mobile filename sorts before TV;
@@ -132,4 +139,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
           files: dist/velune-tv-v${{ env.RELEASE_VERSION_NAME }}.apk

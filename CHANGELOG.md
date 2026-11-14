@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.13 — 2026-11-14
+
+### Since 1.3.10
+
+- The updater selects the correct APK for the phone or TV.
+- Connect phone and TV for playback handover, library sync, and sharing cached songs, lyrics, and cover art.
+- TV users can browse and open playlists and albums, and switch between library sections.
+- TV playback can start while the phone continues caching the rest of a song.
+- Liked songs stay in the phone's Liked list after TV sync, and songs can be copied as shareable links.
+
 ## 1.3.12 — 2026-11-14
 
 ### Added
