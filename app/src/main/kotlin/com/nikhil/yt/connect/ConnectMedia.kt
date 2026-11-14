@@ -21,6 +21,7 @@ internal class ConnectMedia(
     private val available: suspend (String) -> Boolean,
     private val factory: () -> DataSource,
     private val assets: suspend (String, Set<String>) -> JSONObject = { _, _ -> JSONObject() },
+    private val ensureCached: suspend (String) -> Unit = {},
 ) {
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     private val readers = mutableMapOf<String, DataSource>()
@@ -34,7 +35,7 @@ internal class ConnectMedia(
         pending[id] = reply
         try {
             send(message.put("type", "mediaRequest").put("requestId", id))
-            return withTimeout(30_000) { reply.await() }.also {
+            return withTimeout(if (message.optString("operation") == "open") 120_000L else 30_000L) { reply.await() }.also {
                 if (!it.optBoolean("ok")) throw IOException("Peer media unavailable")
             }
         } finally { pending.remove(id) }
@@ -48,6 +49,15 @@ internal class ConnectMedia(
         scope.launch(Dispatchers.IO) {
             val response = JSONObject().put("type", "mediaReply").put("requestId", message.optString("requestId"))
             try {
+                // Preparing the full phone cache must not block reads from another cached song.
+                if (message.optString("operation") == "open") {
+                    val song = message.getString("song")
+                    require(song.isNotBlank() && song.length <= 256)
+                    require(message.getLong("position") >= 0)
+                    require(message.getLong("length").let { it == -1L || it > 0 })
+                    if (message.optBoolean("cachedOnly")) check(available(song))
+                    else ensureCached(song)
+                }
                 lock.withLock {
                     check(!closed)
                     when (message.getString("operation")) {
@@ -90,7 +100,11 @@ internal class ConnectMedia(
                     response.put("ok", true)
                 }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { response.put("ok", false) }
+            catch (e: Exception) {
+                if (!message.optBoolean("cachedOnly")) timber.log.Timber.tag("ConnectMedia")
+                    .w("Media %s failed: %s", message.optString("operation"), e.javaClass.simpleName)
+                response.put("ok", false)
+            }
             send(response)
         }
     }
@@ -150,15 +164,20 @@ internal class PeerMediaDataSource(
 ) : DataSource {
     private var active: DataSource? = null
     override fun open(dataSpec: DataSpec): Long {
-        for (source in candidates(dataSpec)) {
+        val providers = candidates(dataSpec)
+        var failure: IOException? = null
+        for (source in providers) {
             try {
                 val length = source.open(dataSpec)
                 active = source
                 timber.log.Timber.tag("ConnectMedia").i("Playing %s from connected device", dataSpec.key)
                 return length
             }
-            catch (_: IOException) { runCatching { source.close() } }
+            catch (e: IOException) { failure = e; runCatching { source.close() } }
         }
+        // A connected phone owns the audio path, even when the TV already has local bytes.
+        // Falling back here would bypass the phone cache silently.
+        if (providers.isNotEmpty()) throw IOException("Connected phone could not prepare cached audio", failure)
         active = local
         return local.open(dataSpec)
     }

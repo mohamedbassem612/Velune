@@ -39,7 +39,8 @@ class ConnectMediaTest {
         var opened = false
         val media = ConnectMedia(this, { sent.trySend(it) }, { false }, { opened = true; error("Must not download") })
         media.receive(JSONObject().put("type", "mediaRequest").put("requestId", "probe")
-            .put("operation", "open").put("song", "song-id").put("cachedOnly", true))
+            .put("operation", "open").put("song", "song-id").put("cachedOnly", true)
+            .put("position", 0).put("length", -1))
         val response = withTimeout(2000) { sent.receive() }
         assertFalse(response.getBoolean("ok"))
         assertEquals("probe", response.getString("requestId"))
@@ -62,6 +63,36 @@ class ConnectMediaTest {
         assertTrue(response.getBoolean("ok"))
         assertEquals(setOf("lyrics"), fields)
         assertEquals("[00:01.00]Saved lyrics", response.getJSONObject("assets").getString("lyrics"))
+        media.close()
+    }
+
+    @Test fun audioCannotOpenUntilTheWholePhoneCacheIsReady() = runBlocking {
+        val sent = Channel<JSONObject>(4)
+        val preparing = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        var sourceOpened = false
+        val media = ConnectMedia(this, { sent.trySend(it) }, { false },
+            { sourceOpened = true; error("Must not open an incomplete cache") },
+            ensureCached = {
+                preparing.complete(Unit)
+                finish.await()
+                throw IOException("Cache fill failed")
+            })
+        media.receive(JSONObject().put("type", "mediaRequest").put("requestId", "audio")
+            .put("operation", "open").put("song", "song-id").put("position", 0).put("length", -1))
+        withTimeout(2000) { preparing.await() }
+        assertFalse(sourceOpened)
+        // Another operation can run while audio is being downloaded on the phone.
+        media.receive(JSONObject().put("type", "mediaRequest").put("requestId", "assets")
+            .put("operation", "assets").put("song", "song-id"))
+        val assets = withTimeout(2000) { sent.receive() }
+        assertEquals("assets", assets.getString("requestId"))
+        assertTrue(assets.getBoolean("ok"))
+        finish.complete(Unit)
+        val audio = withTimeout(2000) { sent.receive() }
+        assertEquals("audio", audio.getString("requestId"))
+        assertFalse(audio.getBoolean("ok"))
+        assertFalse(sourceOpened)
         media.close()
     }
 

@@ -1,15 +1,23 @@
 # Connect media version 1
 
-TV playback checks its own MP3 downloads and complete Media3 caches first. If
-nothing is available locally, it probes **all connected media providers** for a
-complete local file/cache before asking a provider to fetch audio. A provider
-uses the mobile playback resolver: MP3 download, download cache, player cache,
-then upstream streaming into the player cache as the TV consumes bytes. Playback
-starts without waiting for the whole song to download. With no compatible
-provider (or if all opens fail), the TV uses its normal independent stream path.
-Partial caches are reused by the provider's cache chain; they are not advertised
-as complete offline songs. The TV does not copy provider bytes into its own
-song-ID cache, because MP3 and streamed encodings may differ.
+While a compatible phone is connected, the audio route is upstream → complete
+phone cache → TV. The TV probes connected providers for existing downloads or
+complete caches first. On a miss, the phone fills and commits the entire song to
+its player cache before returning an audio handle. This applies to manually
+selected tracks, shuffle and autoplay, even when the TV has its own cached copy.
+Initial playback of an uncached song waits for the phone download to complete.
+
+Cache fills belong to the phone service, are deduplicated by song ID, and finish
+even if an individual TV reader is canceled. Preparing a new song does not hold
+the RPC reader lock. Cache completion and metadata persistence are checked before
+serving audio, so the phone's Cached screen can list the complete song.
+
+With no compatible provider, the TV uses its own cache/download/upstream route.
+If connected providers fail, the open fails rather than silently bypassing the
+phone cache. Once disconnected, a subsequent open uses the independent TV route.
+Provider bytes are not copied into the TV's song-ID cache, because downloaded MP3
+and streamed encodings may differ. Downloaded phone songs remain in Downloads;
+new streamed songs are stored in the phone player cache.
 
 ## Desktop integration
 
@@ -31,8 +39,8 @@ Replies have `type: "mediaReply"`, matching `requestId`, and boolean `ok`.
   with `eof: true` and empty data.
 * `close`: `handle`. Releases the reader; repeated close is harmless.
 
-Providers allow at most four open readers per connection. Requests time out after
-30 seconds. Disconnect fails pending requests and closes provider readers.
+Providers allow at most four open readers per connection. Audio opens allow up
+to 120 seconds for cache preparation; other requests time out after 30 seconds. Disconnect fails pending requests and closes provider readers.
 Seeking closes the old handle and opens a new one at the requested byte offset.
 A read failure is surfaced to the player; bytes from a different encoding are
 not appended inside the same open stream. Seamless recovery from a provider
@@ -43,9 +51,10 @@ should implement the provider role with the same catalog IDs and cached-only
 semantics. Device selection, playback ownership and library sync stay on the
 existing Connect messages.
 
-Validation: 33 Connect/cache JVM tests passed, and mobile/TV debug APKs built
-successfully. Real-device LAN playback, MP3 seeking, cache eviction during
-playback and disconnect recovery are reserved for user testing.
+Regression coverage includes shared cache fills, completing a fill after a TV
+reader is canceled, retry after a failed fill without stopping playback, and
+refusing to open audio before cache preparation completes. Real-device playback
+and cache behavior are reserved for user testing.
 
 ## Stored song assets (assetVersion 1)
 

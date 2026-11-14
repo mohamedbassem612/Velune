@@ -115,7 +115,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         var mediaVersion = 0
         var assetVersion = 0
         val media = ConnectMedia(work, ::send, service::offlinePlayable,
-            { service.createConnectMediaSource() }, service::exportConnectAssets)
+            { service.createConnectMediaSource() }, service::exportConnectAssets, service::cacheConnectSong)
         val commands = ConnectCommandWindow()
         var rendererSequence = -1L
         val library = ConnectLibraryExchange(service.localLibrarySync) { trust.contains(channel.id) && !isolated }
@@ -174,7 +174,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             val providers = withContext(Dispatchers.Main) {
                 if (closing || isolated) emptyList() else peers.values.filter { it.mediaVersion == 1 }.map { it.media }
             }
-            if (providers.isEmpty() || service.offlinePlayable(spec.key ?: return@blocking emptyList())) emptyList()
+            if (providers.isEmpty() || spec.key == null) emptyList()
             else providers.map { it.source(spec, cachedOnly = true) } + providers.map { it.source(spec, cachedOnly = false) }
         }
     }

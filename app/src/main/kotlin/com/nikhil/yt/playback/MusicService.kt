@@ -57,6 +57,7 @@ import androidx.media3.common.Player.REPEAT_MODE_ONE
 import androidx.media3.common.Player.STATE_IDLE
 import androidx.media3.common.Timeline
 import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -64,6 +65,7 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
+import androidx.media3.datasource.cache.CacheDataSource.FLAG_BLOCK_ON_CACHE
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -168,6 +170,7 @@ import com.nikhil.yt.lastfm.LastFM
 import com.nikhil.yt.lyrics.LyricsHelper
 import com.nikhil.yt.lyrics.LyricsPreloadManager
 import com.nikhil.yt.models.PersistPlayerState
+import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.models.PersistQueue
 import com.nikhil.yt.models.withStoredSong
 import com.nikhil.yt.models.toMediaMetadata
@@ -194,6 +197,8 @@ import com.nikhil.yt.utils.getPresenceIntervalMillis
 import com.nikhil.yt.utils.reportException
 import com.nikhil.yt.ui.widget.updateVeluneWidgetState
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1409,26 +1414,43 @@ class MusicService :
             .onFailure { reportException(it) }
     }
 
-    private suspend fun recoverSong(
+    internal suspend fun recoverSong(
         mediaId: String,
         playbackData: YTPlayerUtils.PlaybackData? = null,
         allowNetwork: Boolean = true,
+        includeRelated: Boolean = true,
     ) {
         val song = database.song(mediaId).first()
-        val mediaMetadata = withContext(Dispatchers.Main) {
+        val queueMetadata = withContext(Dispatchers.Main) {
             player.findNextMediaItemById(mediaId)?.metadata
-        } ?: return
-        val duration = song?.song?.duration?.takeIf { it != -1 }
-            ?: mediaMetadata.duration.takeIf { it != -1 }
-            ?: (playbackData?.videoDetails ?: if (allowNetwork && isOnlineNow()) {
-                YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()?.videoDetails
-            } else null)?.lengthSeconds?.toInt()
-            ?: -1
-        database.query {
-            if (song == null) insert(mediaMetadata.copy(duration = duration))
-            else if (song.song.duration == -1) update(song.song.copy(duration = duration))
         }
-        if (allowNetwork && isOnlineNow() && !database.hasRelatedSongs(mediaId)) {
+        // A phone serving TV autoplay may not have received that queue item yet.
+        // The audio resolver already has its metadata; do not leave an invisible cache entry.
+        val details = playbackData?.videoDetails ?: if (allowNetwork && isOnlineNow() &&
+            ((song?.song?.duration ?: -1) <= 0 && (queueMetadata?.duration ?: -1) <= 0)
+        ) {
+            YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()?.videoDetails
+        } else null
+        val mediaMetadata = queueMetadata ?: song?.toMediaMetadata() ?: details?.let {
+            MediaMetadata(
+                id = mediaId,
+                title = it.title,
+                artists = listOf(MediaMetadata.Artist(it.channelId, it.author)),
+                duration = it.lengthSeconds.toIntOrNull() ?: -1,
+                thumbnailUrl = it.thumbnail.thumbnails.lastOrNull()?.url,
+            )
+        } ?: return
+        val duration = song?.song?.duration?.takeIf { it > 0 }
+            ?: mediaMetadata.duration.takeIf { it > 0 }
+            ?: details?.lengthSeconds?.toIntOrNull()
+            ?: -1
+        database.withTransaction {
+            // A like may have arrived while resolving metadata. Never write the stale entity.
+            val current = song(mediaId).first()
+            if (current == null) insert(mediaMetadata.copy(duration = duration))
+            else if (current.song.duration <= 0 && duration > 0) update(current.song.copy(duration = duration))
+        }
+        if (includeRelated && allowNetwork && isOnlineNow() && !database.hasRelatedSongs(mediaId)) {
             val relatedEndpoint =
                 YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()?.relatedEndpoint
                     ?: return
@@ -1485,15 +1507,17 @@ class MusicService :
     internal suspend fun importConnectAssets(id: String, assets: org.json.JSONObject) {
         val incoming = assets.optJSONObject("metadata")?.handoverSong()?.takeIf { it.id == id }
         if (incoming != null) {
-            val saved = database.getSongById(id)
-            if (saved == null) database.insert(incoming)
-            else database.update(saved, incoming.copy(
-                title = saved.song.title.takeIf { it.isNotBlank() } ?: incoming.title,
-                duration = saved.song.duration.takeIf { it > 0 } ?: incoming.duration,
-                thumbnailUrl = saved.song.thumbnailUrl ?: incoming.thumbnailUrl,
-                artists = saved.toMediaMetadata().artists.takeIf { it.isNotEmpty() } ?: incoming.artists,
-                album = saved.toMediaMetadata().album ?: incoming.album,
-            ))
+            database.withTransaction {
+                val saved = getSongById(id)
+                if (saved == null) insert(incoming)
+                else update(saved, incoming.copy(
+                    title = saved.song.title.takeIf { it.isNotBlank() } ?: incoming.title,
+                    duration = saved.song.duration.takeIf { it > 0 } ?: incoming.duration,
+                    thumbnailUrl = saved.song.thumbnailUrl ?: incoming.thumbnailUrl,
+                    artists = saved.toMediaMetadata().artists.takeIf { it.isNotEmpty() } ?: incoming.artists,
+                    album = saved.toMediaMetadata().album ?: incoming.album,
+                ))
+            }
             incoming.thumbnailUrl?.let { com.nikhil.yt.utils.CoverStore.register(this, id, it) }
         }
         assets.optString("lyrics").takeIf { it.isNotBlank() && it != LyricsEntity.LYRICS_NOT_FOUND }?.let { text ->
@@ -4381,7 +4405,7 @@ class MusicService :
         }.onFailure { Timber.tag("CoverStore").w(it, "Cover maintenance failed") }
     }
 
-    private fun createCacheDataSource(): CacheDataSource.Factory =
+    private fun createCacheDataSource(blockOnCache: Boolean = false): CacheDataSource.Factory =
         CacheDataSource
             .Factory()
             .setCache(downloadCache)
@@ -4397,14 +4421,38 @@ class MusicService :
                             ),
                         ),
                     )
-                    .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
+                    .setFlags(FLAG_IGNORE_CACHE_ON_ERROR or if (blockOnCache) FLAG_BLOCK_ON_CACHE else 0)
             ).setCacheWriteDataSinkFactory(null)
-            .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
+            .setFlags(FLAG_IGNORE_CACHE_ON_ERROR or if (blockOnCache) FLAG_BLOCK_ON_CACHE else 0)
+
+    private val connectCacheLoader by lazy {
+        com.nikhil.yt.connect.ConnectCacheLoader({ ioScope }) { id ->
+            if (!offlinePlayable(id)) {
+                val source = createConnectMediaSource()
+                try {
+                    source.open(DataSpec.Builder().setUri(id.toUri()).setKey(id).build())
+                    val bytes = ByteArray(64 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        if (source.read(bytes, 0, bytes.size) == C.RESULT_END_OF_INPUT) break
+                    }
+                } finally {
+                    // Closing commits the final cache span before the TV may open a reader.
+                    source.close()
+                }
+                check(offlinePlayable(id)) { "Phone cache could not retain the complete song" }
+            }
+            recoverSong(id, includeRelated = false)
+            Timber.tag("ConnectMedia").i("Phone cache ready: %s", id)
+        }
+    }
+
+    internal suspend fun cacheConnectSong(id: String) = connectCacheLoader.prepare(id)
 
     internal fun createConnectMediaSource(): DataSource = createDataSourceFactory(peerMedia = false).createDataSource()
 
     private fun createDataSourceFactory(peerMedia: Boolean = true): DataSource.Factory {
-        val cacheFactory = createCacheDataSource()
+        val cacheFactory = createCacheDataSource(blockOnCache = !peerMedia)
         val localFactory = DefaultDataSource.Factory(this)
         val routingFactory = DataSource.Factory {
             LocalAwareDataSource(cacheFactory.createDataSource(), localFactory.createDataSource())
