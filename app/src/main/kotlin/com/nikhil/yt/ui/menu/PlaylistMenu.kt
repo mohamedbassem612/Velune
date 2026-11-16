@@ -28,7 +28,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.ListItem
+import com.nikhil.yt.ui.component.MusicMenuItem as ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,7 +64,7 @@ import com.nikhil.yt.ui.component.DefaultDialog
 import com.nikhil.yt.ui.component.AssignTagsDialog
 import com.nikhil.yt.ui.component.EditPlaylistDialog
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import com.nikhil.yt.ui.component.PlaylistListItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -292,7 +292,7 @@ fun PlaylistMenu(
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -302,7 +302,7 @@ fun PlaylistMenu(
     ) {
         item {
             // Enhanced Action Grid using NewMenuComponents
-            NewActionGrid(
+            MusicMenuActionList(
                 actions = listOf(
                     NewAction(
                         icon = {

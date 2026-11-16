@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -30,21 +31,27 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Enhanced Action Button - Material 3 Expressive Design
+/** Full-width actions keep names readable in Arabic and at larger system font sizes. */
 @Composable
 fun NewActionButton(
     icon: @Composable () -> Unit,
@@ -52,57 +59,27 @@ fun NewActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
+    backgroundColor: Color = Color.Transparent,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    val animatedBackground by animateColorAsState(
-        targetValue = if (enabled) backgroundColor else backgroundColor.copy(alpha = 0.5f),
-        animationSpec = tween(200),
-        label = "background"
-    )
-    
-    val animatedContent by animateColorAsState(
-        targetValue = if (enabled) contentColor else contentColor.copy(alpha = 0.5f),
-        animationSpec = tween(200),
-        label = "content"
-    )
-
-    Card(
-        modifier = modifier
-            .clickable(enabled = enabled) { onClick() },
-        colors = CardDefaults.cardColors(
-            containerColor = animatedBackground
-        ),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp
-        )
+    Surface(
+        color = backgroundColor,
+        contentColor = contentColor,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.fillMaxWidth(),
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+                .heightIn(min = 56.dp)
+                .alpha(if (enabled) 1f else 0.38f)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(
-                modifier = Modifier.size(28.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                icon()
-            }
-            
-            Spacer(modifier = Modifier.height(6.dp))
-            
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = animatedContent,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.basicMarquee()
-            )
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
+            Text(text, style = MaterialTheme.typography.bodyLarge, color = contentColor,
+                modifier = Modifier.weight(1f))
         }
     }
 }
@@ -142,45 +119,25 @@ fun NewMenuSectionHeader(
             fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp
         ),
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)
     )
 }
 
-// Enhanced Action Grid - Material 3 Expressive Design
+/** Shared by song, album, artist, playlist, selection and lyrics sheets. */
 @Composable
-fun NewActionGrid(
+fun MusicMenuActionList(
     actions: List<NewAction>,
     modifier: Modifier = Modifier,
-    columns: Int = 3
 ) {
-    val rows = actions.chunked(columns)
-    
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        rows.forEach { row ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                row.forEach { action ->
-                    NewActionButton(
-                        icon = action.icon,
-                        text = action.text,
-                        onClick = action.onClick,
-                        modifier = Modifier.weight(1f),
-                        enabled = action.enabled,
-                        backgroundColor = if (action.backgroundColor != Color.Unspecified) action.backgroundColor else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (action.contentColor != Color.Unspecified) action.contentColor else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                
-                // Fill remaining space if row is not full
-                repeat(columns - row.size) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        actions.forEach { action ->
+            NewActionButton(
+                icon = action.icon, text = action.text, onClick = action.onClick,
+                enabled = action.enabled,
+                backgroundColor = action.backgroundColor.takeOrElse { Color.Transparent },
+                contentColor = action.contentColor.takeOrElse { MaterialTheme.colorScheme.onSurface },
+            )
         }
     }
 }
@@ -286,16 +243,11 @@ fun NewMenuContainer(
     }
 }
 
+/** Sections share the sheet surface; spacing provides grouping without nested cards. */
 @Composable
 fun MenuSurfaceSection(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column(content = content)
-    }
+    Column(modifier = modifier.fillMaxWidth(), content = content)
 }

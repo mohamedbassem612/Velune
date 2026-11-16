@@ -11,14 +11,16 @@ typography	screenTitle	32	sp	music implementation
 typography	playerTitle	26	sp	music implementation
 typography	rowTitle	16	sp	music implementation
 color	amoledBackground	#000000	sRGB	default dark mode with Pure black
-color	darkBackground	#08090B	sRGB	dark mode with Pure black off
-color	darkElevatedSurface	#17191C	sRGB	music implementation
-color	darkPrimaryText	#F3F4F5	sRGB	music implementation
-color	darkSecondaryText	#A3A7AC	sRGB	music implementation
-color	darkAccent	#36D167	sRGB	provided brief / music implementation
-color	lightBackground	#F6F7F8	sRGB	music implementation
+color	darkBackground	#080808	sRGB	dark mode with Pure black off
+color	darkElevatedSurface	#171717	sRGB	music implementation
+color	darkPrimaryText	#F5F5F5	sRGB	music implementation
+color	darkSecondaryText	#A6A6A6	sRGB	music implementation
+color	darkAccent	#F5F5F5	sRGB	monochrome music implementation
+color	lightBackground	#F6F6F6	sRGB	music implementation
 color	lightElevatedSurface	#FFFFFF	sRGB	music implementation
-color	lightPrimaryText	#191C20	sRGB	music implementation
-color	lightSecondaryText	#60656D	sRGB	music implementation
-color	lightAccent	#157638	sRGB	music implementation
+color	lightPrimaryText	#191919	sRGB	music implementation
+color	lightSecondaryText	#626262	sRGB	music implementation
+color	lightAccent	#191919	sRGB	music implementation
 motion	navigationColor	180	ms	music implementation; honors animator scale
+size	menuActionMinimumHeight	56	dp	grows with wrapped labels
+size	menuMaximumHeight	90	percent	portrait and landscape

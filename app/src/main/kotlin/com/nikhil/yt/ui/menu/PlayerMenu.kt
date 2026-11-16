@@ -60,7 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.ListItem
+import com.nikhil.yt.ui.component.MusicMenuItem as ListItem
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -78,6 +78,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -123,9 +128,11 @@ import com.nikhil.yt.playback.ExoDownloadService
 import com.nikhil.yt.playback.queues.YouTubeQueue
 import com.nikhil.yt.ui.component.BottomSheetState
 import com.nikhil.yt.ui.component.ListDialog
+import com.nikhil.yt.ui.component.MusicMenuHeader
+import com.nikhil.yt.ui.component.PlayerSliderTrack
 import com.nikhil.yt.ui.component.MenuSurfaceSection
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import com.nikhil.yt.ui.component.TextFieldDialog
 import com.nikhil.yt.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
@@ -316,101 +323,28 @@ fun PlayerMenu(
         )
     }
 
-    val nowPlayingTitle =
-        remember(mediaMetadata.title) {
-            mediaMetadata.title.ifBlank { context.getString(R.string.no_title) }
-        }
-
-    val nowPlayingSubtitle =
-        remember(mediaMetadata.artists) {
-            mediaMetadata.artists.joinToString(separator = " • ") { it.name }
-        }
-
-    Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-        ) {
-            val thumb = mediaMetadata.thumbnailUrl
-            if (thumb.isNullOrBlank()) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.music_note),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            } else {
-                AsyncImage(
-                    model = thumb,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                        Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(16.dp)),
-                )
+    MusicMenuHeader(
+        title = mediaMetadata.title.ifBlank { stringResource(R.string.no_title) },
+        subtitle = mediaMetadata.artists.joinToString { it.name },
+        thumbnailUrl = mediaMetadata.thumbnailUrl,
+        songId = mediaMetadata.id,
+        trailingContent = {
+            IconButton(onClick = onDismiss) {
+                Icon(painterResource(R.drawable.close), stringResource(R.string.music_close_menu))
             }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.now_playing),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = nowPlayingTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.basicMarquee(),
-                )
-                if (nowPlayingSubtitle.isNotBlank()) {
-                    Text(
-                        text = nowPlayingSubtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.basicMarquee(),
-                    )
-                }
-            }
-        }
-    }
+        },
+    )
 
     if (isQueueTrigger != true) {
-        Spacer(modifier = Modifier.height(12.dp))
-
-        PlayerVolumeCard(
+        PlayerVolumeSection(
             volume = playerVolume.value,
             onVolumeChange = { playerConnection.service.playerVolume.value = it },
         )
     }
-
-    Spacer(modifier = Modifier.height(16.dp))
-
-    val configuration = LocalConfiguration.current
-    val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    Spacer(Modifier.height(8.dp))
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -419,7 +353,7 @@ fun PlayerMenu(
         ),
     ) {
         item {
-            NewActionGrid(
+            MusicMenuActionList(
                 actions = listOf(
                     NewAction(
                         icon = {
@@ -705,46 +639,25 @@ fun PlayerMenu(
 }
 
 @Composable
-private fun PlayerVolumeCard(
+private fun PlayerVolumeSection(
     volume: Float,
     onVolumeChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val safeVolume = volume.coerceIn(0f, 1f)
-
-    Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier.fillMaxWidth(),
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = stringResource(R.string.volume),
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
-
-                Text(
-                    text = "${(safeVolume * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            VolumeSliderL(
-                value = safeVolume,
-                onValueChange = onVolumeChange,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
+        Icon(painterResource(if (safeVolume == 0f) R.drawable.volume_off else R.drawable.volume_up),
+            stringResource(R.string.volume), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp))
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            VolumeSliderL(safeVolume, onVolumeChange, Modifier.weight(1f))
         }
+        Text("${(safeVolume * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -763,28 +676,25 @@ private fun VolumeSliderL(
         if (!isDragging) sliderValue = safeValue
     }
 
-    val insetIcon = if (sliderValue <= 0f) R.drawable.volume_off else R.drawable.volume_up
-
-        Slider(
-            value = sliderValue,
-            onValueChange = { updated ->
-                isDragging = true
-                val coerced = updated.coerceIn(0f, 1f)
-                sliderValue = coerced
-                onValueChange(coerced)
-            },
-            onValueChangeFinished = { isDragging = false },
-            valueRange = 0f..1f,
-            modifier = Modifier.height(56.dp),
-            thumb = {
-                Icon(
-                    painter = painterResource(insetIcon),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            colors = SliderDefaults.colors(),
-        )
+    val volumeLabel = stringResource(R.string.volume)
+    Slider(
+        value = sliderValue,
+        onValueChange = { updated ->
+            isDragging = true
+            sliderValue = updated.coerceIn(0f, 1f)
+            onValueChange(sliderValue)
+        },
+        onValueChangeFinished = { isDragging = false },
+        valueRange = 0f..1f,
+        modifier = modifier.height(48.dp).semantics { contentDescription = volumeLabel },
+        thumb = {
+            Box(Modifier.size(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+        },
+        track = { sliderState ->
+            PlayerSliderTrack(sliderState, trackHeight = 4.dp,
+                colors = SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant))
+        },
+    )
 }
 
 @Composable

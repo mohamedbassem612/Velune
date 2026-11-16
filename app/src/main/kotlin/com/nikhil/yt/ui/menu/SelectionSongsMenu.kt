@@ -23,7 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.ListItem
+import com.nikhil.yt.ui.component.MusicMenuItem as ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,7 +63,7 @@ import com.nikhil.yt.playback.ExoDownloadService
 import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.ui.component.DefaultDialog
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -199,7 +199,7 @@ fun SelectionSongMenu(
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -209,7 +209,7 @@ fun SelectionSongMenu(
     ) {
         item {
             // Enhanced Action Grid using NewMenuComponents
-            NewActionGrid(
+            MusicMenuActionList(
                 actions = listOf(
                     NewAction(
                         icon = {

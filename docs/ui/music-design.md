@@ -5,10 +5,10 @@ This branch implements the supplied Xiaomi-inspired music brief in the existing 
 ## Default appearance
 
 - Dark mode is on and Pure black is enabled by default: the app and full player background are `#000000`.
-- Slightly lighter neutral surfaces separate the mini player, menus and queue. Accent green is `#36D167` in dark mode and `#157638` in light mode, with separate foreground/container colors.
+- Slightly lighter neutral surfaces separate the mini player, menus and queue. The default palette is black, white and neutral grays. Selected actions use `#F5F5F5` in dark mode and `#191919` in light mode, with separate foreground/container colors.
 - Dynamic artwork colors default to off. Existing explicit theme preferences remain available; custom and dynamic accent colors preserve neutral music surfaces.
 - The system font defaults to on. Arabic uses the platform's shaping and fallback fonts; no MiSans font asset is assumed.
-- The light palette is authored separately. Disabling Pure black gives the dark theme a near-black `#08090B` background.
+- The light palette is authored separately. Disabling Pure black gives the dark theme a near-black `#080808` background.
 
 ## Components and navigation
 
@@ -24,9 +24,11 @@ This branch implements the supplied Xiaomi-inspired music brief in the existing 
 | Playback | Existing `PlayerConnection` and `MusicService`; UI navigation does not create a new player or reload the queue |
 | Artwork | `MusicArtwork` / `RetryAsyncImage`, including existing `SongCover` support for cached and embedded artwork |
 | Queue | Existing queue editing and playback actions, with a dim layer and rounded top corners |
-| Options | Existing song actions in a modal sheet, with 30dp top corners and a dim layer |
+| Options | Shared full-width action rows for song, album, artist, playlist, selection and lyrics menus; compact artwork/title headers and volume control; a single neutral sheet surface with 30dp top corners and dim layer |
 
 The mini player's height, main title bar and navigation reserve grow with system font size. Bottom content padding includes the mini player, its spacing, navigation and system inset. Player progress and transport controls use LTR geometry while the rest of the app follows the locale's direction. The main manifest enables RTL; the TV overlay explicitly preserves its earlier setting.
+
+Option lists scroll in portrait and landscape. Menus open without a partial-height anchor; their height is capped at 90% of the available display, and action labels wrap with the system font size. Nested action cards and marquee labels are replaced by full-width rows.
 
 Progress clocks are scoped to the slider and mini progress line, rather than the shared metadata or library. Scrubbing commits a seek through the existing connection. Compose's animation clock honors the system animator duration scale, while dragging follows the gesture directly.
 

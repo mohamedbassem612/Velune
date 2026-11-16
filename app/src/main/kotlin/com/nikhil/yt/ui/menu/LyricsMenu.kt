@@ -74,7 +74,7 @@ import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.ui.component.DefaultDialog
 import com.nikhil.yt.ui.component.ListDialog
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import com.nikhil.yt.ui.component.TextFieldDialog
 import com.nikhil.yt.viewmodels.LyricsMenuViewModel
 import java.util.UUID
@@ -552,7 +552,7 @@ fun LyricsMenu(
 
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -562,7 +562,7 @@ fun LyricsMenu(
     ) {
         item {
             // Enhanced Action Grid using NewMenuComponents
-            NewActionGrid(
+            MusicMenuActionList(
                 actions = listOf(
                     NewAction(
                         icon = {
