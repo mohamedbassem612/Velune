@@ -582,3 +582,6 @@ enum class UpdateChannel {
     STABLE,
     NIGHTLY,
 }
+
+// The mobile music redesign keeps the earlier player available as an optional layout.
+val UseMusicPlayerKey = booleanPreferencesKey("useMusicPlayer")

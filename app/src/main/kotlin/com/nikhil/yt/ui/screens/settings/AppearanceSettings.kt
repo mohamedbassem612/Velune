@@ -126,7 +126,7 @@ fun AppearanceSettings(
 ) {
     val (dynamicTheme, onDynamicThemeChange) = rememberPreference(
         DynamicThemeKey,
-        defaultValue = true
+        defaultValue = false
     )
     val (randomThemeOnStartup, onRandomThemeOnStartupChange) = rememberPreference(
         RandomThemeOnStartupKey,
@@ -136,6 +136,7 @@ fun AppearanceSettings(
         DarkModeKey,
         defaultValue = DarkMode.ON
     )
+    val (useMusicPlayer, onUseMusicPlayerChange) = rememberPreference(com.nikhil.yt.constants.UseMusicPlayerKey, true)
     val (playerDesignStyle, onPlayerDesignStyleChange) = rememberEnumPreference(
         PlayerDesignStyleKey,
         defaultValue = PlayerDesignStyle.V3
@@ -171,7 +172,7 @@ fun AppearanceSettings(
         )
     val (pureBlack, onPureBlackChange) = rememberPreference(PureBlackKey, defaultValue = true)
     val (disableBlur, onDisableBlurChange) = rememberPreference(DisableBlurKey, defaultValue = true)
-    val (useSystemFont, onUseSystemFontChange) = rememberPreference(UseSystemFontKey, defaultValue = false)
+    val (useSystemFont, onUseSystemFontChange) = rememberPreference(UseSystemFontKey, defaultValue = true)
     val (defaultOpenTab, onDefaultOpenTabChange) = rememberEnumPreference(
         DefaultOpenTabKey,
         defaultValue = NavigationTab.HOME
@@ -395,31 +396,40 @@ fun AppearanceSettings(
             title = stringResource(R.string.player),
         )
 
-        EnumListPreference(
-            title = { Text(stringResource(R.string.player_design_style)) },
-            icon = { Icon(painterResource(R.drawable.palette), null) },
-            selectedValue = playerDesignStyle,
-            onValueSelected = onPlayerDesignStyleChange,
-            valueText = {
-                when (it) {
-                    PlayerDesignStyle.V1 -> stringResource(R.string.player_design_v1)
-                    PlayerDesignStyle.V2 -> stringResource(R.string.player_design_v2)
-                    PlayerDesignStyle.V3 -> stringResource(R.string.player_design_v3)
-                    PlayerDesignStyle.V4 -> stringResource(R.string.player_design_v4)
-                    PlayerDesignStyle.V5 -> stringResource(R.string.player_design_v5)
-                }
-            },
-        )
-
         SwitchPreference(
-            title = { Text(stringResource(R.string.new_mini_player_design)) },
-            icon = { Icon(painterResource(R.drawable.nav_bar), null) },
-            checked = useNewMiniPlayerDesign,
-            onCheckedChange = onUseNewMiniPlayerDesignChange,
+            title = { Text(stringResource(R.string.music_player_design)) },
+            description = stringResource(R.string.music_player_design_description),
+            icon = { Icon(painterResource(R.drawable.music_note), null) },
+            checked = useMusicPlayer,
+            onCheckedChange = onUseMusicPlayerChange,
         )
+        if (!useMusicPlayer) {
+            EnumListPreference(
+                title = { Text(stringResource(R.string.player_design_style)) },
+                icon = { Icon(painterResource(R.drawable.palette), null) },
+                selectedValue = playerDesignStyle,
+                onValueSelected = onPlayerDesignStyleChange,
+                valueText = {
+                    when (it) {
+                        PlayerDesignStyle.V1 -> stringResource(R.string.player_design_v1)
+                        PlayerDesignStyle.V2 -> stringResource(R.string.player_design_v2)
+                        PlayerDesignStyle.V3 -> stringResource(R.string.player_design_v3)
+                        PlayerDesignStyle.V4 -> stringResource(R.string.player_design_v4)
+                        PlayerDesignStyle.V5 -> stringResource(R.string.player_design_v5)
+                    }
+                },
+            )
+
+            SwitchPreference(
+                title = { Text(stringResource(R.string.new_mini_player_design)) },
+                icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                checked = useNewMiniPlayerDesign,
+                onCheckedChange = onUseNewMiniPlayerDesignChange,
+            )
 
 
 
+        }
         SwitchPreference(
             title = { Text(stringResource(R.string.new_library_design)) },
             description = stringResource(R.string.new_library_design_description),
@@ -428,170 +438,172 @@ fun AppearanceSettings(
             onCheckedChange = onUseNewLibraryDesignChange,
         )
 
-        EnumListPreference(
-            title = { Text(stringResource(R.string.player_background_style)) },
-            icon = { Icon(painterResource(R.drawable.gradient), null) },
-            selectedValue = playerBackground,
-            onValueSelected = onPlayerBackgroundChange,
-            valueText = {
-                when (it) {
-                    PlayerBackgroundStyle.DEFAULT -> stringResource(R.string.follow_theme)
-                    PlayerBackgroundStyle.GRADIENT -> stringResource(R.string.gradient)
-                        PlayerBackgroundStyle.CUSTOM -> stringResource(R.string.custom)
-                    PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
-                    PlayerBackgroundStyle.COLORING -> stringResource(R.string.coloring)
-                    PlayerBackgroundStyle.BLUR_GRADIENT -> stringResource(R.string.blur_gradient)
-                    PlayerBackgroundStyle.GLOW -> stringResource(R.string.glow)
-                    PlayerBackgroundStyle.GLOW_ANIMATED -> "Glow Animated"
-                }
-            },
-        )
+        if (!useMusicPlayer) {
+            EnumListPreference(
+                title = { Text(stringResource(R.string.player_background_style)) },
+                icon = { Icon(painterResource(R.drawable.gradient), null) },
+                selectedValue = playerBackground,
+                onValueSelected = onPlayerBackgroundChange,
+                valueText = {
+                    when (it) {
+                        PlayerBackgroundStyle.DEFAULT -> stringResource(R.string.follow_theme)
+                        PlayerBackgroundStyle.GRADIENT -> stringResource(R.string.gradient)
+                            PlayerBackgroundStyle.CUSTOM -> stringResource(R.string.custom)
+                        PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
+                        PlayerBackgroundStyle.COLORING -> stringResource(R.string.coloring)
+                        PlayerBackgroundStyle.BLUR_GRADIENT -> stringResource(R.string.blur_gradient)
+                        PlayerBackgroundStyle.GLOW -> stringResource(R.string.glow)
+                        PlayerBackgroundStyle.GLOW_ANIMATED -> "Glow Animated"
+                    }
+                },
+            )
 
-        // When custom background is selected, show a direct link to customize it
-        if (playerBackground == PlayerBackgroundStyle.CUSTOM) {
-            PreferenceEntry(
-                title = { Text(stringResource(R.string.customized_background)) },
+            // When custom background is selected, show a direct link to customize it
+            if (playerBackground == PlayerBackgroundStyle.CUSTOM) {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.customized_background)) },
+                    icon = { Icon(painterResource(R.drawable.image), null) },
+                    onClick = { navController.navigate("customize_background") }
+                )
+            }
+
+            SwitchPreference(
+                title = { Text(stringResource(R.string.hide_player_thumbnail)) },
+                description = stringResource(R.string.hide_player_thumbnail_desc),
+                icon = { Icon(painterResource(R.drawable.hide_image), null) },
+                checked = hidePlayerThumbnail,
+                onCheckedChange = onHidePlayerThumbnailChange
+            )
+
+            SwitchPreference(
+                title = { Text(stringResource(R.string.velune_canvas)) },
+                description = stringResource(R.string.velune_canvas_desc),
+                icon = { Icon(painterResource(R.drawable.motion_photos_on), null) },
+                checked = veluneCanvasEnabled,
+                onCheckedChange = onVeluneCanvasEnabledChange
+            )
+
+
+            ThumbnailCornerRadiusSelectorButton(
+                modifier = Modifier.padding(16.dp),
+                onRadiusSelected = { selectedRadius ->
+                    Timber.tag("Thumbnail").d("Radius Selector: $selectedRadius")
+                }
+            )
+
+            SwitchPreference(
+                title = { Text(stringResource(R.string.crop_thumbnail_to_square)) },
+                description = stringResource(R.string.crop_thumbnail_to_square_desc),
                 icon = { Icon(painterResource(R.drawable.image), null) },
-                onClick = { navController.navigate("customize_background") }
+                checked = cropThumbnailToSquare,
+                onCheckedChange = onCropThumbnailToSquareChange
             )
-        }
-
-        SwitchPreference(
-            title = { Text(stringResource(R.string.hide_player_thumbnail)) },
-            description = stringResource(R.string.hide_player_thumbnail_desc),
-            icon = { Icon(painterResource(R.drawable.hide_image), null) },
-            checked = hidePlayerThumbnail,
-            onCheckedChange = onHidePlayerThumbnailChange
-        )
-
-        SwitchPreference(
-            title = { Text(stringResource(R.string.velune_canvas)) },
-            description = stringResource(R.string.velune_canvas_desc),
-            icon = { Icon(painterResource(R.drawable.motion_photos_on), null) },
-            checked = veluneCanvasEnabled,
-            onCheckedChange = onVeluneCanvasEnabledChange
-        )
-      
-
-        ThumbnailCornerRadiusSelectorButton(
-            modifier = Modifier.padding(16.dp),
-            onRadiusSelected = { selectedRadius ->
-                Timber.tag("Thumbnail").d("Radius Selector: $selectedRadius")
-            }
-        )
-
-        SwitchPreference(
-            title = { Text(stringResource(R.string.crop_thumbnail_to_square)) },
-            description = stringResource(R.string.crop_thumbnail_to_square_desc),
-            icon = { Icon(painterResource(R.drawable.image), null) },
-            checked = cropThumbnailToSquare,
-            onCheckedChange = onCropThumbnailToSquareChange
-        )
 
 
-        EnumListPreference(
-            title = { Text(stringResource(R.string.player_buttons_style)) },
-            icon = { Icon(painterResource(R.drawable.palette), null) },
-            selectedValue = playerButtonsStyle,
-            onValueSelected = onPlayerButtonsStyleChange,
-            valueText = {
-                when (it) {
-                    PlayerButtonsStyle.DEFAULT -> stringResource(R.string.default_style)
-                    PlayerButtonsStyle.SECONDARY -> stringResource(R.string.secondary_color_style)
-                }
-            },
-        )
-
-        PreferenceEntry(
-            title = { Text(stringResource(R.string.player_slider_style)) },
-            description = sliderStyleLabel(sliderStyle),
-            icon = { Icon(painterResource(R.drawable.sliders), null) },
-            onClick = {
-                showSliderOptionDialog = true
-            },
-        )
-
-        SwitchPreference(
-            title = { Text(stringResource(R.string.enable_swipe_thumbnail)) },
-            icon = { Icon(painterResource(R.drawable.swipe), null) },
-            checked = swipeThumbnail,
-            onCheckedChange = onSwipeThumbnailChange,
-        )
-
-        AnimatedVisibility(swipeThumbnail) {
-            var showSensitivityDialog by rememberSaveable { mutableStateOf(false) }
-            
-            if (showSensitivityDialog) {
-                var tempSensitivity by remember { mutableFloatStateOf(swipeSensitivity) }
-                
-                DefaultDialog(
-                    onDismiss = { 
-                        tempSensitivity = swipeSensitivity
-                        showSensitivityDialog = false 
-                    },
-                    buttons = {
-                        TextButton(
-                            onClick = { 
-                                tempSensitivity = 0.73f
-                            }
-                        ) {
-                            Text(stringResource(R.string.reset))
-                        }
-                        
-                        Spacer(modifier = Modifier.weight(1f))
-                        
-                        TextButton(
-                            onClick = { 
-                                tempSensitivity = swipeSensitivity
-                                showSensitivityDialog = false 
-                            }
-                        ) {
-                            Text(stringResource(android.R.string.cancel))
-                        }
-                        TextButton(
-                            onClick = { 
-                                onSwipeSensitivityChange(tempSensitivity)
-                                showSensitivityDialog = false 
-                            }
-                        ) {
-                            Text(stringResource(android.R.string.ok))
-                        }
+            EnumListPreference(
+                title = { Text(stringResource(R.string.player_buttons_style)) },
+                icon = { Icon(painterResource(R.drawable.palette), null) },
+                selectedValue = playerButtonsStyle,
+                onValueSelected = onPlayerButtonsStyleChange,
+                valueText = {
+                    when (it) {
+                        PlayerButtonsStyle.DEFAULT -> stringResource(R.string.default_style)
+                        PlayerButtonsStyle.SECONDARY -> stringResource(R.string.secondary_color_style)
                     }
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.swipe_sensitivity),
-                            style = MaterialTheme.typography.headlineSmall,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-    
-                        Text(
-                            text = stringResource(R.string.sensitivity_percentage, (tempSensitivity * 100).roundToInt()),
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-    
-                        Slider(
-                            value = tempSensitivity,
-                            onValueChange = { tempSensitivity = it },
-                            valueRange = 0f..1f,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
-            
+                },
+            )
+
             PreferenceEntry(
-                title = { Text(stringResource(R.string.swipe_sensitivity)) },
-                description = stringResource(R.string.sensitivity_percentage, (swipeSensitivity * 100).roundToInt()),
-                icon = { Icon(painterResource(R.drawable.tune), null) },
-                onClick = { showSensitivityDialog = true }
+                title = { Text(stringResource(R.string.player_slider_style)) },
+                description = sliderStyleLabel(sliderStyle),
+                icon = { Icon(painterResource(R.drawable.sliders), null) },
+                onClick = {
+                    showSliderOptionDialog = true
+                },
             )
-        }
 
+            SwitchPreference(
+                title = { Text(stringResource(R.string.enable_swipe_thumbnail)) },
+                icon = { Icon(painterResource(R.drawable.swipe), null) },
+                checked = swipeThumbnail,
+                onCheckedChange = onSwipeThumbnailChange,
+            )
+
+            AnimatedVisibility(swipeThumbnail) {
+                var showSensitivityDialog by rememberSaveable { mutableStateOf(false) }
+
+                if (showSensitivityDialog) {
+                    var tempSensitivity by remember { mutableFloatStateOf(swipeSensitivity) }
+
+                    DefaultDialog(
+                        onDismiss = {
+                            tempSensitivity = swipeSensitivity
+                            showSensitivityDialog = false
+                        },
+                        buttons = {
+                            TextButton(
+                                onClick = {
+                                    tempSensitivity = 0.73f
+                                }
+                            ) {
+                                Text(stringResource(R.string.reset))
+                            }
+
+                            Spacer(modifier = Modifier.weight(1f))
+
+                            TextButton(
+                                onClick = {
+                                    tempSensitivity = swipeSensitivity
+                                    showSensitivityDialog = false
+                                }
+                            ) {
+                                Text(stringResource(android.R.string.cancel))
+                            }
+                            TextButton(
+                                onClick = {
+                                    onSwipeSensitivityChange(tempSensitivity)
+                                    showSensitivityDialog = false
+                                }
+                            ) {
+                                Text(stringResource(android.R.string.ok))
+                            }
+                        }
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.swipe_sensitivity),
+                                style = MaterialTheme.typography.headlineSmall,
+                                modifier = Modifier.padding(bottom = 16.dp)
+                            )
+
+                            Text(
+                                text = stringResource(R.string.sensitivity_percentage, (tempSensitivity * 100).roundToInt()),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(bottom = 16.dp)
+                            )
+
+                            Slider(
+                                value = tempSensitivity,
+                                onValueChange = { tempSensitivity = it },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.swipe_sensitivity)) },
+                    description = stringResource(R.string.sensitivity_percentage, (swipeSensitivity * 100).roundToInt()),
+                    icon = { Icon(painterResource(R.drawable.tune), null) },
+                    onClick = { showSensitivityDialog = true }
+                )
+            }
+
+        }
         PreferenceGroupTitle(
             title = stringResource(R.string.lyrics),
         )
@@ -650,38 +662,38 @@ fun AppearanceSettings(
         )
 
         var showLyricsTextSizeDialog by rememberSaveable { mutableStateOf(false) }
-        
+
         if (showLyricsTextSizeDialog) {
             var tempTextSize by remember { mutableFloatStateOf(lyricsTextSize) }
-            
+
             DefaultDialog(
-                onDismiss = { 
+                onDismiss = {
                     tempTextSize = lyricsTextSize
-                    showLyricsTextSizeDialog = false 
+                    showLyricsTextSizeDialog = false
                 },
                 buttons = {
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             tempTextSize = 24f
                         }
                     ) {
                         Text(stringResource(R.string.reset))
                     }
-                    
+
                     Spacer(modifier = Modifier.weight(1f))
-                    
+
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             tempTextSize = lyricsTextSize
-                            showLyricsTextSizeDialog = false 
+                            showLyricsTextSizeDialog = false
                         }
                     ) {
                         Text(stringResource(android.R.string.cancel))
                     }
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             onLyricsTextSizeChange(tempTextSize)
-                            showLyricsTextSizeDialog = false 
+                            showLyricsTextSizeDialog = false
                         }
                     ) {
                         Text(stringResource(android.R.string.ok))
@@ -714,47 +726,47 @@ fun AppearanceSettings(
                 }
             }
         }
-        
+
         PreferenceEntry(
             title = { Text(stringResource(R.string.lyrics_text_size)) },
             description = "${lyricsTextSize.roundToInt()} sp",
             icon = { Icon(painterResource(R.drawable.text_fields), null) },
             onClick = { showLyricsTextSizeDialog = true }
         )
-        
+
         var showLyricsLineSpacingDialog by rememberSaveable { mutableStateOf(false) }
-        
+
         if (showLyricsLineSpacingDialog) {
             var tempLineSpacing by remember { mutableFloatStateOf(lyricsLineSpacing) }
-            
+
             DefaultDialog(
-                onDismiss = { 
+                onDismiss = {
                     tempLineSpacing = lyricsLineSpacing
-                    showLyricsLineSpacingDialog = false 
+                    showLyricsLineSpacingDialog = false
                 },
                 buttons = {
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             tempLineSpacing = 1.3f
                         }
                     ) {
                         Text(stringResource(R.string.reset))
                     }
-                    
+
                     Spacer(modifier = Modifier.weight(1f))
-                    
+
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             tempLineSpacing = lyricsLineSpacing
-                            showLyricsLineSpacingDialog = false 
+                            showLyricsLineSpacingDialog = false
                         }
                     ) {
                         Text(stringResource(android.R.string.cancel))
                     }
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             onLyricsLineSpacingChange(tempLineSpacing)
-                            showLyricsLineSpacingDialog = false 
+                            showLyricsLineSpacingDialog = false
                         }
                     ) {
                         Text(stringResource(android.R.string.ok))
@@ -787,7 +799,7 @@ fun AppearanceSettings(
                 }
             }
         }
-        
+
         PreferenceEntry(
             title = { Text(stringResource(R.string.lyrics_line_spacing)) },
             description = "${String.format("%.1f", lyricsLineSpacing)}x",

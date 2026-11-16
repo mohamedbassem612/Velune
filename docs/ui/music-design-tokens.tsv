@@ -1,0 +1,24 @@
+category	token	value	unit	origin
+spacing	scale	4,8,12,16,24,32	dp	music proposal
+spacing	screenPadding	24	dp	music implementation
+interaction	minimumTouchTarget	48	dp	music proposal
+shape	artworkRadius	12	dp	music implementation
+shape	panelTopRadius	30	dp	music implementation
+shape	miniPlayerRadius	32	dp	music implementation
+size	miniPlayerMinimumHeight	64	dp	grows with font scale
+size	miniPlayerBottomSpacing	8	dp	music implementation
+typography	screenTitle	32	sp	music implementation
+typography	playerTitle	26	sp	music implementation
+typography	rowTitle	16	sp	music implementation
+color	amoledBackground	#000000	sRGB	default dark mode with Pure black
+color	darkBackground	#08090B	sRGB	dark mode with Pure black off
+color	darkElevatedSurface	#17191C	sRGB	music implementation
+color	darkPrimaryText	#F3F4F5	sRGB	music implementation
+color	darkSecondaryText	#A3A7AC	sRGB	music implementation
+color	darkAccent	#36D167	sRGB	provided brief / music implementation
+color	lightBackground	#F6F7F8	sRGB	music implementation
+color	lightElevatedSurface	#FFFFFF	sRGB	music implementation
+color	lightPrimaryText	#191C20	sRGB	music implementation
+color	lightSecondaryText	#60656D	sRGB	music implementation
+color	lightAccent	#157638	sRGB	music implementation
+motion	navigationColor	180	ms	music implementation; honors animator scale

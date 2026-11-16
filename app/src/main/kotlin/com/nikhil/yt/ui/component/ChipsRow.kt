@@ -94,13 +94,13 @@ fun <E> ChipsRow(
                 onClick = { onValueUpdate(value) },
                 label = { Text(label) },
                 leadingIcon = leading,
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(20.dp),
                 border = null,
                 colors = FilterChipDefaults.filterChipColors(
                     containerColor = containerColor,
-                    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                    selectedLabelColor = MaterialTheme.colorScheme.surface,
-                    selectedLeadingIconColor = MaterialTheme.colorScheme.surface,
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             )
 

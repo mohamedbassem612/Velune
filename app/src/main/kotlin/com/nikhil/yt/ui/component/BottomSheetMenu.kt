@@ -72,6 +72,8 @@ fun BottomSheetMenu(
                 state.isVisible = false
             },
             containerColor = background,
+            shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+            scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f),
             contentColor = MaterialTheme.colorScheme.onSurface,
             dragHandle = {
                 Box(

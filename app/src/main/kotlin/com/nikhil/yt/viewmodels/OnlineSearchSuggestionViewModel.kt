@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,13 +55,17 @@ constructor(
                             )
                         }
                     } else {
-                        val result = YouTube.searchSuggestions(query).getOrNull()
+                        _viewState.value = SearchSuggestionViewState(isLoading = true)
+                        delay(200)
+                        val response = YouTube.searchSuggestions(query)
+                        val result = response.getOrNull()
                         database
                             .searchHistory(query)
                             .map { it.take(3) }
                             .map { history ->
                                 SearchSuggestionViewState(
                                     history = history,
+                                    failed = response.isFailure,
                                     suggestions =
                                     result
                                         ?.queries
@@ -87,6 +92,8 @@ constructor(
 }
 
 data class SearchSuggestionViewState(
+    val isLoading: Boolean = false,
+    val failed: Boolean = false,
     val history: List<SearchHistory> = emptyList(),
     val suggestions: List<String> = emptyList(),
     val items: List<YTItem> = emptyList(),

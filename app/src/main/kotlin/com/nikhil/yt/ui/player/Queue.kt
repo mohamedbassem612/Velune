@@ -246,6 +246,7 @@ fun Queue(
     BottomSheet(
         state = state,
         backgroundColor = Color.Unspecified,
+        expandedCornerRadius = 30.dp,
         modifier = modifier,
         collapsedContent = {
             when (playerDesignStyle) {

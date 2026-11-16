@@ -101,6 +101,33 @@ fun OnlineSearchScreen(
             .fillMaxSize()
             .background(if (pureBlack) Color.Black else MaterialTheme.colorScheme.background)
     ) {
+        if (viewState.isLoading) {
+            item(key = "search_loading") {
+                Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Text(stringResource(R.string.music_search_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else if (viewState.history.isEmpty() && viewState.items.isEmpty() && viewState.suggestions.isEmpty()) {
+            item(key = "search_empty") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(painterResource(R.drawable.search), null, Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(when {
+                        viewState.failed -> R.string.music_search_failed
+                        query.isBlank() -> R.string.music_search_empty
+                        else -> R.string.no_results_found
+                    }), style = MaterialTheme.typography.titleMedium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    if (query.isBlank()) Text(stringResource(R.string.music_search_description),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        }
         items(viewState.history, key = { "history_${it.query}" }) { history ->
             SuggestionItem(
                 query = history.query,

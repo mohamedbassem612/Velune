@@ -26,6 +26,7 @@ fun RetryAsyncImage(
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
     contentScale: ContentScale = ContentScale.Fit,
+    songId: String? = null,
 ) {
     val context = LocalContext.current
     val online by remember(context) { ArtworkConnectivity.online(context) }.collectAsState()
@@ -48,9 +49,9 @@ fun RetryAsyncImage(
         }
     }
 
-    val request = remember(context, url) {
+    val request = remember(context, url, songId) {
         ImageRequest.Builder(context)
-            .data(url)
+            .data(songId?.let { com.nikhil.yt.utils.SongCover(it, url) } ?: url)
             .crossfade(true)
             .build()
     }
