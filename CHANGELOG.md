@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.14 — 2026-11-17
+
+### Improved Quick Picks
+
+- Recommendations now use listening duration, recent and long-term listening habits, likes, and early skips to build a personal taste profile.
+- Discover songs related to several tracks you enjoy, with a boost for YouTube Music chart songs that fit your taste.
+- Actual listening gains priority over old or imported likes as listening history grows.
+- Repeated early skips lower a song's recommendation priority; their effect fades over time and successful listening helps the song recover.
+- Discovery excludes liked and recently played songs, limits repeated artists, and removes common duplicate video/audio uploads.
+- Fresh recommendations replace cached picks in the same session. Network timeouts preserve results from sources that respond, with local picks available as a fallback.
+
 ## 1.3.13 — 2026-11-14
 
 ### Since 1.3.10
