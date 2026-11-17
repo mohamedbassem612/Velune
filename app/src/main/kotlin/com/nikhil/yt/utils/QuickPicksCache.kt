@@ -10,6 +10,7 @@ import android.content.Context
 import com.nikhil.yt.innertube.models.Album
 import com.nikhil.yt.innertube.models.Artist
 import com.nikhil.yt.innertube.models.SongItem
+import com.nikhil.yt.innertube.models.WatchEndpoint
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -20,6 +21,8 @@ import java.io.File
  */
 object QuickPicksCache {
     private const val FILE_NAME = "quick_picks_cache.json"
+    private const val VERSION = 2
+    private const val MAX_AGE_MS = 6 * 60 * 60 * 1000L
 
     private fun file(context: Context) = android.util.AtomicFile(File(context.filesDir, FILE_NAME))
 
@@ -35,6 +38,7 @@ object QuickPicksCache {
                         put("thumbnail", song.thumbnail)
                         put("explicit", song.explicit)
                         put("duration", song.duration ?: -1)
+                        put("videoType", song.endpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType)
                         put("artists", JSONArray().also { list ->
                             song.artists.forEach { artist ->
                                 list.put(JSONObject().apply {
@@ -55,7 +59,9 @@ object QuickPicksCache {
             val target = file(context)
             val stream = target.startWrite()
             try {
-                stream.write(array.toString().toByteArray(Charsets.UTF_8))
+                val payload = JSONObject().put("version", VERSION)
+                    .put("savedAt", System.currentTimeMillis()).put("songs", array)
+                stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 target.finishWrite(stream)
             } catch (e: Exception) {
                 target.failWrite(stream)
@@ -70,7 +76,10 @@ object QuickPicksCache {
         return try {
             val target = file(context)
             if (!target.baseFile.exists() && !File(target.baseFile.path + ".bak").exists()) return null
-            val array = JSONArray(target.openRead().bufferedReader().use { it.readText() })
+            val payload = JSONObject(target.openRead().bufferedReader().use { it.readText() })
+            val age = System.currentTimeMillis() - payload.optLong("savedAt", 0)
+            if (payload.optInt("version") != VERSION || age !in 0..MAX_AGE_MS) return null
+            val array = payload.getJSONArray("songs")
             val result = ArrayList<SongItem>(array.length())
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
@@ -94,6 +103,11 @@ object QuickPicksCache {
                     duration = if (duration >= 0) duration else null,
                     thumbnail = obj.getString("thumbnail"),
                     explicit = obj.optBoolean("explicit", false),
+                    endpoint = obj.optString("videoType").takeIf { it.isNotBlank() }?.let { type ->
+                        WatchEndpoint(videoId = obj.getString("id"), watchEndpointMusicSupportedConfigs =
+                            WatchEndpoint.WatchEndpointMusicSupportedConfigs(
+                                WatchEndpoint.WatchEndpointMusicSupportedConfigs.WatchEndpointMusicConfig(type)))
+                    },
                 )
             }
             result

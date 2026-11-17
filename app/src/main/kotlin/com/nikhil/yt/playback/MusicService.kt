@@ -3661,6 +3661,42 @@ class MusicService :
         )
     }
 
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ) {
+        // Only an early forward seek to another track is negative feedback. Natural ends,
+        // queue replacement, scrubbing, remote playback and shared-session guests are excluded.
+        if (reason != Player.DISCONTINUITY_REASON_SEEK ||
+            oldPosition.mediaItemIndex >= newPosition.mediaItemIndex ||
+            oldPosition.mediaItem?.mediaId == newPosition.mediaItem?.mediaId ||
+            handoverController.applyingState || handoverController.selected.value != null ||
+            (togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined)
+                ?.role is com.nikhil.yt.together.TogetherRole.Guest ||
+            dataStore.get(PauseListenHistoryKey, false)
+        ) return
+        val metadata = oldPosition.mediaItem?.metadata ?: return
+        if (!com.nikhil.yt.utils.QuickPicksRecommender.isEarlySkip(
+                oldPosition.positionMs, metadata.duration * 1000L,
+            )) return
+        ioScope.launch {
+            try {
+                database.withTransaction {
+                    val previous = getSkip(metadata.id)
+                    upsertSkip(com.nikhil.yt.db.entities.SongSkipEntity(
+                        songId = metadata.id,
+                        skipCount = (previous?.skipCount ?: 0) + 1,
+                    ))
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Timber.w(error, "Could not save recommendation feedback")
+            }
+        }
+    }
+
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
     if (handoverController.applyingState || handoverController.selected.value != null) {
         currentMediaMetadata.value = mediaItem?.metadata
