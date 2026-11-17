@@ -1,8 +1,8 @@
-name: UI testing Debug APK
+name: Feature Debug APK
 
 on:
   push:
-    branches: ["ui-testing"]
+    branches: ["ui-testing", "feat/smart-quick-picks"]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Set artifact name
+        shell: bash
+        run: |
+          BRANCH_SLUG="${GITHUB_REF_NAME//\//-}"
+          echo "DEBUG_APK_NAME=Velune-${BRANCH_SLUG}-debug-${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
       - name: Reuse Android debug signing key
         uses: actions/cache@v4
         with:
@@ -40,13 +46,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/mobileUniversal/debug/app-mobile-universal-debug.apk "dist/Velune-ui-testing-debug-${GITHUB_RUN_NUMBER}.apk"
+          cp app/build/outputs/apk/mobileUniversal/debug/app-mobile-universal-debug.apk "dist/${DEBUG_APK_NAME}.apk"
 
       - name: Upload installable Debug APK
         id: apk
         uses: actions/upload-artifact@v4
         with:
-          name: Velune-ui-testing-debug-${{ github.run_number }}
+          name: ${{ env.DEBUG_APK_NAME }}
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 14
