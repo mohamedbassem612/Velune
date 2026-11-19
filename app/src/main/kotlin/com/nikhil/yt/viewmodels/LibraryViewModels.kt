@@ -80,7 +80,7 @@ class LibrarySongsViewModel
 constructor(
     @ApplicationContext context: Context,
     database: MusicDatabase,
-    downloadUtil: DownloadUtil,
+    private val downloadUtil: DownloadUtil,
     private val syncUtils: SyncUtils,
 ) : ViewModel() {
     private val _isRefreshing = MutableStateFlow(false)
@@ -154,7 +154,7 @@ constructor(
                 when (filter) {
                     SongFilter.LIKED -> syncUtils.syncLikedSongs()
                     SongFilter.LIBRARY -> syncUtils.syncLibrarySongs()
-                    SongFilter.DOWNLOADED -> Unit
+                    SongFilter.DOWNLOADED -> downloadUtil.restoreMp3Downloads()
                 }
             } catch (e: Exception) {
                 reportException(e)

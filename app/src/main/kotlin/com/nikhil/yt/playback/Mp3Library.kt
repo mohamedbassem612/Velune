@@ -12,6 +12,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -124,6 +125,38 @@ constructor(
                 ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
             else -> true
         }
+
+    /** Restore library rows from MP3 tags, even on a fresh installation without YouTube login. */
+    internal fun readDownloadedMetadata(id: String): DownloadedSongRecovery.Recovered? {
+        val uri = playableUri(id) ?: return null
+        val displayName = runCatching {
+            if (uri.scheme == "file") File(requireNotNull(uri.path)).name else {
+                context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { if (it.moveToFirst()) it.getString(0) else null }
+            }
+        }.getOrNull()
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val recovered = DownloadedSongRecovery.recover(
+                id, retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE),
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST),
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM),
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION), displayName,
+            )
+            runCatching {
+                retriever.embeddedPicture?.takeIf { it.size in 1..(2 * 1024 * 1024) }?.let {
+                    com.nikhil.yt.utils.CoverStore.saveBytes(context, id, it)
+                }
+            }
+            recovered
+        } catch (error: Exception) {
+            Timber.tag(TAG).w(error, "Could not read MP3 metadata for $id; using its filename")
+            DownloadedSongRecovery.recover(id, null, null, null, null, displayName)
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
 
     private fun findInMediaStore(knownUris: Set<String>): Map<String, Uri> {
         val result = mutableMapOf<String, Uri>()

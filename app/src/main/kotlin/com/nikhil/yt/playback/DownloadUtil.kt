@@ -50,6 +50,8 @@ import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class DownloadUtil
@@ -112,6 +114,7 @@ constructor(
     }
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+    private val restoreMutex = Mutex()
 
     // Resolve a fresh URL only when both caches miss the requested bytes.
     private val resolvingNetworkFactory =
@@ -292,8 +295,7 @@ constructor(
             downloads.update { current -> result + current }
 
             // Songs already saved as mp3 (also after a reinstall) count as downloaded
-            mp3Library.restoreFromFolder()
-            markMp3Downloaded(mp3Library.ids())
+            restoreMp3Library()
 
             // Convert old downloads (and any conversion that was interrupted) to mp3
             result.values
@@ -310,9 +312,29 @@ constructor(
     /** Scans the music folder again, used right after the audio permission is granted. */
     fun restoreMp3Downloads() {
         CoroutineScope(Dispatchers.IO).launch {
-            mp3Library.restoreFromFolder()
-            markMp3Downloaded(mp3Library.ids())
+            restoreMp3Library()
         }
+    }
+
+    private suspend fun restoreMp3Library() = restoreMutex.withLock {
+        mp3Library.restoreFromFolder()
+        val ids = mp3Library.ids()
+        val stored = ids.toList().chunked(500).flatMap { database.getSongsByIds(it) }.map { it.id }.toSet()
+        DownloadedSongRecovery.missingIds(ids, stored).forEach { id ->
+            try {
+                val recovered = mp3Library.readDownloadedMetadata(id) ?: return@forEach
+                database.withTransaction {
+                    // INSERT IGNORE preserves likes/history if an account sync inserted this row meanwhile.
+                    insert(recovered.metadata) { it.copy(albumName = recovered.albumName) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                timber.log.Timber.w(error, "Could not restore downloaded song $id")
+            }
+        }
+        // Publish only after rows exist, so both Downloaded screens observe the recovered songs.
+        markMp3Downloaded(ids)
     }
 
     /** Makes the app show these songs as downloaded (only for songs the download manager does not know). */

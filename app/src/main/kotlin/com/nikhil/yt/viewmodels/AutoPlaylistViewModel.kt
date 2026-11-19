@@ -50,7 +50,7 @@ class AutoPlaylistViewModel
 constructor(
     @ApplicationContext context: Context,
     database: MusicDatabase,
-    downloadUtil: DownloadUtil,
+    private val downloadUtil: DownloadUtil,
     savedStateHandle: SavedStateHandle,
     private val syncUtils: SyncUtils,
 ) : ViewModel() {
@@ -119,6 +119,7 @@ constructor(
             try {
                 when (playlist) {
                     "liked" -> syncUtils.syncLikedSongs()
+                    "downloaded" -> downloadUtil.restoreMp3Downloads()
                     else -> Unit
                 }
             } catch (e: Exception) {
