@@ -261,6 +261,9 @@ class MusicService :
     lateinit var syncUtils: SyncUtils
 
     @Inject
+    lateinit var recommendationEngine: com.nikhil.yt.utils.QuickPicksRecommendationEngine
+
+    @Inject
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
 
     private lateinit var audioManager: AudioManager
@@ -336,6 +339,7 @@ class MusicService :
     private var currentQueue: Queue = EmptyQueue
     // Accessed on the main thread: an older async load must never replace a newer request.
     private var queueRevision = 0L
+    @Volatile private var radioInitialLoadRevision: Long? = null
     private var startupRestoreJob: Job? = null
 
     suspend fun awaitStartupRestore() {
@@ -1586,6 +1590,54 @@ class MusicService :
         if (renderLocally) { player.prepare(); player.playWhenReady = state.playing }
     }
 
+    /** Only generated radio tracks are personalized; explicit playlist/album order stays intact. */
+    private suspend fun personalizeRadioStatus(queue: Queue, status: Queue.Status): Queue.Status {
+        if (queue !is YouTubeQueue || !queue.isRadio || !isOnlineNow()) return status
+        val selected = queue.preloadItem?.let { preload ->
+            status.items.firstOrNull { it.mediaId == preload.id } ?: preload.toMediaItem()
+        } ?: status.items.getOrNull(status.mediaItemIndex) ?: return status
+        val seed = selected.metadata ?: return status
+        val ranked = personalizeRadio(seed, status.items, setOf(seed.id))
+        return status.copy(items = listOf(selected) + ranked, mediaItemIndex = 0)
+    }
+
+    private suspend fun personalizeRadio(
+        seed: MediaMetadata,
+        candidates: List<MediaItem>,
+        excludedIds: Set<String>,
+    ): List<MediaItem> {
+        val hideExplicit = dataStore.get(HideExplicitKey, false)
+        val hideVideo = dataStore.get(HideVideoKey, false)
+        val excluded = excludedIds + seed.id
+        val safe = com.nikhil.yt.utils.RadioQueuePolicy.unseen(
+            candidates.filterExplicit(hideExplicit).filterVideo(hideVideo), excluded, { it.mediaId },
+        )
+        return try {
+            val ranked = withContext(Dispatchers.IO) {
+                withTimeoutOrNull(5_000) {
+                    recommendationEngine.recommend(
+                        hideExplicit = hideExplicit, hideVideo = hideVideo,
+                        lastListenOnly = false, shownIds = emptySet(), radioSeed = seed,
+                        radioCandidates = safe.mapNotNull { item -> item.metadata?.let { meta ->
+                            SongItem(id = meta.id, title = meta.title,
+                                artists = meta.artists.map { com.nikhil.yt.innertube.models.Artist(it.name, it.id) },
+                                album = meta.album?.let { com.nikhil.yt.innertube.models.Album(it.title, it.id) },
+                                duration = meta.duration, thumbnail = meta.thumbnailUrl.orEmpty(), explicit = meta.explicit)
+                        } },
+                        excludedIds = excluded,
+                    )
+                }
+            } ?: return safe
+            val originals = safe.associateBy { it.mediaId }
+            ranked.map { originals[it.id] ?: it.toMediaItem() }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Timber.w(error, "Radio personalization unavailable; using filtered YouTube candidates")
+            safe
+        }
+    }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
@@ -1593,8 +1645,9 @@ class MusicService :
         if (!handoverController.applyingState && handoverController.selected.value != null) {
             scope.launch(SilentHandler) {
                 val status = withContext(Dispatchers.IO) {
-                    queue.getInitialStatus().withStoredSongs().filterExplicit(dataStore.get(HideExplicitKey, false))
-                        .filterVideo(dataStore.get(HideVideoKey, false))
+                    personalizeRadioStatus(queue, queue.getInitialStatus().withStoredSongs()
+                        .filterExplicit(dataStore.get(HideExplicitKey, false))
+                        .filterVideo(dataStore.get(HideVideoKey, false)))
                 }
                 handoverController.sendQueue(status, playWhenReady)
             }
@@ -1610,9 +1663,9 @@ class MusicService :
             scope.launch(SilentHandler) {
                 val initialStatus =
                     withContext(Dispatchers.IO) {
-                        queue.getInitialStatus().withStoredSongs()
+                        personalizeRadioStatus(queue, queue.getInitialStatus().withStoredSongs()
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
-                            .filterVideo(dataStore.get(HideVideoKey, false))
+                            .filterVideo(dataStore.get(HideVideoKey, false)))
                     }
 
                 val targetItem =
@@ -1664,6 +1717,7 @@ class MusicService :
         ensureScopesActive()
         suppressAutoPlayback = false
         val revision = ++queueRevision
+        radioInitialLoadRevision = revision.takeIf { queue is YouTubeQueue && queue.isRadio }
         currentQueue = queue
         queueTitle = null
         val permanentShuffle = dataStore.get(PermanentShuffleKey, false)
@@ -1682,7 +1736,8 @@ class MusicService :
         scope.launch(SilentHandler) {
             var initialStatus =
                 withContext(Dispatchers.IO) {
-                    queue.getInitialStatus().withStoredSongs().filterExplicit(dataStore.get(HideExplicitKey, false)).filterVideo(dataStore.get(HideVideoKey, false))
+                    personalizeRadioStatus(queue, queue.getInitialStatus().withStoredSongs()
+                        .filterExplicit(dataStore.get(HideExplicitKey, false)).filterVideo(dataStore.get(HideVideoKey, false)))
                 }
             if (!isOnlineNow()) {
                 val selected = initialStatus.items.getOrNull(initialStatus.mediaItemIndex)?.mediaId
@@ -1693,6 +1748,13 @@ class MusicService :
                     mediaItemIndex = available.indexOfFirst { it.mediaId == selected }.coerceAtLeast(0))
             }
             if (queueRevision != revision) return@launch
+            if (queue is YouTubeQueue && queue.isRadio && queue.preloadItem != null) {
+                val queuedIds = player.mediaItems.map { it.mediaId }.toSet()
+                val selected = initialStatus.items.getOrNull(initialStatus.mediaItemIndex)
+                initialStatus = initialStatus.copy(items = initialStatus.items.filter {
+                    it.mediaId == selected?.mediaId || it.mediaId !in queuedIds
+                })
+            }
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
             }
@@ -1761,6 +1823,8 @@ class MusicService :
                     }
                 }
             }
+        }.invokeOnCompletion {
+            if (radioInitialLoadRevision == revision) radioInitialLoadRevision = null
         }
     }
 
@@ -1794,9 +1858,10 @@ class MusicService :
         }
         suppressAutoPlayback = false
         val currentMediaMetadata = player.currentMetadata ?: return
-
-        val currentIndex = player.currentMediaItemIndex
         val currentMediaId = currentMediaMetadata.id
+        val revision = ++queueRevision
+        clearAutomix()
+        radioInitialLoadRevision = revision
 
         scope.launch(SilentHandler) {
             val radioQueue = YouTubeQueue(
@@ -1806,13 +1871,15 @@ class MusicService :
                 radioQueue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false)).filterVideo(dataStore.get(HideVideoKey, false))
             }
 
-            if (initialStatus.title != null) {
-                queueTitle = initialStatus.title
-            }
-
-            val radioItems = initialStatus.items.filter { item ->
-                item.mediaId != currentMediaId
-            }
+            val excluded = player.mediaItems.take(player.currentMediaItemIndex + 1).map { it.mediaId }.toSet()
+            val ranked = personalizeRadio(currentMediaMetadata, initialStatus.items, excluded)
+            if (!com.nikhil.yt.utils.RadioQueuePolicy.isCurrent(revision, queueRevision, currentMediaId, player.currentMetadata?.id) ||
+                suppressAutoPlayback) return@launch
+            val currentIndex = player.currentMediaItemIndex
+            val currentIds = player.mediaItems.take(currentIndex + 1).map { it.mediaId }.toSet()
+            val radioItems = ranked.filterNot { it.mediaId in currentIds }
+            initialStatus.title?.let { queueTitle = it }
+            currentQueue = radioQueue
             
             if (radioItems.isNotEmpty()) {
                 val itemCount = player.mediaItemCount
@@ -1824,7 +1891,8 @@ class MusicService :
                 player.addMediaItems(currentIndex + 1, radioItems)
             }
 
-            currentQueue = radioQueue
+        }.invokeOnCompletion {
+            if (radioInitialLoadRevision == revision) radioInitialLoadRevision = null
         }
     }
 
@@ -1841,27 +1909,19 @@ class MusicService :
     fun getAutomix(playlistId: String) {
         if (dataStore.get(AutoLoadMoreKey, true) && 
             player.repeatMode == REPEAT_MODE_OFF) {
-            scope.launch(Dispatchers.IO + SilentHandler) {
-                val seedAtRequest =
-                    withContext(Dispatchers.Main) {
-                        player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
-                    }
-                YouTube
-                    .next(WatchEndpoint(playlistId = playlistId))
-                    .onSuccess {
-                        YouTube
-                            .next(WatchEndpoint(playlistId = it.endpoint.playlistId))
-                            .onSuccess {
-                                val mediaItems = it.items.map { song -> song.toMediaItem() }
-                                withContext(Dispatchers.Main) {
-                                    val currentSeed =
-                                        player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
-                                    if (seedAtRequest != null && currentSeed != seedAtRequest) return@withContext
-                                    automixItems.value = mediaItems
-                                    automixSeedMediaId = currentSeed
-                                }
-                            }
-                    }
+            scope.launch(SilentHandler) {
+                val seed = player.currentMetadata ?: return@launch
+                val revision = queueRevision
+                val excluded = player.mediaItems.map { it.mediaId }.toSet()
+                val candidates = withContext(Dispatchers.IO) {
+                    YouTube.next(WatchEndpoint(playlistId = playlistId)).getOrNull()?.items.orEmpty()
+                }.map { it.toMediaItem() }
+                val ranked = personalizeRadio(seed, candidates, excluded)
+                if (!com.nikhil.yt.utils.RadioQueuePolicy.isCurrent(revision, queueRevision, seed.id, player.currentMetadata?.id) ||
+                    suppressAutoPlayback || !dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF) return@launch
+                val currentIds = player.mediaItems.map { it.mediaId }.toSet()
+                automixItems.value = ranked.filterNot { it.mediaId in currentIds }
+                automixSeedMediaId = seed.id
             }
         }
     }
@@ -1916,6 +1976,7 @@ class MusicService :
     }
 
     private fun refreshAutomixForCurrentMedia(force: Boolean) {
+        if (radioInitialLoadRevision == queueRevision) return
         if (!dataStore.get(AutoLoadMoreKey, true)) return
         if (player.repeatMode != REPEAT_MODE_OFF) return
         if (suppressAutoPlayback) return
@@ -1923,6 +1984,7 @@ class MusicService :
 
         val currentMeta = player.currentMetadata ?: return
         val seedMediaId = currentMeta.id.trim().ifBlank { return }
+        val requestRevision = queueRevision
 
         if (!force && automixSeedMediaId == seedMediaId && automixItems.value.isNotEmpty() && automixJob?.isActive == true) return
 
@@ -2013,8 +2075,13 @@ class MusicService :
                             return@onSuccess
                         }
 
-                        automixItems.value = pool
-                        if (pool.isEmpty()) {
+                        val ranked = personalizeRadio(currentMeta, pool, queueIds)
+                        if (!com.nikhil.yt.utils.RadioQueuePolicy.isCurrent(
+                                requestRevision, queueRevision, seedMediaId, player.currentMetadata?.id,
+                            ) || suppressAutoPlayback || !dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF) return@onSuccess
+                        val currentIds = player.mediaItems.map { it.mediaId }.toSet()
+                        automixItems.value = ranked.filterNot { it.mediaId in currentIds }
+                        if (automixItems.value.isEmpty()) {
                             automixError.value = getString(R.string.error_no_similar_songs)
                         }
                         automixLoading.value = false
@@ -2065,6 +2132,7 @@ class MusicService :
             automixError.value = getString(R.string.error_no_song_playing)
             return
         }
+        val requestRevision = queueRevision
 
         automixJob?.cancel()
         automixLoading.value = true
@@ -2095,16 +2163,7 @@ class MusicService :
                                 .filterExplicit(hideExplicit)
                                 .filterVideo(hideVideo)
 
-                        val addedNow = ArrayList<MediaItem>(32)
-
-                        if (filteredFromNext.isNotEmpty()) {
-                            val toAdd = filteredFromNext.take(25)
-                            player.addMediaItems(toAdd)
-                            toAdd.forEach { autoAddedMediaIds.add(it.mediaId) }
-                            addedNow.addAll(toAdd)
-                        }
-
-                        val queueIdsAfterNext = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }.toSet()
+                        val queueIdsAfterNext = initialQueueIds
                         val relatedCandidates =
                             result.relatedEndpoint?.let { relatedEndpoint ->
                                 withContext(Dispatchers.IO) {
@@ -2119,14 +2178,7 @@ class MusicService :
                                 .filterExplicit(hideExplicit)
                                 .filterVideo(hideVideo)
 
-                        if (addedNow.isEmpty() && filteredRelated.isNotEmpty()) {
-                            val toAdd = filteredRelated.take(25)
-                            player.addMediaItems(toAdd)
-                            toAdd.forEach { autoAddedMediaIds.add(it.mediaId) }
-                            addedNow.addAll(toAdd)
-                        }
-
-                        val queueIdsAfterAdds = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }.toSet()
+                        val queueIdsAfterAdds = initialQueueIds
                         val playlistId = result.endpoint.playlistId
                         val automixCandidates =
                             if (playlistId.isNullOrBlank()) {
@@ -2144,18 +2196,25 @@ class MusicService :
                                 .filterExplicit(hideExplicit)
                                 .filterVideo(hideVideo)
 
-                        val addedIds = addedNow.map { it.mediaId }.toSet()
-                        val pool =
+                        val candidates =
                             (filteredFromNext + filteredRelated + filteredAutomix)
                                 .asSequence()
                                 .distinctBy { it.mediaId }
-                                .filter { it.mediaId !in addedIds }
                                 .take(75)
                                 .toList()
 
-                        automixItems.value = pool
+                        val ranked = personalizeRadio(currentMeta, candidates, initialQueueIds)
+                        if (!com.nikhil.yt.utils.RadioQueuePolicy.isCurrent(
+                                requestRevision, queueRevision, currentMeta.id, player.currentMetadata?.id,
+                            ) || suppressAutoPlayback || !dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF) return@onSuccess
+                        val currentIds = player.mediaItems.map { it.mediaId }.toSet()
+                        val available = ranked.filterNot { it.mediaId in currentIds }
+                        val toAdd = available.take(10)
+                        player.addMediaItems(toAdd)
+                        toAdd.forEach { autoAddedMediaIds.add(it.mediaId) }
+                        automixItems.value = available.drop(toAdd.size)
 
-                        if (addedNow.isEmpty() && pool.isEmpty()) {
+                        if (available.isEmpty()) {
                             automixError.value = getString(R.string.error_no_similar_songs)
                         }
                         automixLoading.value = false
@@ -3757,7 +3816,7 @@ class MusicService :
 
     scrobbleManager?.onSongStop()
 
-    if (!timelineEmpty &&
+    if (!timelineEmpty && radioInitialLoadRevision != queueRevision &&
         isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.repeatMode == REPEAT_MODE_OFF
@@ -3778,18 +3837,30 @@ class MusicService :
     }
 
     if (!suppressAutoPlayback &&
-        !timelineEmpty &&
+        !timelineEmpty && radioInitialLoadRevision != queueRevision &&
         isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
         currentQueue.hasNextPage() &&
         player.repeatMode == REPEAT_MODE_OFF
     ) {
+        val pagingQueue = currentQueue
+        val pagingRevision = queueRevision
+        val pagingSeed = player.currentMetadata
         scope.launch(SilentHandler) {
             val mediaItems =
-                reuseSongMetadata(currentQueue.nextPage()).filterExplicit(dataStore.get(HideExplicitKey, false)).filterVideo(dataStore.get(HideVideoKey, false))
-            if (player.playbackState != STATE_IDLE) {
-                player.addMediaItems(mediaItems.drop(1))
+                reuseSongMetadata(pagingQueue.nextPage()).filterExplicit(dataStore.get(HideExplicitKey, false)).filterVideo(dataStore.get(HideVideoKey, false))
+            val next = if (pagingQueue is YouTubeQueue && pagingQueue.isRadio && pagingSeed != null) {
+                personalizeRadio(pagingSeed, mediaItems, player.mediaItems.map { it.mediaId }.toSet())
+            } else mediaItems.drop(1)
+            if (pagingRevision != queueRevision || pagingQueue !== currentQueue) return@launch
+            if (pagingQueue is YouTubeQueue && pagingQueue.isRadio && pagingSeed?.id != player.currentMetadata?.id) return@launch
+            if (player.playbackState != STATE_IDLE && dataStore.get(AutoLoadMoreKey, true) && !suppressAutoPlayback) {
+                val toAdd = if (pagingQueue is YouTubeQueue && pagingQueue.isRadio) {
+                    val currentIds = player.mediaItems.map { it.mediaId }.toSet()
+                    next.filterNot { it.mediaId in currentIds }
+                } else next
+                player.addMediaItems(toAdd)
             } else {
                 scope.launch { discordRpc?.stopActivity() }
             }
@@ -3797,7 +3868,7 @@ class MusicService :
     }
     
     if (!suppressAutoPlayback &&
-        !timelineEmpty &&
+        !timelineEmpty && radioInitialLoadRevision != queueRevision &&
         isOnlineNow() && dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.repeatMode == REPEAT_MODE_OFF &&
@@ -3885,53 +3956,27 @@ class MusicService :
     ) {
         scope.launch(SilentHandler) {
             if (suppressAutoPlayback || player.playbackState == STATE_IDLE || player.mediaItemCount == 0) return@launch
-            val lastMediaMetadata = player.currentMetadata
-            val existingAutomix = automixItems.value
-            if (existingAutomix.isNotEmpty()) {
-                val filteredAutomix = existingAutomix.filter { it.mediaId != lastMediaMetadata?.id }
-                if (filteredAutomix.isNotEmpty()) {
-                    autoAddedMediaIds.clear()
-                    player.setMediaItems(filteredAutomix, 0, 0)
-                    player.prepare()
-                    player.play()
-                    filteredAutomix.forEach { autoAddedMediaIds.add(it.mediaId) }
-                }
-                clearAutomix()
+            val seed = player.currentMetadata ?: return@launch
+            val revision = queueRevision
+            val excluded = player.mediaItems.map { it.mediaId }.toSet()
+            val cached = automixItems.value.takeIf { automixSeedMediaId == seed.id }.orEmpty()
+            val radioItems = if (cached.isNotEmpty()) {
+                cached.filterNot { it.mediaId in excluded }
             } else {
-                if (lastMediaMetadata != null) {
-                    withContext(Dispatchers.IO) {
-                        YouTube.next(WatchEndpoint(videoId = lastMediaMetadata.id))
-                    }.onSuccess { nextResult ->
-                        if (suppressAutoPlayback || player.playbackState == STATE_IDLE || player.mediaItemCount == 0) return@onSuccess
-                        val hideExplicit = dataStore.get(HideExplicitKey, false)
-                        val hideVideo = dataStore.get(HideVideoKey, false)
-                        val radioItems = nextResult.items
-                            .map { it.toMediaItem() }
-                            .filter { it.mediaId != lastMediaMetadata.id }
-                            .filterExplicit(hideExplicit)
-                            .filterVideo(hideVideo)
-
-                        if (radioItems.isNotEmpty()) {
-                            autoAddedMediaIds.clear()
-                            player.setMediaItems(radioItems, 0, 0)
-                            player.prepare()
-                            player.play()
-                            radioItems.forEach { autoAddedMediaIds.add(it.mediaId) }
-
-                            withContext(Dispatchers.IO) {
-                                YouTube.next(WatchEndpoint(playlistId = nextResult.endpoint.playlistId))
-                            }.onSuccess { automixResult ->
-                                if (suppressAutoPlayback || player.playbackState == STATE_IDLE) return@onSuccess
-                                automixItems.value = automixResult.items
-                                    .map { it.toMediaItem() }
-                                    .filter { it.mediaId != lastMediaMetadata.id }
-                                    .filterExplicit(hideExplicit)
-                                    .filterVideo(hideVideo)
-                            }
-                        }
-                    }
-                }
+                val candidates = withContext(Dispatchers.IO) {
+                    YouTube.next(WatchEndpoint(videoId = seed.id)).getOrNull()?.items.orEmpty()
+                }.map { it.toMediaItem() }
+                personalizeRadio(seed, candidates, excluded)
             }
+            if (!com.nikhil.yt.utils.RadioQueuePolicy.isCurrent(revision, queueRevision, seed.id, player.currentMetadata?.id) ||
+                suppressAutoPlayback || !dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF ||
+                player.playbackState == STATE_IDLE || radioItems.isEmpty()) return@launch
+            clearAutomix()
+            autoAddedMediaIds.clear()
+            player.setMediaItems(radioItems, 0, 0)
+            player.prepare()
+            player.play()
+            radioItems.forEach { autoAddedMediaIds.add(it.mediaId) }
         }
     }
 

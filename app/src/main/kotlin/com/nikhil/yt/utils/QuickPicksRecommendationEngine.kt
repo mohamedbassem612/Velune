@@ -2,6 +2,7 @@ package com.nikhil.yt.utils
 
 import com.nikhil.yt.db.MusicDatabase
 import com.nikhil.yt.db.entities.Song
+import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.innertube.YouTube
 import com.nikhil.yt.innertube.models.SongItem
 import com.nikhil.yt.innertube.models.WatchEndpoint
@@ -19,9 +20,17 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.ZoneId
 import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Bounded candidate retrieval; a failed chart/seed never discards other sources. */
+@Singleton
 class QuickPicksRecommendationEngine @Inject constructor(private val database: MusicDatabase) {
+    private val chartsMutex = Mutex()
+    private data class ChartsSnapshot(val account: String, val savedAt: Long, val songs: List<Pair<SongItem, Double>>)
+    private var chartsSnapshot: ChartsSnapshot? = null
+
     private suspend fun profile(lastListenOnly: Boolean = false): QuickPicksRecommender.Profile {
         val zone = ZoneId.systemDefault()
         val events = database.recentEvents(2000).first()
@@ -43,18 +52,21 @@ class QuickPicksRecommendationEngine @Inject constructor(private val database: M
         hideVideo: Boolean,
         lastListenOnly: Boolean,
         shownIds: Set<String>,
+        radioSeed: MediaMetadata? = null,
+        radioCandidates: List<SongItem> = emptyList(),
+        excludedIds: Set<String> = emptySet(),
     ): List<SongItem> = supervisorScope {
-        val profile = profile(lastListenOnly)
+        val profile = profile(lastListenOnly).let { taste ->
+            if (radioSeed == null) taste else RadioQueuePolicy.context(taste, radioSeed.track())
+        }
         val permits = Semaphore(3)
         val charts = async {
-            fetchWithin(4_000) {
-                YouTube.getChartsPage().getOrNull()?.sections.orEmpty()
-                    .flatMap { section -> section.items.filterIsInstance<SongItem>().mapIndexed { index, song ->
-                        song to (1.0 / (1.0 + (song.chartPosition?.minus(1)?.coerceAtLeast(0) ?: index) / 15.0))
-                    } }
-            }.orEmpty()
+            fetchWithin(4_000) { chartSongs() }.orEmpty()
         }
-        val neighbours = profile.seeds.map { seed ->
+        val retrievalSeeds = profile.seeds.filterNot {
+            it.track.id == radioSeed?.id && radioCandidates.isNotEmpty()
+        }
+        val neighbours = retrievalSeeds.map { seed ->
             async {
                 permits.withPermit {
                     val songs = fetchWithin(3_500) {
@@ -68,9 +80,18 @@ class QuickPicksRecommendationEngine @Inject constructor(private val database: M
         val candidates = mutableListOf<QuickPicksRecommender.Candidate>()
         val songsById = linkedMapOf<String, SongItem>()
         fun add(song: SongItem, candidate: QuickPicksRecommender.Candidate) {
+            if (song.id in excludedIds || song.id == radioSeed?.id) return
             if (listOf(song).filterExplicit(hideExplicit).filterVideo(hideVideo).isEmpty()) return
             songsById.putIfAbsent(song.id, song)
             candidates += candidate
+        }
+        // The current song's YouTube radio is useful evidence, but our policy chooses the order.
+        radioSeed?.let { seed ->
+            radioCandidates.distinctBy { it.id }.forEachIndexed { index, song ->
+                add(song, QuickPicksRecommender.Candidate(song.track(), related = mapOf(
+                    seed.id to (0.85 / (1 + index / 40.0)),
+                )))
+            }
         }
         neighbours.forEach { (seed, songs) ->
             songs.forEachIndexed { index, song ->
@@ -81,8 +102,23 @@ class QuickPicksRecommendationEngine @Inject constructor(private val database: M
         charts.await().forEach { (song, trend) ->
             add(song, QuickPicksRecommender.Candidate(song.track(), trend = trend))
         }
-        QuickPicksRecommender.rank(candidates, profile, System.currentTimeMillis(), shownIds)
+        QuickPicksRecommender.rank(candidates, profile, System.currentTimeMillis(), shownIds,
+            discovery = radioSeed == null)
             .mapNotNull { songsById[it.id] }
+    }
+
+    private suspend fun chartSongs(): List<Pair<SongItem, Double>> = chartsMutex.withLock {
+        val now = System.currentTimeMillis()
+        val account = YouTube.cookie.orEmpty() + YouTube.locale.toString()
+        chartsSnapshot?.takeIf { it.account == account && now - it.savedAt in 0..(15 * 60 * 1000L) }
+            ?.let { return@withLock it.songs }
+        val songs = YouTube.getChartsPage().getOrNull()?.sections.orEmpty().flatMap { section ->
+            section.items.filterIsInstance<SongItem>().mapIndexed { index, song ->
+                song to (1.0 / (1.0 + (song.chartPosition?.minus(1)?.coerceAtLeast(0) ?: index) / 15.0))
+            }
+        }
+        if (songs.isNotEmpty()) chartsSnapshot = ChartsSnapshot(account, now, songs)
+        songs
     }
 
     suspend fun localFallback(hideExplicit: Boolean): List<Song> {
@@ -112,4 +148,7 @@ class QuickPicksRecommendationEngine @Inject constructor(private val database: M
 
     private fun SongItem.track() = QuickPicksRecommender.Track(id, title,
         artists.map { QuickPicksRecommender.artistKey(it.name) }.filter { it.isNotBlank() }.toSet(), duration ?: 0, album?.id)
+
+    private fun MediaMetadata.track() = QuickPicksRecommender.Track(id, title,
+        artists.map { QuickPicksRecommender.artistKey(it.name) }.filter { it.isNotBlank() }.toSet(), duration, album?.id)
 }

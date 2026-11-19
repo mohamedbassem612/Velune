@@ -74,3 +74,32 @@ names are Unicode-normalized, but aliases in different scripts can still split
 affinity. Actual improvement needs listening evaluation on a device: compare early
 skip rate, substantial listens, saves and unique artists across comparable sessions.
 The tests verify policy behavior, not a claimed percentage improvement in taste.
+
+## Experimental personalized radio
+
+On `feat/personalized-radio`, song radio, its continuation pages, Start Radio,
+and automatic queue extensions use this same ranking policy. The selected song
+anchors the session with weight 1.0; up to two historical seeds contribute at
+half their usual weight. Existing YouTube radio results supply current-song
+evidence without requesting the same radio again. Charts are cached in memory
+for 15 minutes per account/locale.
+
+Radio allows liked songs, excludes tracks already in the queue, and retains skip
+penalties and artist diversity. Explicit playlist and album order is preserved.
+Personalization has a five-second budget, with filtered YouTube results used on
+timeout or failure. A queue revision and current-song check discard stale results;
+autofill waits for the initial radio queue to finish loading.
+
+Downloads recovered from `Music/Velune` now rebuild missing library rows from
+local MP3 metadata (title, artist, album and duration), with a filename fallback.
+Existing rows, likes and history are preserved. This runs on startup, after audio
+permission is granted, and when the Downloaded list is refreshed; account sync
+and network access are not required. Android audio permission is still needed to
+read files owned by an earlier installation.
+
+The branch's Debug workflow runs `QuickPicksRecommenderTest`,
+`RadioQueuePolicyTest`, and `DownloadedSongRecoveryTest` before building the APK.
+Device checks should cover rapid song changes, Start Radio, repeat/autoplay
+toggles, playlist order, and recovered downloads before login with audio
+permission granted. File scanning, Android permissions and playback behavior
+need device verification in addition to the deterministic unit tests.

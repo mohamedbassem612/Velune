@@ -20,6 +20,8 @@ class YouTubeQueue(
     private var endpoint: WatchEndpoint,
     override val preloadItem: MediaMetadata? = null,
 ) : Queue {
+    // Capture the original endpoint: YouTube replaces it with its radio playlist after loading.
+    val isRadio: Boolean = com.nikhil.yt.utils.RadioQueuePolicy.isRadio(endpoint.videoId, endpoint.playlistId)
     private var continuation: String? = null
 
     override suspend fun getInitialStatus(): Queue.Status {
