@@ -86,6 +86,11 @@ for 15 minutes per account/locale.
 
 Radio allows liked songs, excludes tracks already in the queue, and retains skip
 penalties and artist diversity. Explicit playlist and album order is preserved.
+The Similar Content shelf retains the current song's YouTube radio/related list
+in its original order. Personalization selects automatic queue additions from
+that list and other sources, without replacing or truncating the shelf. Only
+queued tracks are removed from the preview. Loading resumes after the initial
+radio queue is ready, so an initialization guard cannot leave the shelf empty.
 Personalization has a five-second budget, with filtered YouTube results used on
 timeout or failure. A queue revision and current-song check discard stale results;
 autofill waits for the initial radio queue to finish loading.
@@ -98,7 +103,8 @@ and network access are not required. Android audio permission is still needed to
 read files owned by an earlier installation.
 
 The branch's Debug workflow runs `QuickPicksRecommenderTest`,
-`RadioQueuePolicyTest`, and `DownloadedSongRecoveryTest` before building the APK.
+`RadioQueuePolicyTest`, `SimilarContentPolicyTest`, and `DownloadedSongRecoveryTest`
+before building the APK.
 Device checks should cover rapid song changes, Start Radio, repeat/autoplay
 toggles, playlist order, and recovered downloads before login with audio
 permission granted. File scanning, Android permissions and playback behavior

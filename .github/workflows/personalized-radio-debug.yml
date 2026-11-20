@@ -33,6 +33,7 @@ jobs:
           ./gradlew :app:testMobileUniversalDebugUnitTest -PconnectTestBuildType=debug
           --tests com.nikhil.yt.utils.QuickPicksRecommenderTest
           --tests com.nikhil.yt.utils.RadioQueuePolicyTest
+          --tests com.nikhil.yt.utils.SimilarContentPolicyTest
           --tests com.nikhil.yt.playback.DownloadedSongRecoveryTest
           --no-daemon --no-parallel --max-workers=1
           -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.jvmargs=-Xmx4g
