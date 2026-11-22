@@ -370,7 +370,10 @@ fun Modifier.bottomSheetDraggable(
             },
             onDragCancel = {
                 velocityTracker.resetTracking()
-                state.snapTo(state.collapsedBound)
+                // A nested scroll child can cancel this detector while the user is
+                // still dragging the sheet. Snapping straight to collapsed makes
+                // the sheet visibly jump up and down; settle at the nearest anchor.
+                state.performFling(0f, onDismiss)
             },
             onDragEnd = {
                 val velocity = -velocityTracker.calculateVelocity().y

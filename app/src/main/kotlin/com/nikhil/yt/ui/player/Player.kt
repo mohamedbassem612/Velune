@@ -14,7 +14,6 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,6 +103,8 @@ import com.nikhil.yt.extensions.metadata
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.innertube.toHighResThumbnail
 import com.nikhil.yt.models.MediaMetadata
+import com.nikhil.yt.models.AudioContentType
+import com.nikhil.yt.models.audioContentType
 import com.nikhil.yt.ui.component.BottomSheet
 import com.nikhil.yt.ui.component.BottomSheetState
 import com.nikhil.yt.ui.component.LocalBottomSheetPageState
@@ -210,6 +211,7 @@ fun LegacyBottomSheetPlayer(
     val playbackState by playerConnection.playbackState.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val audioContentType = remember(mediaMetadata) { mediaMetadata.audioContentType }
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
     val currentSongLiked = currentSong?.song?.liked == true
     val queueWindows by playerConnection.queueWindows.collectAsState()
@@ -435,7 +437,10 @@ fun LegacyBottomSheetPlayer(
                             playerConnection.service.sleepTimer.start(-1)
                         },
                     ) {
-                        Text(stringResource(R.string.end_of_song))
+                        Text(stringResource(
+                            if (audioContentType == AudioContentType.QURAN) R.string.end_of_sura
+                            else R.string.end_of_song
+                        ))
                     }
                 }
             },
@@ -632,6 +637,7 @@ fun LegacyBottomSheetPlayer(
                             playerConnection = playerConnection,
                             onToggleLike = playerConnection::toggleLike,
                             onExpandQueue = queueSheetState::expandSoft,
+                            onShowLyrics = { lyricsSheetState.expandSoft() },
                             onMenuClick = {
                                 menuState.show {
                                     PlayerMenu(
@@ -706,6 +712,7 @@ fun LegacyBottomSheetPlayer(
                             playerConnection = playerConnection,
                             onToggleLike = playerConnection::toggleLike,
                             onExpandQueue = queueSheetState::expandSoft,
+                            onShowLyrics = { lyricsSheetState.expandSoft() },
                             onMenuClick = {
                                 menuState.show {
                                     PlayerMenu(
@@ -825,6 +832,7 @@ private fun MetroPlayerContent(
     playerConnection: com.nikhil.yt.playback.PlayerConnection,
     onToggleLike: () -> Unit,
     onExpandQueue: () -> Unit,
+    onShowLyrics: () -> Unit,
     onMenuClick: () -> Unit,
     context: Context,
     bottomPadding: androidx.compose.ui.unit.Dp
@@ -834,6 +842,8 @@ private fun MetroPlayerContent(
     val isLoading = playbackState == STATE_BUFFERING
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
+    val shuffleEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val repeatMode by playerConnection.repeatMode.collectAsState()
 
     Column(
         modifier = Modifier
@@ -996,27 +1006,25 @@ private fun MetroPlayerContent(
 
             val playInteractionSource =
                 androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            val isPlayPressed by playInteractionSource.collectIsPressedAsState()
-            val sideButtonWidth by androidx.compose.animation.core.animateDpAsState(
-                targetValue = if (isPlayPressed) 48.dp else 64.dp,
-                animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.6f,
-                    stiffness = 400f
-                ),
-                label = "SideWidth"
-            )
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                IconButton(onClick = { playerConnection.player.shuffleModeEnabled = !shuffleEnabled }) {
+                    Icon(
+                        painter = painterResource(if (shuffleEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                        contentDescription = "Shuffle",
+                        tint = textColor.copy(alpha = if (shuffleEnabled) 1f else 0.55f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
                 Surface(
                     onClick = playerConnection::seekToPrevious,
                     shape = RoundedCornerShape(50),
                     color = textColor.copy(alpha = 0.08f),
                     modifier = Modifier
-                        .width(sideButtonWidth)
+                        .width(64.dp)
                         .height(64.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -1041,7 +1049,7 @@ private fun MetroPlayerContent(
                     color = Color.White,
                     interactionSource = playInteractionSource,
                     modifier = Modifier
-                        .weight(1f)
+                        .size(80.dp)
                         .height(64.dp)
                 ) {
                     Row(
@@ -1071,7 +1079,7 @@ private fun MetroPlayerContent(
                     shape = RoundedCornerShape(50),
                     color = textColor.copy(alpha = 0.08f),
                     modifier = Modifier
-                        .width(sideButtonWidth)
+                        .width(64.dp)
                         .height(64.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -1083,9 +1091,42 @@ private fun MetroPlayerContent(
                         )
                     }
                 }
+                IconButton(onClick = { playerConnection.player.toggleRepeatMode() }) {
+                    Icon(
+                        painter = painterResource(
+                            when (repeatMode) {
+                                androidx.media3.common.Player.REPEAT_MODE_ONE -> R.drawable.repeat_one_on
+                                androidx.media3.common.Player.REPEAT_MODE_ALL -> R.drawable.repeat_on
+                                else -> R.drawable.repeat
+                            }
+                        ),
+                        contentDescription = "Repeat",
+                        tint = textColor.copy(alpha = if (repeatMode != androidx.media3.common.Player.REPEAT_MODE_OFF) 1f else 0.55f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(72.dp))
+            Spacer(modifier = Modifier.height(48.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onExpandQueue) {
+                    Icon(painterResource(R.drawable.queue_music), contentDescription = "Queue", tint = textColor)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Queue", color = textColor)
+                }
+                TextButton(onClick = onShowLyrics) {
+                    Icon(painterResource(R.drawable.lyrics), contentDescription = "Lyrics", tint = textColor)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Lyrics", color = textColor)
+                }
+                IconButton(onClick = onMenuClick) {
+                    Icon(painterResource(R.drawable.more_vert), contentDescription = "More", tint = textColor)
+                }
+            }
         }
     }
 }
