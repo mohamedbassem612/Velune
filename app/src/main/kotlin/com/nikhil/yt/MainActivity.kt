@@ -611,15 +611,7 @@ class MainActivity : ComponentActivity() {
                     com.nikhil.yt.ui.theme.ThemeSeedPaletteCodec.decodeFromPreference(customThemeColorValue)
                 } else {
                     com.nikhil.yt.ui.screens.settings.ThemePalettes
-                        .findById(customThemeColorValue)
-                        ?.let {
-                            com.nikhil.yt.ui.theme.ThemeSeedPalette(
-                                primary = it.primary,
-                                secondary = it.secondary,
-                                tertiary = it.tertiary,
-                                neutral = it.neutral,
-                            )
-                        }
+                        .customSeedPaletteForId(customThemeColorValue)
                 }
             }
 
@@ -680,7 +672,7 @@ class MainActivity : ComponentActivity() {
             VeluneTheme(
                 darkTheme = useDarkTheme,
                 pureBlack = pureBlack,
-                themeColor = themeColor,
+                themeColor = if (enableDynamicTheme) themeColor else customThemeColor,
                 seedPalette = if (!enableDynamicTheme) customThemeSeedPalette else null,
                 useSystemFont = useSystemFont,
             ) {
@@ -756,6 +748,9 @@ class MainActivity : ComponentActivity() {
                                 onQueryChange(TextFieldValue())
                             }
                         }
+                    }
+                    val openSearch = remember(onActiveChange) {
+                        { onActiveChange(true) }
                     }
 
                     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
@@ -1182,13 +1177,6 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                 },
                                                 actions = {
-                                                    IconButton(onClick = { onActiveChange(true) }) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.search),
-                                                            contentDescription = stringResource(R.string.search)
-                                                        )
-                                                    }
-
                                                     IconButton(onClick = { navController.navigate("settings") }) {
                                                         Icon(
                                                             painter = painterResource(R.drawable.settings),
@@ -1427,6 +1415,10 @@ class MainActivity : ComponentActivity() {
                                                 currentRoute = navBackStackEntry?.destination?.route ?: "",
                                                 pureBlack = pureBlack,
                                                 onTabSelected = { screen ->
+                                                    if (screen == Screens.Search) {
+                                                        openSearch()
+                                                        return@MusicBottomNavigation
+                                                    }
                                                     val isSelected = navBackStackEntry?.destination?.hierarchy?.any { it.route == screen.route } == true
 
                                                     if (isSelected) {
