@@ -1,6 +1,10 @@
 package com.nikhil.yt.ui.player
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -234,10 +238,16 @@ private fun MusicMiniPlayer(
 @Composable
 fun MusicTrackInfo(title: String, artist: String, expandedFraction: Float, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.Center) {
-        Text(title, fontSize = lerp(16.sp, 26.sp, expandedFraction),
-            lineHeight = lerp(24.sp, 36.sp, expandedFraction), fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = if (expandedFraction > 0.8f) 2 else 1, overflow = TextOverflow.Ellipsis)
+        AnimatedContent(
+            targetState = title,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "MusicTrackTitle",
+        ) { animatedTitle ->
+            Text(animatedTitle, fontSize = lerp(16.sp, 26.sp, expandedFraction),
+                lineHeight = lerp(24.sp, 36.sp, expandedFraction), fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = if (expandedFraction > 0.8f) 2 else 1, overflow = TextOverflow.Ellipsis)
+        }
         Text(artist.ifBlank { stringResource(R.string.music_unknown_artist) },
             fontSize = lerp(12.sp, 15.sp, expandedFraction), lineHeight = lerp(20.sp, 24.sp, expandedFraction),
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
