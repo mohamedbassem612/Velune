@@ -7,6 +7,9 @@ namespace velune {
 struct Track {
     QString id, title, artist, thumbnail;
     int duration = 0;
+    QString album, albumId;
+    bool explicitContent = false, musicVideo = false;
+    QJsonArray artistRefs;
     QJsonObject wire() const;
     static Track fromWire(const QJsonObject &json);
 };
@@ -25,6 +28,11 @@ class Library : public QObject {
     void setLiked(const Track &track, bool liked);
     bool merge(const QJsonObject &remote);
     void importTracks(const QList<Track> &tracks, bool liked = true);
+    void rememberTracks(const QList<Track> &tracks, bool newTracksLiked = false);
+    QString putPlaylist(QString id, QString name, const QList<Track> &tracks, QString browseId = {},
+                        QString thumbnail = {});
+    bool removePlaylist(QString id);
+    void recordListening(const Track &track, qint64 milliseconds, QString timestamp);
     QString mediaPath(const QString &id) const;
     void registerMedia(const Track &track, const QString &path);
     QString directory() const {

@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     app.setApplicationName("Velune");
     app.setOrganizationName("Velune");
-    app.setApplicationVersion("0.1.1");
+    app.setApplicationVersion("0.1.4");
     app.setDesktopFileName("velune");
     QPixmap icon(128, 128);
     icon.fill(Qt::black);

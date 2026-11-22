@@ -7,11 +7,32 @@ install_dir="$HOME/.local/lib/velune"
 mkdir -p "$install_dir" "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/scalable/apps"
 install -m755 "$build_dir/velune" "$install_dir/velune.next"
 mv -f -- "$install_dir/velune.next" "$install_dir/velune"
+mkdir -p "$install_dir/notices"
+install -m644 "$script_dir/../../LICENSE" "$install_dir/notices/Velune-GPL-3.0.txt"
+if [[ -f "$script_dir/../THIRD_PARTY.md" ]]; then
+ install -m644 "$script_dir/../THIRD_PARTY.md" "$install_dir/notices/THIRD_PARTY.md"
+fi
+if [[ -d "$build_dir/tools" ]]; then
+ mkdir -p "$install_dir/tools"
+ cp -a "$build_dir/tools/." "$install_dir/tools/"
+fi
 install -m644 "$script_dir/../assets/velune.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/velune.svg"
 if [[ -n "$runtime_prefix" ]]; then
  mkdir -p "$install_dir/lib" "$install_dir/plugins"
  find "$runtime_prefix/usr/lib/x86_64-linux-gnu" -maxdepth 1 -name 'lib*.so*' -exec cp -a -t "$install_dir/lib" {} +
  cp -a "$runtime_prefix/usr/lib/x86_64-linux-gnu/qt6/plugins/." "$install_dir/plugins/"
+ if [[ -d "$runtime_prefix/usr/share/doc" ]]; then
+  while IFS= read -r -d '' notice; do
+   package=$(basename "$(dirname "$notice")")
+   install -m644 "$notice" "$install_dir/notices/$package.copyright"
+  done < <(find "$runtime_prefix/usr/share/doc" -name copyright -type f -print0)
+ fi
+ if [[ -f "$runtime_prefix/usr/lib/qt6/libexec/QtWebEngineProcess" ]]; then
+  install -m755 "$runtime_prefix/usr/lib/qt6/libexec/QtWebEngineProcess" "$install_dir/QtWebEngineProcess"
+  mkdir -p "$install_dir/resources" "$install_dir/translations"
+  cp -a "$runtime_prefix/usr/share/qt6/resources/." "$install_dir/resources/"
+  cp -a "$runtime_prefix/usr/share/qt6/translations/." "$install_dir/translations/"
+ fi
  if [[ -d "$runtime_prefix/usr/share/fonts/opentype/inter" ]]; then
   mkdir -p "$HOME/.local/share/fonts/velune-inter"
   cp "$runtime_prefix/usr/share/fonts/opentype/inter/"*.otf "$HOME/.local/share/fonts/velune-inter/"
@@ -27,12 +48,14 @@ if [[ -d "$velune_dir/lib" ]]; then
  export QT_PLUGIN_PATH="$velune_dir/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
  export QT_MEDIA_BACKEND=ffmpeg
 fi
+if [[ -x "$velune_dir/QtWebEngineProcess" ]]; then
+ export QTWEBENGINEPROCESS_PATH="$velune_dir/QtWebEngineProcess"
+ export QTWEBENGINE_RESOURCES_PATH="$velune_dir/resources"
+ export QTWEBENGINE_LOCALES_PATH="$velune_dir/translations/qtwebengine_locales"
+fi
 exec "$velune_dir/velune" "$@"
 LAUNCHER
 chmod +x "$HOME/.local/bin/velune"
-if [[ -f "$script_dir/../config/google-oauth.json" ]]; then
- "$script_dir/configure-google-login.sh" "$script_dir/../config/google-oauth.json"
-fi
 cat > "$HOME/.local/share/applications/velune.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application

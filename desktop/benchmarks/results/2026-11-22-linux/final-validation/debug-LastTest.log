@@ -1,0 +1,297 @@
+Start testing: Nov 22 07:00 EET
+----------------------------------------------------------
+1/8 Testing: mpv-playback
+1/8 Test: mpv-playback
+Command: "/tmp/velune-phase2-debug/velune_mpv_tests" "-platform" "offscreen"
+Directory: /tmp/velune-phase2-debug
+"mpv-playback" start time: Nov 22 07:00 EET
+Output:
+----------------------------------------------------------
+********* Start testing of MpvPlaybackTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : MpvPlaybackTests::initTestCase()
+QDEBUG : MpvPlaybackTests::selectionAndTrace() >>>> listing codecs
+QDEBUG : MpvPlaybackTests::selectionAndTrace()      Format_Jpeg
+QDEBUG : MpvPlaybackTests::selectionAndTrace()      Format_YUYV
+QINFO  : MpvPlaybackTests::selectionAndTrace() velune.playback {"backend":"mpv","first_audio_output_ms":null,"output_measurement":"unavailable; backend states and position are proxies","request":"42","source_category":"local","stages_ms":{"backend_load":0.007894,"play_request":0}}
+PASS   : MpvPlaybackTests::selectionAndTrace()
+PASS   : MpvPlaybackTests::initializationFailure()
+PASS   : MpvPlaybackTests::deterministicNativeEventIdentityAndOverflow()
+PASS   : MpvPlaybackTests::volumeAppliedBeforeFirstUnpause()
+PASS   : MpvPlaybackTests::cancellationBeforeNativeStartDoesNotNeedAnotherIdleChange()
+PASS   : MpvPlaybackTests::nativeFormats(wav-generated)
+PASS   : MpvPlaybackTests::nativeFormats(tone.mp3)
+PASS   : MpvPlaybackTests::nativeFormats(tone.m4a)
+PASS   : MpvPlaybackTests::nativeFormats(tone.opus)
+PASS   : MpvPlaybackTests::nativeFormats(tone.flac)
+PASS   : MpvPlaybackTests::nativeFormats(tone.wav)
+PASS   : MpvPlaybackTests::nativeFormats(audio-video.mp4)
+PASS   : MpvPlaybackTests::nativeLifecycle()
+PASS   : MpvPlaybackTests::rapidSwitchEndErrorsAndReentrancy()
+QWARN  : MpvPlaybackTests::relayAndDestructionWhileLoading() Audio stream failed before headers (network error 5)
+QWARN  : MpvPlaybackTests::relayAndDestructionWhileLoading() QIODevice::write (QTcpSocket): device not open
+QWARN  : MpvPlaybackTests::relayAndDestructionWhileLoading() Audio stream failed before headers (network error 5)
+QWARN  : MpvPlaybackTests::relayAndDestructionWhileLoading() QIODevice::write (QTcpSocket): device not open
+PASS   : MpvPlaybackTests::relayAndDestructionWhileLoading()
+PASS   : MpvPlaybackTests::nativeConnectRoutingAndLogout()
+PASS   : MpvPlaybackTests::cleanupTestCase()
+Totals: 18 passed, 0 failed, 0 skipped, 0 blacklisted, 3267ms
+********* Finished testing of MpvPlaybackTests *********
+<end of output>
+Test time =   3.41 sec
+----------------------------------------------------------
+Test Passed.
+"mpv-playback" end time: Nov 22 07:00 EET
+"mpv-playback" time elapsed: 00:00:03
+----------------------------------------------------------
+
+2/8 Testing: library
+2/8 Test: library
+Command: "/tmp/velune-phase2-debug/velune_library_tests"
+Directory: /tmp/velune-phase2-debug
+"library" start time: Nov 22 07:00 EET
+Output:
+----------------------------------------------------------
+********* Start testing of LibraryCatalogTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : LibraryCatalogTests::initTestCase()
+PASS   : LibraryCatalogTests::membershipOfflineAndSavedEntities()
+PASS   : LibraryCatalogTests::playlistsTagsCustomOrderAndPersistence()
+PASS   : LibraryCatalogTests::historyUsesActualListeningAndSurvivesReload()
+PASS   : LibraryCatalogTests::syncPaginatesPreservesDataAndRejectsStaleReplies()
+PASS   : LibraryCatalogTests::completeAlbumsAreRequiredForFullyOffline()
+PASS   : LibraryCatalogTests::cleanupTestCase()
+Totals: 7 passed, 0 failed, 0 skipped, 0 blacklisted, 212ms
+********* Finished testing of LibraryCatalogTests *********
+<end of output>
+Test time =   0.24 sec
+----------------------------------------------------------
+Test Passed.
+"library" end time: Nov 22 07:00 EET
+"library" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/8 Testing: search
+3/8 Test: search
+Command: "/tmp/velune-phase2-debug/velune_search_tests"
+Directory: /tmp/velune-phase2-debug
+"search" start time: Nov 22 07:00 EET
+Output:
+----------------------------------------------------------
+********* Start testing of SearchTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : SearchTests::initTestCase()
+PASS   : SearchTests::parserPreservesTypesMetadataAndSections()
+PASS   : SearchTests::requestsFiltersContinuationDeduplicationAndRetry()
+PASS   : SearchTests::staleRepliesAndFallbackCannotReplaceNewQuery()
+PASS   : SearchTests::summaryFallbackMatchesAndroidOrderAndPreviewSize()
+PASS   : SearchTests::historySettingsPersistenceAndSuggestions()
+PASS   : SearchTests::transientRetriesAreBoundedAndCancelledWhenTypingChanges()
+PASS   : SearchTests::localSearchUsesOnlySuppliedLibraryData()
+PASS   : SearchTests::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 1765ms
+********* Finished testing of SearchTests *********
+<end of output>
+Test time =   1.79 sec
+----------------------------------------------------------
+Test Passed.
+"search" end time: Nov 22 07:00 EET
+"search" time elapsed: 00:00:01
+----------------------------------------------------------
+
+4/8 Testing: playback
+4/8 Test: playback
+Command: "/tmp/velune-phase2-debug/velune_playback_tests" "-platform" "offscreen"
+Directory: /tmp/velune-phase2-debug
+"playback" start time: Nov 22 07:00 EET
+Output:
+----------------------------------------------------------
+********* Start testing of PlaybackTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : PlaybackTests::initTestCase()
+PASS   : PlaybackTests::rapidTenTrackControlsAndShuffle()
+PASS   : PlaybackTests::controlsAndPausedSeek()
+PASS   : PlaybackTests::replacementRejectsEveryStaleEvent()
+PASS   : PlaybackTests::queuedResolverAndRelayCallbacksCannotReplaceSelection()
+PASS   : PlaybackTests::preparedStreamPreservesPauseAndSeek()
+PASS   : PlaybackTests::refreshPreservesPositionAndRejectsDuplicateRelayErrors()
+PASS   : PlaybackTests::endOfMediaAndRepeat()
+PASS   : PlaybackTests::errorsCancelAndAllowRetry()
+PASS   : PlaybackTests::selectedRemoteStopsBeforeConnectionAndDetachStaysPaused()
+PASS   : PlaybackTests::logoutAndShutdown()
+PASS   : PlaybackTests::unavailableBackendDoesNotResolve()
+PASS   : PlaybackTests::reentrantSelectionDoesNotLoadOldTrack()
+PASS   : PlaybackTests::missingMultimediaPlugin(missing-explicit)
+PASS   : PlaybackTests::missingMultimediaPlugin(missing-default)
+PASS   : PlaybackTests::missingMultimediaPlugin(unknown-backend)
+PASS   : PlaybackTests::missingMultimediaPlugin(missing-dependency)
+QDEBUG : PlaybackTests::backendIdleVolumeAndInvalidSource() >>>> listing codecs
+QDEBUG : PlaybackTests::backendIdleVolumeAndInvalidSource()      Format_Jpeg
+QDEBUG : PlaybackTests::backendIdleVolumeAndInvalidSource()      Format_YUYV
+PASS   : PlaybackTests::backendIdleVolumeAndInvalidSource()
+PASS   : PlaybackTests::cleanupTestCase()
+Totals: 19 passed, 0 failed, 0 skipped, 0 blacklisted, 3074ms
+********* Finished testing of PlaybackTests *********
+<end of output>
+Test time =   3.17 sec
+----------------------------------------------------------
+Test Passed.
+"playback" end time: Nov 22 07:01 EET
+"playback" time elapsed: 00:00:03
+----------------------------------------------------------
+
+5/8 Testing: desktop
+5/8 Test: desktop
+Command: "/tmp/velune-phase2-debug/velune_tests" "-platform" "offscreen"
+Directory: /tmp/velune-phase2-debug
+"desktop" start time: Nov 22 07:01 EET
+Output:
+----------------------------------------------------------
+********* Start testing of CoreTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : CoreTests::initTestCase()
+PASS   : CoreTests::failedSaveDoesNotCommitMerge()
+PASS   : CoreTests::frames()
+PASS   : CoreTests::rejectsReplay()
+PASS   : CoreTests::partialAndOversizedFrames()
+PASS   : CoreTests::localPeersOnly()
+PASS   : CoreTests::libraryTombstonesAndIdempotence()
+PASS   : CoreTests::tieBreakAndHistoryDeletion()
+PASS   : CoreTests::identityPersistence()
+PASS   : CoreTests::tlsHandshakeCommandsAndMedia()
+QDEBUG : CoreTests::seekingWhilePlayingThroughTheUi() >>>> listing codecs
+QDEBUG : CoreTests::seekingWhilePlayingThroughTheUi()      Format_Jpeg
+QDEBUG : CoreTests::seekingWhilePlayingThroughTheUi()      Format_YUYV
+PASS   : CoreTests::seekingWhilePlayingThroughTheUi()
+PASS   : CoreTests::contentButtonsSeparateNavigationAndPlayback()
+PASS   : CoreTests::openingCollectionsDoesNotStartPlayback()
+PASS   : CoreTests::heartShowsPersistedLikeState()
+PASS   : CoreTests::likeButtonsFollowLibraryMembershipAcrossViewsAndTrackChanges()
+PASS   : CoreTests::failedLikeSaveCannotFillTheHeart()
+PASS   : CoreTests::likingTracksKeepsScrollPositionAndUpdatesHeart()
+PASS   : CoreTests::removingLikedRowKeepsScrollAndOtherRows()
+PASS   : CoreTests::searchUpdatesWhileTypingAndCancelsPendingQueries()
+PASS   : CoreTests::androidLibraryCompositionAndViews()
+QWARN  : CoreTests::trackListsShowArtworkAndRejectObsoleteImages() This plugin does not support propagateSizeHints()
+PASS   : CoreTests::trackListsShowArtworkAndRejectObsoleteImages()
+PASS   : CoreTests::listHoverShowsCoverPlayAndSeparatesClicks()
+PASS   : CoreTests::androidSuggestionResponseKeepsQueriesAndTypedRecommendations()
+QWARN  : CoreTests::completeSearchUiSupportsSectionsPaginationPreferencesAndLocalFiles() This plugin does not support propagateSizeHints()
+PASS   : CoreTests::completeSearchUiSupportsSectionsPaginationPreferencesAndLocalFiles()
+PASS   : CoreTests::layoutAndLoginGate()
+PASS   : CoreTests::cleanupTestCase()
+Totals: 26 passed, 0 failed, 0 skipped, 0 blacklisted, 12768ms
+********* Finished testing of CoreTests *********
+<end of output>
+Test time =  12.86 sec
+----------------------------------------------------------
+Test Passed.
+"desktop" end time: Nov 22 07:01 EET
+"desktop" time elapsed: 00:00:12
+----------------------------------------------------------
+
+6/8 Testing: google-auth
+6/8 Test: google-auth
+Command: "/tmp/velune-phase2-debug/velune_auth_tests" "-platform" "offscreen"
+Directory: /tmp/velune-phase2-debug
+"google-auth" start time: Nov 22 07:01 EET
+Output:
+----------------------------------------------------------
+********* Start testing of EmbeddedSessionTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : EmbeddedSessionTests::initTestCase()
+PASS   : EmbeddedSessionTests::originAndExpiryIsolation()
+QINFO  : EmbeddedSessionTests::embeddedWindowAndCancellation() qt.webenginecontext: 
+
+GL Type: disabled
+Surface Type: OpenGL
+Surface Profile: NoProfile
+Surface Version: 2.0
+QSG RHI Backend: OpenGL
+Using Supported QSG Backend: yes
+Using Software Dynamic GL: no
+Using Multithreaded OpenGL: yes
+
+Init Parameters:
+  *  application-name velune_auth_tests 
+  *  browser-subprocess-path /tmp/velune-desktop-deps/root/usr/lib/qt6/libexec/QtWebEngineProcess 
+  *  disable-features ConsolidatedMovementXY,InstalledApp,BackgroundFetch,WebOTP,WebPayments,WebUSB,PictureInPicture 
+  *  disable-gpu  
+  *  disable-setuid-sandbox  
+  *  disable-speech-api  
+  *  enable-features NetworkServiceInProcess,TracingServiceInProcess 
+  *  enable-threaded-compositing  
+  *  in-process-gpu  
+  *  use-gl disabled 
+
+QWARN  : EmbeddedSessionTests::embeddedWindowAndCancellation() This plugin does not support propagateSizeHints()
+QWARN  : EmbeddedSessionTests::embeddedWindowAndCancellation() This plugin does not support propagateSizeHints()
+PASS   : EmbeddedSessionTests::embeddedWindowAndCancellation()
+QWARN  : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply() This plugin does not support propagateSizeHints()
+QWARN  : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply() This plugin does not support propagateSizeHints()
+QWARN  : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply() This plugin does not support propagateSizeHints()
+QWARN  : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply() This plugin does not support propagateSizeHints()
+QWARN  : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply() This plugin does not support propagateSizeHints()
+QWARN  : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply() This plugin does not support propagateSizeHints()
+PASS   : EmbeddedSessionTests::accountMustBeConfirmedAndCancellationRejectsLateReply()
+PASS   : EmbeddedSessionTests::credentialsNeverLeaveMusicApi()
+PASS   : EmbeddedSessionTests::cleanupTestCase()
+Totals: 6 passed, 0 failed, 0 skipped, 0 blacklisted, 300ms
+********* Finished testing of EmbeddedSessionTests *********
+<end of output>
+Test time =   0.42 sec
+----------------------------------------------------------
+Test Passed.
+"google-auth" end time: Nov 22 07:01 EET
+"google-auth" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/8 Testing: audio-resolver
+7/8 Test: audio-resolver
+Command: "/tmp/velune-phase2-debug/velune_audio_tests" "-platform" "offscreen"
+Directory: /tmp/velune-phase2-debug
+"audio-resolver" start time: Nov 22 07:01 EET
+Output:
+----------------------------------------------------------
+********* Start testing of AudioResolverTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : AudioResolverTests::initTestCase()
+PASS   : AudioResolverTests::sourceCacheAndCookieCleanup()
+PASS   : AudioResolverTests::errorsCancellationAndUnexpectedPaths()
+SKIP   : AudioResolverTests::liveYouTubeAndNativePlayback() Set VELUNE_LIVE_PLAYBACK_ID to explicitly run the live YouTube playback check.
+   Loc: [/home/mohamed/Desktop/Velune/desktop/tests/AudioResolverTests.cpp(65)]
+PASS   : AudioResolverTests::cleanupTestCase()
+Totals: 4 passed, 0 failed, 1 skipped, 0 blacklisted, 419ms
+********* Finished testing of AudioResolverTests *********
+<end of output>
+Test time =   0.58 sec
+----------------------------------------------------------
+Test Passed.
+"audio-resolver" end time: Nov 22 07:01 EET
+"audio-resolver" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/8 Testing: audio-stream
+8/8 Test: audio-stream
+Command: "/tmp/velune-phase2-debug/velune_stream_tests" "-platform" "offscreen"
+Directory: /tmp/velune-phase2-debug
+"audio-stream" start time: Nov 22 07:01 EET
+Output:
+----------------------------------------------------------
+********* Start testing of AudioStreamTests *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : AudioStreamTests::initTestCase()
+PASS   : AudioStreamTests::queuedErrorsKeepTheirOriginalRequestIdentity()
+PASS   : AudioStreamTests::loopbackRangeRequestsAndCredentialIsolation()
+PASS   : AudioStreamTests::cleanupTestCase()
+Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 53ms
+********* Finished testing of AudioStreamTests *********
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"audio-stream" end time: Nov 22 07:01 EET
+"audio-stream" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 22 07:01 EET

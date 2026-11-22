@@ -1,0 +1,89 @@
+{
+  "artifacts": [
+    {
+      "artifact": "libxpresent1_1.0.0-2build2_amd64.deb",
+      "sha256": "75c31346edce1e1182e37353871257d0ea967cd3c12b6cdf9bd08b304b57ada0",
+      "package_metadata": "Package: libxpresent1\nVersion: 1.0.0-2build2\nSource: libxpresent"
+    },
+    {
+      "artifact": "libsndio7.0_1.9.0-0.3build3_amd64.deb",
+      "sha256": "b3944745ee48ea2c7a851fb78a617d34bb731a2f956a2c213cc9dffcaba35382",
+      "package_metadata": "Package: libsndio7.0\nVersion: 1.9.0-0.3build3\nSource: sndio"
+    },
+    {
+      "artifact": "libdc1394-25_2.2.6-4build1_amd64.deb",
+      "sha256": "0f4a0768152636f2f941d3a29d24925be77f869b3d90a13f1694fef792a89810",
+      "package_metadata": "Package: libdc1394-25\nVersion: 2.2.6-4build1\nSource: libdc1394"
+    },
+    {
+      "artifact": "libmujs3_1.3.3-3build2_amd64.deb",
+      "sha256": "eb65d35b3cee83aeecaa4ccdbfbde2452d5bb394237f4668f1bb6cc154e61ff0",
+      "package_metadata": "Package: libmujs3\nVersion: 1.3.3-3build2\nSource: mujs"
+    },
+    {
+      "artifact": "liblua5.2-0_5.2.4-3build2_amd64.deb",
+      "sha256": "b030bc0bea32fe27dfb70a31e14491b6ab767379811877e6497af28338eab5d8",
+      "package_metadata": "Package: liblua5.2-0\nVersion: 5.2.4-3build2\nSource: lua5.2"
+    },
+    {
+      "artifact": "libsixel1_1.10.3-3build1_amd64.deb",
+      "sha256": "4340648a13a2ff8debe759ca7c94beb38fe739ea83402a193b82958824f053de",
+      "package_metadata": "Package: libsixel1\nVersion: 1.10.3-3build1\nSource: libsixel"
+    },
+    {
+      "artifact": "libopenal1_1%3a1.23.1-4build1_amd64.deb",
+      "sha256": "1781774a540ab7c9baccc41b49592e3b427c5820c64e390af4868d6a861ef8c7",
+      "package_metadata": "Package: libopenal1\nVersion: 1:1.23.1-4build1\nSource: openal-soft"
+    },
+    {
+      "artifact": "pulseaudio-utils_1%3a16.1+dfsg1-2ubuntu10.1_amd64.deb",
+      "sha256": "3a6ade107e69849d3d98c592c8d16844fae449aa29cfc98c7b64c7dbe36a6d29",
+      "package_metadata": "Package: pulseaudio-utils\nVersion: 1:16.1+dfsg1-2ubuntu10.1\nSource: pulseaudio"
+    },
+    {
+      "artifact": "ffmpeg_7%3a6.1.1-3ubuntu5_amd64.deb",
+      "sha256": "1a23baace5f2688a47e28119aedae6993cd638e6279a7227dfc52d9a337a1c17",
+      "package_metadata": "Package: ffmpeg\nVersion: 7:6.1.1-3ubuntu5"
+    },
+    {
+      "artifact": "libdvdnav4_6.1.1-3build1_amd64.deb",
+      "sha256": "09fd1de2985ade2592d4f068774b2249211880aa6d4a71a89e0b4764afe47404",
+      "package_metadata": "Package: libdvdnav4\nVersion: 6.1.1-3build1\nSource: libdvdnav"
+    },
+    {
+      "artifact": "libmpv2_0.37.0-1ubuntu4_amd64.deb",
+      "sha256": "12ea9d67e291a90cea5b7497f3f9d196643bf2e85ad17cb683e9c7ad18981c00",
+      "package_metadata": "Package: libmpv2\nVersion: 0.37.0-1ubuntu4\nSource: mpv"
+    },
+    {
+      "artifact": "libjack-jackd2-0_1.9.21~dfsg-3ubuntu3_amd64.deb",
+      "sha256": "4fc5f4d0fbf2602df59bbed3ea504742bdcc7f899d7b32f6b2fd446ceb1fdf7d",
+      "package_metadata": "Package: libjack-jackd2-0\nVersion: 1.9.21~dfsg-3ubuntu3\nSource: jackd2"
+    },
+    {
+      "artifact": "libmpv-dev_0.37.0-1ubuntu4_amd64.deb",
+      "sha256": "c9cfd0b2f60e6377f0d339ef298a0772753ce7dc7310d250573a3ea9c0b9701e",
+      "package_metadata": "Package: libmpv-dev\nVersion: 0.37.0-1ubuntu4\nSource: mpv"
+    },
+    {
+      "artifact": "libavdevice60_7%3a6.1.1-3ubuntu5_amd64.deb",
+      "sha256": "62c55a1209332142eb01488894b3443060e59b44940189469ac7f8fbe03406ca",
+      "package_metadata": "Package: libavdevice60\nVersion: 7:6.1.1-3ubuntu5\nSource: ffmpeg"
+    },
+    {
+      "artifact": "pulseaudio_1%3a16.1+dfsg1-2ubuntu10.1_amd64.deb",
+      "sha256": "d26b78e296e1efab12e35a2674b8e698966efd9c194cf840f7b00f8eb64e38c1",
+      "package_metadata": "Package: pulseaudio\nVersion: 1:16.1+dfsg1-2ubuntu10.1"
+    }
+  ],
+  "ffmpeg_runtime": {
+    "libavcodec.so.60": {
+      "license": "GPL version 2 or later",
+      "configuration": "--prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared"
+    },
+    "libavformat.so.60": {
+      "license": "GPL version 2 or later",
+      "configuration": "--prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared"
+    }
+  }
+}

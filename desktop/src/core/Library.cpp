@@ -1,4 +1,5 @@
 #include "Library.h"
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -11,14 +12,26 @@ QJsonObject Track::wire() const {
             {"title", title},
             {"artists", QJsonArray{QJsonObject{{"name", artist}}}},
             {"duration", duration},
-            {"thumbnail", thumbnail}};
+            {"thumbnail", thumbnail},
+            {"album", QJsonObject{{"id", albumId}, {"name", album}}},
+            {"explicit", explicitContent},
+            {"isVideo", musicVideo},
+            {"artistRefs", artistRefs}};
 }
 Track Track::fromWire(const QJsonObject &o) {
     QStringList names;
     for (const auto &a : o["artists"].toArray())
         names << (a.isString() ? a.toString() : a.toObject()["name"].toString());
-    return {o["id"].toString(), o["title"].toString(), names.join(", "), o["thumbnail"].toString(),
-            o["duration"].toInt()};
+    return {o["id"].toString(),
+            o["title"].toString(),
+            names.join(", "),
+            o["thumbnail"].toString(),
+            o["duration"].toInt(),
+            o["album"].toObject()["name"].toString(),
+            o["album"].toObject()["id"].toString(),
+            o["explicit"].toBool(),
+            o["isVideo"].toBool(),
+            o["artistRefs"].isArray() ? o["artistRefs"].toArray() : o["artists"].toArray()};
 }
 bool newerVersion(const QJsonObject &a, const QJsonObject &b) {
     auto x = a["version"].toObject(), y = b["version"].toObject();
@@ -132,6 +145,154 @@ void Library::importTracks(const QList<Track> &items, bool value) {
         }
         emit changed();
     }
+}
+void Library::rememberTracks(const QList<Track> &tracks, bool newTracksLiked) {
+    const auto before = data;
+    QMap<QString, QJsonObject> records;
+    for (auto value : data["likes"].toArray())
+        records[value.toObject()["track"].toObject()["id"].toString()] = value.toObject();
+    double counter = data["counter"].toDouble();
+    bool edited = false;
+    for (auto track : tracks) {
+        if (track.id.isEmpty())
+            continue;
+        auto record = records.value(track.id);
+        const auto old = Track::fromWire(record.value("track").toObject());
+        if (track.title.isEmpty())
+            track.title = old.title;
+        if (track.artist.isEmpty())
+            track.artist = old.artist;
+        if (track.thumbnail.isEmpty())
+            track.thumbnail = old.thumbnail;
+        if (track.album.isEmpty())
+            track.album = old.album;
+        if (track.albumId.isEmpty())
+            track.albumId = old.albumId;
+        if (track.artistRefs.isEmpty())
+            track.artistRefs = old.artistRefs;
+        if (!track.duration)
+            track.duration = old.duration;
+        track.explicitContent = track.explicitContent || old.explicitContent;
+        track.musicVideo = track.musicVideo || old.musicVideo;
+        auto wire = track.wire();
+        wire["artists"] = QJsonArray{track.artist};
+        if (!record.isEmpty() && record["track"].toObject() == wire)
+            continue;
+        records[track.id] = {{"track", wire},
+                             {"liked", record.isEmpty() ? newTracksLiked : record["liked"].toBool()},
+                             {"version", QJsonObject{{"counter", ++counter}, {"device", deviceId()}}}};
+        edited = true;
+    }
+    if (!edited)
+        return;
+    QJsonArray result;
+    for (auto record : records)
+        result.append(record);
+    data["likes"] = result;
+    data["counter"] = counter;
+    if (!save()) {
+        data = before;
+        return;
+    }
+    emit changed();
+}
+QString Library::putPlaylist(QString id, QString name, const QList<Track> &tracks, QString browseId,
+                             QString thumbnail) {
+    name = name.trimmed();
+    if (name.isEmpty())
+        return {};
+    const auto before = data;
+    auto playlists = data["playlists"].toArray();
+    QJsonObject playlist;
+    for (int i = playlists.size() - 1; i >= 0; --i)
+        if (playlists[i].toObject()["id"].toString() == id) {
+            playlist = playlists[i].toObject();
+            playlists.removeAt(i);
+        }
+    if (id.isEmpty())
+        id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    playlist["id"] = id;
+    playlist["name"] = name;
+    playlist["removed"] = false;
+    if (!playlist.contains("createdAt"))
+        playlist["createdAt"] = double(QDateTime::currentMSecsSinceEpoch());
+    if (!browseId.isEmpty())
+        playlist["browseId"] = browseId;
+    if (!thumbnail.isEmpty())
+        playlist["thumbnail"] = thumbnail;
+    QJsonArray songs;
+    for (const auto &track : tracks)
+        if (!track.id.isEmpty()) {
+            auto wire = track.wire();
+            wire["artists"] = QJsonArray{track.artist};
+            songs.append(wire);
+        }
+    playlist["songs"] = songs;
+    const auto counter = data["counter"].toDouble() + 1;
+    playlist["version"] = QJsonObject{{"counter", counter}, {"device", deviceId()}};
+    playlists.append(playlist);
+    data["playlists"] = playlists;
+    data["counter"] = counter;
+    if (!save()) {
+        data = before;
+        return {};
+    }
+    emit changed();
+    return id;
+}
+bool Library::removePlaylist(QString id) {
+    const auto before = data;
+    auto playlists = data["playlists"].toArray();
+    for (int i = 0; i < playlists.size(); ++i) {
+        auto playlist = playlists[i].toObject();
+        if (playlist["id"].toString() != id || playlist["removed"].toBool())
+            continue;
+        const auto counter = data["counter"].toDouble() + 1;
+        data["counter"] = counter;
+        playlist["removed"] = true;
+        playlist["version"] = QJsonObject{{"counter", counter}, {"device", deviceId()}};
+        playlists[i] = playlist;
+        data["playlists"] = playlists;
+        if (!save()) {
+            data = before;
+            return false;
+        }
+        emit changed();
+        return true;
+    }
+    return false;
+}
+void Library::recordListening(const Track &track, qint64 milliseconds, QString timestamp) {
+    if (track.id.isEmpty() || milliseconds <= 0)
+        return;
+    const auto before = data;
+    auto history = data["history"].toArray();
+    const auto counter = data["counter"].toDouble() + 1;
+    data["counter"] = counter;
+    auto wire = track.wire();
+    wire["artists"] = QJsonArray{track.artist};
+    history.append(QJsonObject{{"track", wire},
+                               {"timestamp", timestamp},
+                               {"playTime", double(milliseconds)},
+                               {"removed", false},
+                               {"version", QJsonObject{{"counter", counter}, {"device", deviceId()}}}});
+    int live = 0;
+    for (auto value : history)
+        if (!value.toObject()["removed"].toBool())
+            ++live;
+    for (int i = 0; i < history.size() && live > 5000;) {
+        if (!history[i].toObject()["removed"].toBool()) {
+            history.removeAt(i);
+            --live;
+        } else
+            ++i;
+    }
+    data["history"] = history;
+    if (!save()) {
+        data = before;
+        return;
+    }
+    emit changed();
 }
 // All three collections retain tombstones. Equal-version history prefers deletion.
 bool Library::merge(const QJsonObject &remote) {

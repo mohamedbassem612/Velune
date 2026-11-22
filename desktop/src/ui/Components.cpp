@@ -1,9 +1,182 @@
 #include "Components.h"
+#include <QApplication>
 #include <QEvent>
+#include <QKeyEvent>
+#include <QMouseEvent>
 #include <QPainterPath>
+#include <QSignalBlocker>
+#include <QStyle>
 #include <QStyleOption>
+#include <QStyledItemDelegate>
 #include <QtMath>
 namespace velune {
+namespace {
+class TrackListDelegate : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        if (index.data(Qt::UserRole + 8).toBool()) {
+            auto font = option.font;
+            font.setPixelSize(18);
+            font.setWeight(QFont::DemiBold);
+            p->setFont(font);
+            p->setPen(QColor("#D0D0D0"));
+            p->drawText(option.rect.adjusted(18, 0, -18, 0), Qt::AlignVCenter,
+                        index.data(Qt::DisplayRole).toString().trimmed());
+            p->restore();
+            return;
+        }
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        const bool focused = option.state & QStyle::State_HasFocus;
+        const bool selected = option.state & QStyle::State_Selected;
+        const auto row = option.rect.adjusted(2, 3, -2, -3);
+        p->setPen(focused ? QPen(QColor("#777777"), 1) : Qt::NoPen);
+        p->setBrush(QColor(hovered ? "#202020" : selected ? "#141414" : "#000000"));
+        p->drawRoundedRect(row, 12, 12);
+        const auto cover = TrackListWidget::coverRect(option.rect);
+        const auto icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
+        icon.paint(p, cover);
+        auto font = option.font;
+        font.setPixelSize(18);
+        font.setWeight(QFont::DemiBold);
+        p->setFont(font);
+        p->setPen(Qt::white);
+        const auto lines = index.data(Qt::DisplayRole).toString().split('\n');
+        const bool grid = option.rect.height() >= 150;
+        const int left = grid ? option.rect.left() + 12 : cover.right() + 18;
+        const int available = grid ? option.rect.width() - 24 : qMax(0, option.rect.right() - left - 16);
+        const int titleY = grid ? cover.bottom() + 8 : cover.top() + 2;
+        if (grid) {
+            font.setPixelSize(16);
+            p->setFont(font);
+        }
+        p->drawText(QRect(left, titleY, available, 26), Qt::AlignVCenter,
+                    QFontMetrics(font).elidedText(lines.value(0), Qt::ElideRight, available));
+        font.setPixelSize(grid ? 13 : 15);
+        font.setWeight(QFont::Normal);
+        p->setFont(font);
+        p->setPen(QColor("#A3A3A3"));
+        p->drawText(QRect(left, titleY + 27, available, 23), Qt::AlignVCenter,
+                    QFontMetrics(font).elidedText(lines.mid(1).join(" "), Qt::ElideRight, available));
+        const auto canPlay = index.data(Qt::UserRole + 10);
+        if ((hovered || focused) && (!canPlay.isValid() || canPlay.toBool())) {
+            QPainterPath clip;
+            clip.addRoundedRect(cover, 8, 8);
+            p->fillPath(clip, QColor(0, 0, 0, 145));
+            auto circle = QRectF(TrackListWidget::playRect(option.rect));
+            p->setPen(QPen(Qt::white, 1.3));
+            p->setBrush(QColor(0, 0, 0, 160));
+            p->drawEllipse(circle);
+            drawIcon(*p, Icon::Play, circle.adjusted(7, 7, -7, -7));
+        }
+        p->restore();
+    }
+};
+} // namespace
+TrackListWidget::TrackListWidget(QWidget *parent) : QListWidget(parent) {
+    setItemDelegate(new TrackListDelegate(this));
+    setMouseTracking(true);
+    viewport()->setMouseTracking(true);
+    setAccessibleDescription(
+        "Click a cover to play. Click the title or press Enter to open details. Ctrl+Enter plays.");
+    connect(this, &QListWidget::itemClicked, this, &TrackListWidget::openRequested);
+}
+QRect TrackListWidget::coverRect(const QRect &row) {
+    if (row.height() >= 150) {
+        const int side = qMin(180, qMin(row.width() - 24, row.height() - 70));
+        return QRect(row.center().x() - side / 2, row.top() + 10, side, side);
+    }
+    return QRect(row.left() + 18, row.center().y() - 28, 56, 56);
+}
+QRect TrackListWidget::playRect(const QRect &row) {
+    const auto cover = coverRect(row);
+    if (cover.width() > 80)
+        return QRect(cover.center() - QPoint(22, 22), QSize(44, 44));
+    return cover.adjusted(10, 10, -10, -10);
+}
+void TrackListWidget::mousePressEvent(QMouseEvent *event) {
+    const auto index = indexAt(event->position().toPoint());
+    if (event->button() == Qt::LeftButton && index.isValid() && !index.data(Qt::UserRole + 8).toBool() &&
+        (!index.data(Qt::UserRole + 10).isValid() || index.data(Qt::UserRole + 10).toBool()) &&
+        playRect(visualRect(index)).contains(event->position().toPoint())) {
+        pressedCover = index;
+        coverPressed = true;
+        event->accept();
+        return;
+    }
+    QListWidget::mousePressEvent(event);
+}
+void TrackListWidget::mouseReleaseEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton && coverPressed) {
+        const auto index = indexAt(event->position().toPoint());
+        const bool play = pressedCover.isValid() && index == pressedCover &&
+                          playRect(visualRect(index)).contains(event->position().toPoint());
+        pressedCover = QPersistentModelIndex();
+        coverPressed = false;
+        if (play)
+            emit playRequested(item(index.row()));
+        event->accept();
+        return;
+    }
+    QListWidget::mouseReleaseEvent(event);
+}
+void TrackListWidget::mouseMoveEvent(QMouseEvent *event) {
+    viewport()->setCursor(indexAt(event->position().toPoint()).isValid() ? Qt::PointingHandCursor
+                                                                         : Qt::ArrowCursor);
+    QListWidget::mouseMoveEvent(event);
+}
+void TrackListWidget::keyPressEvent(QKeyEvent *event) {
+    if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && currentItem()) {
+        if (event->modifiers() & Qt::ControlModifier) {
+            if (!currentItem()->data(Qt::UserRole + 10).isValid() ||
+                currentItem()->data(Qt::UserRole + 10).toBool())
+                emit playRequested(currentItem());
+        } else
+            emit openRequested(currentItem());
+        event->accept();
+        return;
+    }
+    QListWidget::keyPressEvent(event);
+}
+int SeekSlider::positionAt(int x) const {
+    QStyleOptionSlider option;
+    initStyleOption(&option);
+    const auto handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
+    const int span = qMax(1, width() - handle.width());
+    return QStyle::sliderValueFromPosition(minimum(), maximum(), qBound(0, x - handle.width() / 2, span),
+                                           span, option.upsideDown);
+}
+void SeekSlider::mousePressEvent(QMouseEvent *event) {
+    if (event->button() != Qt::LeftButton) {
+        QSlider::mousePressEvent(event);
+        return;
+    }
+    setFocus(Qt::MouseFocusReason);
+    setSliderDown(true);
+    setSliderPosition(positionAt(event->position().toPoint().x()));
+    event->accept();
+}
+void SeekSlider::mouseMoveEvent(QMouseEvent *event) {
+    if (!isSliderDown()) {
+        QSlider::mouseMoveEvent(event);
+        return;
+    }
+    setSliderPosition(positionAt(event->position().toPoint().x()));
+    event->accept();
+}
+void SeekSlider::mouseReleaseEvent(QMouseEvent *event) {
+    if (event->button() != Qt::LeftButton || !isSliderDown()) {
+        QSlider::mouseReleaseEvent(event);
+        return;
+    }
+    const int requested = positionAt(event->position().toPoint().x());
+    setSliderPosition(requested);
+    setSliderDown(false);
+    setValue(requested);
+    event->accept();
+}
 namespace {
 class HoverMotion : public QObject {
   public:
@@ -222,6 +395,17 @@ void drawIcon(QPainter &p, Icon icon, QRectF rect, QColor color, bool filled) {
         line(6, 6, 18, 18);
         line(6, 18, 18, 6);
         break;
+    case Icon::Back:
+        line(20, 12, 4, 12);
+        line(4, 12, 11, 5);
+        line(4, 12, 11, 19);
+        break;
+    case Icon::More:
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        for (int y : {5, 12, 19})
+            p.drawEllipse(QPointF(12, y), 1.7, 1.7);
+        break;
     case Icon::Google:
         p.setPen(QPen(color, 2.6));
         p.drawArc(QRectF(3, 3, 18, 18), 40 * 16, 285 * 16);
@@ -271,13 +455,85 @@ IconButton::IconButton(Icon icon, QString tooltip, QWidget *parent) : QPushButto
     setToolTip(tooltip);
     setAccessibleName(tooltip);
     setFocusPolicy(Qt::StrongFocus);
+    likeAnimation.setDuration(180);
+    likeAnimation.setEasingCurve(QEasingCurve::OutCubic);
+    connect(&likeAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        heartFill = value.toDouble();
+        update();
+    });
+    connect(this, &QPushButton::toggled, this, [this](bool liked) {
+        if (glyph != Icon::Heart)
+            return;
+        likeAnimation.stop();
+        if (!isVisible()) {
+            heartFill = liked ? 1. : 0.;
+            update();
+            return;
+        }
+        likeAnimation.setStartValue(heartFill);
+        likeAnimation.setEndValue(liked ? 1. : 0.);
+        likeAnimation.start();
+    });
+}
+void IconButton::setCheckedAppearance(bool checked, bool animate) {
+    if (animate && isChecked() == checked)
+        return;
+    {
+        QSignalBlocker blocker(this);
+        QPushButton::setChecked(checked);
+    }
+    likeAnimation.stop();
+    if (!animate || !isVisible()) {
+        heartFill = checked ? 1. : 0.;
+        update();
+        return;
+    }
+    likeAnimation.setStartValue(heartFill);
+    likeAnimation.setEndValue(checked ? 1. : 0.);
+    likeAnimation.start();
+}
+LikeButton::LikeButton(Library *source, const Track &track, QWidget *parent)
+    : IconButton(Icon::Heart, "Like song", parent), library(source) {
+    setCheckable(true);
+    connect(library, &Library::changed, this, [this] { sync(); });
+    connect(this, &QPushButton::clicked, this, [this] {
+        if (song.id.isEmpty())
+            return;
+        library->setLiked(song, !library->liked(song.id));
+        sync(); // Also restore the actual state if saving failed.
+    });
+    setTrack(track);
+}
+void LikeButton::paintEvent(QPaintEvent *event) {
+    if (isChecked() != (!song.id.isEmpty() && library->liked(song.id)))
+        sync(false);
+    IconButton::paintEvent(event);
+}
+void LikeButton::setTrack(const Track &track) {
+    const bool changed = track.id != song.id;
+    song = track;
+    setProperty("trackId", track.id);
+    setEnabled(!track.id.isEmpty());
+    sync(!changed);
+}
+void LikeButton::sync(bool animate) {
+    const bool liked = !song.id.isEmpty() && library->liked(song.id);
+    setCheckedAppearance(liked, animate);
+    const auto label = (liked ? "Remove from Liked Songs: " : "Add to Liked Songs: ") + song.title;
+    setToolTip(label);
+    setAccessibleName(label);
 }
 void IconButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     auto r = QRectF(rect()).adjusted(2, 2, -2, -2);
     const auto hover = hoverOf(this);
-    if (hover > 0 || isDown() || hasFocus() || isChecked()) {
+    if (property("coverPlay").toBool()) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 0, 0, 190));
+        p.drawEllipse(r);
+    }
+    if (hover > 0 || isDown() || hasFocus() || (isChecked() && glyph != Icon::Heart)) {
         p.setPen(hasFocus() ? QPen(Qt::white, 1) : Qt::NoPen);
         int level = isDown() ? 48 : (hasFocus() || isChecked()) ? 36 : qRound(36 * hover);
         p.setBrush(QColor(level, level, level));
@@ -288,12 +544,27 @@ void IconButton::paintEvent(QPaintEvent *) {
     }
     if (circle) {
         p.setPen(QPen(QColor("#D0D0D0"), 1.5));
-        p.setBrush(solid ? QColor(Qt::white) : Qt::transparent);
+        p.setBrush(solid || (hoverFill && underMouse()) ? QColor(Qt::white) : Qt::transparent);
         p.drawEllipse(r.adjusted(1, 1, -1, -1));
     }
-    QColor c = solid ? Qt::black : (isEnabled() ? Qt::white : QColor("#666666"));
+    QColor c =
+        (solid || (hoverFill && underMouse())) ? Qt::black : (isEnabled() ? Qt::white : QColor("#666666"));
     double half = 12 * (circle ? 1 + .025 * hover : 1);
-    drawIcon(p, glyph, QRectF(width() / 2. - half, height() / 2. - half, half * 2, half * 2), c, isChecked());
+    if (glyph == Icon::Heart) {
+        const double target = isChecked() ? 1. : 0.;
+        const bool transitioning = likeAnimation.state() == QAbstractAnimation::Running &&
+                                   likeAnimation.endValue().toDouble() == target;
+        const double fill = transitioning ? heartFill : target;
+        half *= 1. + .07 * qSin(M_PI * fill);
+        const QRectF iconRect(width() / 2. - half, height() / 2. - half, half * 2, half * 2);
+        drawIcon(p, glyph, iconRect, c, false);
+        if (fill > 0) {
+            p.setOpacity(fill);
+            drawIcon(p, glyph, iconRect, c, true);
+        }
+    } else
+        drawIcon(p, glyph, QRectF(width() / 2. - half, height() / 2. - half, half * 2, half * 2), c,
+                 isChecked());
 }
 NavButton::NavButton(Icon icon, QString text, QWidget *parent) : QPushButton(text, parent), glyph(icon) {
     new HoverMotion(this);
@@ -322,39 +593,103 @@ void NavButton::paintEvent(QPaintEvent *) {
 }
 QuickTile::QuickTile(QString label, Icon icon, QWidget *parent) : QPushButton(label, parent), glyph(icon) {
     new HoverMotion(this);
-    setMinimumHeight(54);
+    setMinimumHeight(72);
+    setMinimumWidth(180);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setCursor(Qt::PointingHandCursor);
+    playControl = new IconButton(Icon::Play, "Play " + label, this);
+    playControl->setObjectName("contentPlay");
+    playControl->setProperty("coverPlay", true);
+    playControl->setCircle(true);
+    playControl->setHoverFill(true);
+    playControl->hide();
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *) {
+        playControl->setVisible(underMouse() || hasFocus() || playControl->hasFocus());
+    });
+    connect(playControl, &QPushButton::clicked, this, &QuickTile::playRequested);
+    setAccessibleName(label);
+}
+void QuickTile::setContent(QString label, QString detail, Icon icon) {
+    setText(label);
+    subtitle = detail;
+    glyph = icon;
+    setAccessibleName(label + ". " + detail);
+    setToolTip(label + "\n" + detail);
+    playControl->setToolTip("Play " + label);
+    playControl->setAccessibleName("Play " + label);
+    update();
+}
+bool QuickTile::event(QEvent *e) {
+    bool result = QPushButton::event(e);
+    if (e->type() == QEvent::Enter || e->type() == QEvent::Leave)
+        if (playControl)
+            playControl->setVisible(underMouse() || hasFocus() || playControl->hasFocus());
+    return result;
+}
+void QuickTile::resizeEvent(QResizeEvent *e) {
+    QPushButton::resizeEvent(e);
+    if (playControl)
+        playControl->move(12 + (qMin(52, height() - 16) - 40) / 2, (height() - 40) / 2);
 }
 void QuickTile::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     int border = 48 + qRound(44 * hoverOf(this));
-    int surface = 10 + qRound(10 * hoverOf(this));
+    int surface = 10 + qRound(18 * hoverOf(this));
     p.setPen(QPen(hasFocus() ? Qt::white : QColor(border, border, border), 1));
     p.setBrush(QColor(surface, surface, surface));
     p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 18, 18);
+    const int side = qMin(52, height() - 16);
+    QRectF cover(12, (height() - side) / 2., side, side);
+    p.save();
+    QPainterPath clip;
+    clip.addRoundedRect(cover, 8, 8);
+    p.setClipPath(clip);
+    p.fillRect(cover, QColor("#181818"));
+    if (!art.isNull() && glyph != Icon::Heart) {
+        auto scaled = art.scaled(side, side, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        p.drawPixmap(cover.topLeft().toPoint(), scaled,
+                     QRect((scaled.width() - side) / 2, (scaled.height() - side) / 2, side, side));
+    } else
+        drawIcon(p, glyph == Icon::Heart ? Icon::Heart : Icon::Library, cover.adjusted(11, 11, -11, -11),
+                 Qt::white, glyph == Icon::Heart);
+    p.restore();
+    if (glyph == Icon::Radio) {
+        p.fillRect(QRectF(cover.right() - 20, cover.top(), 20, 20), QColor("#141414"));
+        drawIcon(p, Icon::Radio, QRectF(cover.right() - 18, cover.top() + 2, 16, 16));
+    }
+    const int left = 12 + side + 16;
+    const int available = qMax(0, width() - left - 16);
     auto f = font();
-    f.setPixelSize(qBound(18, width() / 13, 25));
-    f.setWeight(QFont::Medium);
+    f.setPixelSize(qBound(15, width() / 20, 20));
+    f.setWeight(QFont::DemiBold);
     p.setFont(f);
     p.setPen(Qt::white);
-    p.drawText(QRect(24, 0, width() - (glyph == Icon::None ? 36 : 78), height()), Qt::AlignVCenter,
-               fontMetrics().elidedText(text(), Qt::ElideRight, width() - 90));
-    if (glyph != Icon::None) {
-        auto r = QRectF(width() - 56, height() / 2. - 18, 36, 36);
-        if (glyph == Icon::Play) {
-            p.setPen(QPen(QColor("#D0D0D0"), 1.5));
-            p.drawEllipse(r);
-        }
-        drawIcon(p, glyph, r.adjusted(5, 5, -5, -5));
-    }
+    p.drawText(QRect(left, height() / 2 - 24, available, 26), Qt::AlignVCenter,
+               QFontMetrics(f).elidedText(text(), Qt::ElideRight, available));
+    f.setPixelSize(qBound(13, width() / 24, 16));
+    f.setWeight(QFont::Normal);
+    p.setFont(f);
+    p.setPen(QColor("#A3A3A3"));
+    p.drawText(QRect(left, height() / 2 + 2, available, 22), Qt::AlignVCenter,
+               QFontMetrics(f).elidedText(subtitle, Qt::ElideRight, available));
 }
 SongCard::SongCard(int v, QWidget *parent) : QPushButton(parent), variant(v) {
     setMinimumSize(180, 220);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setCursor(Qt::PointingHandCursor);
-    setAccessibleName("Play featured song");
+    setAccessibleName("Open featured song");
+    playControl = new IconButton(Icon::Play, "Play song", this);
+    playControl->setObjectName("contentPlay");
+    playControl->setProperty("coverPlay", true);
+    playControl->setFixedSize(58, 58);
+    playControl->setCircle(true);
+    playControl->setHoverFill(true);
+    playControl->hide();
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *) {
+        playControl->setVisible(underMouse() || hasFocus() || playControl->hasFocus());
+    });
+    connect(playControl, &QPushButton::clicked, this, &SongCard::playRequested);
     animation.setDuration(180);
     connect(&animation, &QVariantAnimation::valueChanged, this, [this](QVariant v) {
         hover = v.toDouble();
@@ -374,6 +709,18 @@ void SongCard::leaveEvent(QEvent *e) {
     animation.setEndValue(0.);
     animation.start();
     QPushButton::leaveEvent(e);
+}
+void SongCard::resizeEvent(QResizeEvent *e) {
+    QPushButton::resizeEvent(e);
+    if (playControl)
+        playControl->move((width() - 58) / 2, (height() - 58) / 2);
+}
+bool SongCard::event(QEvent *e) {
+    bool result = QPushButton::event(e);
+    if (e->type() == QEvent::Enter || e->type() == QEvent::Leave)
+        if (playControl)
+            playControl->setVisible(underMouse() || hasFocus() || playControl->hasFocus());
+    return result;
 }
 void SongCard::paintEvent(QPaintEvent *) {
     QPainter p(this);
@@ -415,11 +762,6 @@ void SongCard::paintEvent(QPaintEvent *) {
     p.drawText(QRect(26, height() - 54, width() - 108, 26), Qt::AlignVCenter,
                QFontMetrics(f).elidedText(song.artist.isEmpty() ? "name" : song.artist, Qt::ElideRight,
                                           width() - 114));
-    auto play = QRectF(width() - 80, height() - 84, 54, 54);
-    p.setPen(QPen(QColor("#D0D0D0"), 1.5));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(play.adjusted(-hover, -hover, hover, hover));
-    drawIcon(p, Icon::Play, play.adjusted(12, 12, -12, -12));
     p.setClipping(false);
     p.setPen(QPen(hasFocus() ? Qt::white : QColor(underMouse() ? "#555555" : "#303030"), 1));
     p.setBrush(Qt::NoBrush);

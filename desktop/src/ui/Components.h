@@ -1,10 +1,49 @@
 #pragma once
 #include "core/Library.h"
 #include <QLabel>
+#include <QListWidget>
 #include <QPainter>
+#include <QPersistentModelIndex>
 #include <QPushButton>
+#include <QSlider>
 #include <QVariantAnimation>
 namespace velune {
+class TrackListWidget : public QListWidget {
+    Q_OBJECT
+  public:
+    explicit TrackListWidget(QWidget *parent = nullptr);
+    static QRect coverRect(const QRect &row);
+    static QRect playRect(const QRect &row);
+  signals:
+    void playRequested(QListWidgetItem *item);
+    void openRequested(QListWidgetItem *item);
+
+  protected:
+    void mousePressEvent(QMouseEvent *) override;
+    void mouseReleaseEvent(QMouseEvent *) override;
+    void mouseMoveEvent(QMouseEvent *) override;
+    void keyPressEvent(QKeyEvent *) override;
+
+  private:
+    QPersistentModelIndex pressedCover;
+    bool coverPressed = false;
+};
+class SeekSlider : public QSlider {
+  public:
+    explicit SeekSlider(QWidget *parent = nullptr) : QSlider(Qt::Horizontal, parent) {
+        setTracking(false);
+        setSingleStep(5000);
+        setPageStep(10000);
+    }
+
+  protected:
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+
+  private:
+    int positionAt(int x) const;
+};
 class ElidedLabel : public QLabel {
   public:
     explicit ElidedLabel(const QString &text, QWidget *parent = nullptr) : QLabel(parent), fullText(text) {
@@ -50,7 +89,9 @@ enum class Icon {
     Minimize,
     Maximize,
     Close,
-    Google
+    Google,
+    Back,
+    More
 };
 void drawIcon(QPainter &p, Icon icon, QRectF rect, QColor color = Qt::white, bool filled = false);
 void drawWaves(QPainter &p, QRectF rect, int variant);
@@ -66,6 +107,10 @@ class IconButton : public QPushButton {
         circle = value;
         update();
     }
+    void setHoverFill(bool value) {
+        hoverFill = value;
+        update();
+    }
     void setSolid(bool value) {
         solid = value;
         update();
@@ -73,10 +118,28 @@ class IconButton : public QPushButton {
 
   protected:
     void paintEvent(QPaintEvent *) override;
+    void setCheckedAppearance(bool checked, bool animate);
 
   private:
     Icon glyph;
-    bool circle = false, solid = false;
+    QVariantAnimation likeAnimation;
+    double heartFill = 0;
+    bool circle = false, solid = false, hoverFill = false;
+};
+class LikeButton : public IconButton {
+    Q_OBJECT
+  public:
+    LikeButton(Library *library, const Track &track = {}, QWidget *parent = nullptr);
+    void setTrack(const Track &track);
+
+  protected:
+    void nextCheckState() override {} // Only a successful library mutation changes the state.
+    void paintEvent(QPaintEvent *) override;
+
+  private:
+    Library *library;
+    Track song;
+    void sync(bool animate = true);
 };
 class NavButton : public QPushButton {
     Q_OBJECT
@@ -93,12 +156,27 @@ class QuickTile : public QPushButton {
     Q_OBJECT
   public:
     QuickTile(QString label, Icon icon, QWidget *parent = nullptr);
+    void setContent(QString label, QString subtitle, Icon icon = Icon::None);
+    void setArtwork(QPixmap pixmap) {
+        art = std::move(pixmap);
+        update();
+    }
+    IconButton *playButton() const {
+        return playControl;
+    }
+  signals:
+    void playRequested();
 
   protected:
     void paintEvent(QPaintEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+    bool event(QEvent *) override;
 
   private:
     Icon glyph;
+    QString subtitle;
+    QPixmap art;
+    IconButton *playControl = nullptr;
 };
 class SongCard : public QPushButton {
     Q_OBJECT
@@ -112,6 +190,13 @@ class SongCard : public QPushButton {
         art = std::move(pixmap);
         update();
     }
+    IconButton *playButton() const {
+        return playControl;
+    }
+  signals:
+    void playRequested();
+
+  public:
     Track track() const {
         return song;
     }
@@ -123,8 +208,11 @@ class SongCard : public QPushButton {
     void paintEvent(QPaintEvent *) override;
     void enterEvent(QEnterEvent *) override;
     void leaveEvent(QEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+    bool event(QEvent *) override;
 
   private:
+    IconButton *playControl = nullptr;
     int variant;
     Track song;
     QPixmap art;
