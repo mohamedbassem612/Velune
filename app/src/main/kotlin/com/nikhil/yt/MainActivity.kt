@@ -611,7 +611,16 @@ class MainActivity : ComponentActivity() {
                     com.nikhil.yt.ui.theme.ThemeSeedPaletteCodec.decodeFromPreference(customThemeColorValue)
                 } else {
                     com.nikhil.yt.ui.screens.settings.ThemePalettes
-                        .customSeedPaletteForId(customThemeColorValue)
+                        .findById(customThemeColorValue)
+                        ?.takeUnless { it.id == "default" }
+                        ?.let {
+                            com.nikhil.yt.ui.theme.ThemeSeedPalette(
+                                primary = it.primary,
+                                secondary = it.secondary,
+                                tertiary = it.tertiary,
+                                neutral = it.neutral,
+                            )
+                        }
                 }
             }
 

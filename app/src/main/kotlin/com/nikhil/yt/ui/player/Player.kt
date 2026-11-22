@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
@@ -101,10 +102,9 @@ import com.nikhil.yt.constants.SliderStyleKey
 import com.nikhil.yt.constants.UseNewMiniPlayerDesignKey
 import com.nikhil.yt.extensions.metadata
 import com.nikhil.yt.extensions.togglePlayPause
+import com.nikhil.yt.extensions.toggleRepeatMode
 import com.nikhil.yt.innertube.toHighResThumbnail
 import com.nikhil.yt.models.MediaMetadata
-import com.nikhil.yt.models.AudioContentType
-import com.nikhil.yt.models.audioContentType
 import com.nikhil.yt.ui.component.BottomSheet
 import com.nikhil.yt.ui.component.BottomSheetState
 import com.nikhil.yt.ui.component.LocalBottomSheetPageState
@@ -211,7 +211,6 @@ fun LegacyBottomSheetPlayer(
     val playbackState by playerConnection.playbackState.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    val audioContentType = remember(mediaMetadata) { mediaMetadata.audioContentType }
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
     val currentSongLiked = currentSong?.song?.liked == true
     val queueWindows by playerConnection.queueWindows.collectAsState()
@@ -437,10 +436,7 @@ fun LegacyBottomSheetPlayer(
                             playerConnection.service.sleepTimer.start(-1)
                         },
                     ) {
-                        Text(stringResource(
-                            if (audioContentType == AudioContentType.QURAN) R.string.end_of_sura
-                            else R.string.end_of_song
-                        ))
+                        Text(stringResource(R.string.end_of_song))
                     }
                 }
             },

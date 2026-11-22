@@ -107,6 +107,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $env:PATH = "$pwd/deps/bin;$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin;$env:PATH"
+          # windeployqt resolves Qt-prefixed DLLs relative to the Qt installation,
+          # even when their actual installation directory is on PATH.
+          $keychain = Join-Path $pwd 'deps/bin/qt6keychain.dll'
+          if (!(Test-Path $keychain)) { throw 'Missing built QtKeychain runtime' }
+          Copy-Item $keychain "$env:QT_ROOT_DIR/bin/qt6keychain.dll"
+          Copy-Item $keychain build-desktop/
+          Copy-Item "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto*.dll" build-desktop/
+          Copy-Item "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl*.dll" build-desktop/
           windeployqt --release --compiler-runtime --dir build-desktop build-desktop/velune.exe
           if ($LASTEXITCODE) { throw 'Qt deployment failed' }
           if (!(Test-Path build-desktop/QtWebEngineProcess.exe)) { throw 'Missing WebEngine helper' }
