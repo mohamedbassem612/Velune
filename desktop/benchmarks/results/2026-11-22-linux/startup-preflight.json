@@ -1,0 +1,332 @@
+{
+  "method": "Fresh QApplication process, QElapsedTimer immediately before QtPlaybackEngine construction to immediately after; availability required. Release -O3, Qt 6.4.2, QT_MEDIA_BACKEND=ffmpeg, isolated PulseAudio. Alternating order, 30 pairs. OS caches retained; dynamic loader and QApplication excluded.",
+  "baseline": "Identical final Qt engine source with only the multimediaPluginReady early-return block bypassed; healthy plugin required. This is a constructor-only A/B probe, not the original collection binary.",
+  "limitation": "Interactive host; no significance or physical audio claim. Constructor includes plugin load that Qt would otherwise perform. A difference is not an isolated duration of filesystem preflight.",
+  "source_sha256": {
+    "probe.cpp": "ffa7819bb19c5f2fae7eef4078f896a0730a7711336f553d864a4477b7a1fa99",
+    "QtPlaybackEngine.cpp": "9af52c17bddc5f0684e962fa77b88a3390f80bf294853bb65c156a7b1336ba0c",
+    "BaselineQtPlaybackEngine.cpp": "05372d9168c344fc55975216d6911bda38a375112ac4232dc827cf97c08ebd0b",
+    "QtPlaybackEngine.h": "b3445422f47ee4e0613f0aa68630ddf86703e2b9510dc3052af9e664a1f5911e",
+    "IPlaybackEngine.h": "1a3de109690a8103c6f33bb4bda18d7d818c0402147ff607a49f3b6d9eef42f7",
+    "PlaybackTypes.h": "5ac5cf3de84b2ab21d5315db15b915c7a097677fff3bf055bb19c793a1020d3c",
+    "CMakeLists.txt": "17024e4be2ccf883cfb6e8192e9fff62b18797707d08529f8d779a0189578751"
+  },
+  "binary_sha256": {
+    "baseline": "7606b26d213784327fc9039877e28b139fe6aa9cd08c7ebcde1fa94a050d615e",
+    "current": "15a6c079fda90047f1afd97f021b5f0933cf00dfd3827e9ae0fdc9c78097b109"
+  },
+  "summary": {
+    "baseline": {
+      "samples": 30,
+      "median_ms": 16.749850000000002,
+      "p95_ms": 19.6034
+    },
+    "current": {
+      "samples": 30,
+      "median_ms": 16.73675,
+      "p95_ms": 17.402
+    }
+  },
+  "raw_samples": [
+    {
+      "pair": 1,
+      "kind": "baseline",
+      "constructor_ms": 16.1633
+    },
+    {
+      "pair": 1,
+      "kind": "current",
+      "constructor_ms": 16.972
+    },
+    {
+      "pair": 2,
+      "kind": "current",
+      "constructor_ms": 16.3777
+    },
+    {
+      "pair": 2,
+      "kind": "baseline",
+      "constructor_ms": 16.7494
+    },
+    {
+      "pair": 3,
+      "kind": "baseline",
+      "constructor_ms": 17.0435
+    },
+    {
+      "pair": 3,
+      "kind": "current",
+      "constructor_ms": 16.3985
+    },
+    {
+      "pair": 4,
+      "kind": "current",
+      "constructor_ms": 16.9469
+    },
+    {
+      "pair": 4,
+      "kind": "baseline",
+      "constructor_ms": 16.7503
+    },
+    {
+      "pair": 5,
+      "kind": "baseline",
+      "constructor_ms": 16.8099
+    },
+    {
+      "pair": 5,
+      "kind": "current",
+      "constructor_ms": 16.7617
+    },
+    {
+      "pair": 6,
+      "kind": "current",
+      "constructor_ms": 16.7073
+    },
+    {
+      "pair": 6,
+      "kind": "baseline",
+      "constructor_ms": 16.6591
+    },
+    {
+      "pair": 7,
+      "kind": "baseline",
+      "constructor_ms": 16.9221
+    },
+    {
+      "pair": 7,
+      "kind": "current",
+      "constructor_ms": 17.058
+    },
+    {
+      "pair": 8,
+      "kind": "current",
+      "constructor_ms": 16.6275
+    },
+    {
+      "pair": 8,
+      "kind": "baseline",
+      "constructor_ms": 16.9219
+    },
+    {
+      "pair": 9,
+      "kind": "baseline",
+      "constructor_ms": 16.9768
+    },
+    {
+      "pair": 9,
+      "kind": "current",
+      "constructor_ms": 16.8038
+    },
+    {
+      "pair": 10,
+      "kind": "current",
+      "constructor_ms": 16.626
+    },
+    {
+      "pair": 10,
+      "kind": "baseline",
+      "constructor_ms": 17.0378
+    },
+    {
+      "pair": 11,
+      "kind": "baseline",
+      "constructor_ms": 16.9765
+    },
+    {
+      "pair": 11,
+      "kind": "current",
+      "constructor_ms": 16.7969
+    },
+    {
+      "pair": 12,
+      "kind": "current",
+      "constructor_ms": 17.402
+    },
+    {
+      "pair": 12,
+      "kind": "baseline",
+      "constructor_ms": 16.3199
+    },
+    {
+      "pair": 13,
+      "kind": "baseline",
+      "constructor_ms": 16.6279
+    },
+    {
+      "pair": 13,
+      "kind": "current",
+      "constructor_ms": 16.7664
+    },
+    {
+      "pair": 14,
+      "kind": "current",
+      "constructor_ms": 17.2586
+    },
+    {
+      "pair": 14,
+      "kind": "baseline",
+      "constructor_ms": 16.4981
+    },
+    {
+      "pair": 15,
+      "kind": "baseline",
+      "constructor_ms": 16.5607
+    },
+    {
+      "pair": 15,
+      "kind": "current",
+      "constructor_ms": 16.608
+    },
+    {
+      "pair": 16,
+      "kind": "current",
+      "constructor_ms": 16.7118
+    },
+    {
+      "pair": 16,
+      "kind": "baseline",
+      "constructor_ms": 16.7491
+    },
+    {
+      "pair": 17,
+      "kind": "baseline",
+      "constructor_ms": 17.144
+    },
+    {
+      "pair": 17,
+      "kind": "current",
+      "constructor_ms": 16.5348
+    },
+    {
+      "pair": 18,
+      "kind": "current",
+      "constructor_ms": 17.3719
+    },
+    {
+      "pair": 18,
+      "kind": "baseline",
+      "constructor_ms": 16.4967
+    },
+    {
+      "pair": 19,
+      "kind": "baseline",
+      "constructor_ms": 16.3544
+    },
+    {
+      "pair": 19,
+      "kind": "current",
+      "constructor_ms": 16.6974
+    },
+    {
+      "pair": 20,
+      "kind": "current",
+      "constructor_ms": 16.6918
+    },
+    {
+      "pair": 20,
+      "kind": "baseline",
+      "constructor_ms": 16.2426
+    },
+    {
+      "pair": 21,
+      "kind": "baseline",
+      "constructor_ms": 16.7538
+    },
+    {
+      "pair": 21,
+      "kind": "current",
+      "constructor_ms": 16.9266
+    },
+    {
+      "pair": 22,
+      "kind": "current",
+      "constructor_ms": 16.6146
+    },
+    {
+      "pair": 22,
+      "kind": "baseline",
+      "constructor_ms": 16.6839
+    },
+    {
+      "pair": 23,
+      "kind": "baseline",
+      "constructor_ms": 16.2919
+    },
+    {
+      "pair": 23,
+      "kind": "current",
+      "constructor_ms": 16.5604
+    },
+    {
+      "pair": 24,
+      "kind": "current",
+      "constructor_ms": 16.582
+    },
+    {
+      "pair": 24,
+      "kind": "baseline",
+      "constructor_ms": 16.7996
+    },
+    {
+      "pair": 25,
+      "kind": "baseline",
+      "constructor_ms": 16.8015
+    },
+    {
+      "pair": 25,
+      "kind": "current",
+      "constructor_ms": 16.9833
+    },
+    {
+      "pair": 26,
+      "kind": "current",
+      "constructor_ms": 17.1437
+    },
+    {
+      "pair": 26,
+      "kind": "baseline",
+      "constructor_ms": 16.2991
+    },
+    {
+      "pair": 27,
+      "kind": "baseline",
+      "constructor_ms": 19.6034
+    },
+    {
+      "pair": 27,
+      "kind": "current",
+      "constructor_ms": 16.6918
+    },
+    {
+      "pair": 28,
+      "kind": "current",
+      "constructor_ms": 17.5232
+    },
+    {
+      "pair": 28,
+      "kind": "baseline",
+      "constructor_ms": 23.3375
+    },
+    {
+      "pair": 29,
+      "kind": "baseline",
+      "constructor_ms": 17.2824
+    },
+    {
+      "pair": 29,
+      "kind": "current",
+      "constructor_ms": 16.5734
+    },
+    {
+      "pair": 30,
+      "kind": "current",
+      "constructor_ms": 17.2844
+    },
+    {
+      "pair": 30,
+      "kind": "baseline",
+      "constructor_ms": 16.2689
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+    "backend": "qt",
+    "cpu_arch": "x86_64",
+    "failures": 0,
+    "format": "wav",
+    "iterations": 1,
+    "limitations": "Position/state proxies do not confirm audible output. Cold = fresh process, OS cache retained. Seek waits for natural position advance; notification cadence affects results.",
+    "live_service": false,
+    "metric": "first_position_proxy_ms",
+    "os": "Ubuntu 24.04.3 LTS",
+    "output_capture": "unavailable",
+    "qt_version": "6.4.2",
+    "raw_samples": [
+        {
+            "active_ms": 2.924713,
+            "backend_load_ms": 0.007817,
+            "backend_to_first_position_proxy_ms": 213.388886,
+            "buffering_episodes": 1,
+            "buffering_recovery_ms": 0,
+            "buffering_unrecovered": true,
+            "errors": 0,
+            "first_audio_output_ms": null,
+            "first_position_proxy_ms": 213.396703,
+            "main_to_first_position_ms": 533.437382,
+            "playable_ms": 15.555373,
+            "success": true
+        }
+    ],
+    "resources": {
+    },
+    "scenario": "once",
+    "schema": 1,
+    "stage_summaries": {
+        "active_ms": {
+            "median_ms": 2.924713,
+            "p95_ms": 2.924713,
+            "samples": 1
+        },
+        "backend_to_first_position_proxy_ms": {
+            "median_ms": 213.388886,
+            "p95_ms": 213.388886,
+            "samples": 1
+        },
+        "first_audio_output_ms": {
+            "median_ms": null,
+            "p95_ms": null,
+            "samples": 0
+        },
+        "playable_ms": {
+            "median_ms": 15.555373,
+            "p95_ms": 15.555373,
+            "samples": 1
+        },
+        "resolver_duration_ms": {
+            "median_ms": null,
+            "p95_ms": null,
+            "samples": 0
+        }
+    },
+    "summary": {
+        "median_ms": 213.396703,
+        "p95_ms": 213.396703,
+        "samples": 1
+    },
+    "transport": "file"
+}

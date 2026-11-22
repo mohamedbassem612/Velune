@@ -1,0 +1,3 @@
+PASS: hash-mismatch rejected before staging
+PASS: path-traversal rejected before staging
+PASS: missing-notice rejected before staging

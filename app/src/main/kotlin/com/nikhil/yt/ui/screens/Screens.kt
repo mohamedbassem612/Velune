@@ -35,7 +35,7 @@ sealed class Screens(
     )
 
     object Library : Screens(
-        titleId = R.string.filter_library,
+        titleId = R.string.music_my_library,
         iconIdInactive = R.drawable.library_outlined,
         iconIdActive = R.drawable.library_filled,
         route = "library"
@@ -57,6 +57,6 @@ sealed class Screens(
 
 
     companion object {
-        val MainScreens = listOf(Home, Stats, History, Library)
+        val MainScreens = listOf(Home, Search, Library)
     }
 }

@@ -42,7 +42,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ListItem
+import com.nikhil.yt.ui.component.MusicMenuItem as ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -98,9 +98,10 @@ import com.nikhil.yt.playback.ExoDownloadService
 import com.nikhil.yt.playback.queues.YouTubeQueue
 import com.nikhil.yt.ui.component.ListDialog
 import com.nikhil.yt.ui.component.LocalBottomSheetPageState
+import com.nikhil.yt.ui.component.MusicMenuHeader
 import com.nikhil.yt.ui.component.MenuSurfaceSection
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import com.nikhil.yt.ui.component.SongListItem
 import com.nikhil.yt.ui.component.TextFieldDialog
 import com.nikhil.yt.ui.utils.ShowMediaInfo
@@ -340,34 +341,23 @@ fun SongMenu(
         }
     }
 
-    Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        SongListItem(
-            song = song,
-            badges = {},
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            trailingContent = {
-                IconButton(
-                    onClick = {
-                        val s = song.song.toggleLike()
-                        database.query {
-                            update(s)
-                        }
-                        syncUtils.likeSong(s)
-                    },
-                ) {
-                    Icon(
-                        painter = painterResource(if (song.song.liked) R.drawable.favorite else R.drawable.favorite_border),
-                        tint = if (song.song.liked) MaterialTheme.colorScheme.error else LocalContentColor.current,
-                        contentDescription = null,
-                    )
-                }
-            },
-        )
-    }
+    MusicMenuHeader(
+        title = song.song.title,
+        subtitle = song.artists.joinToString { it.name },
+        thumbnailUrl = song.song.thumbnailUrl,
+        songId = song.id,
+        trailingContent = {
+            IconButton(onClick = {
+                val updatedSong = song.song.toggleLike()
+                database.query { update(updatedSong) }
+                syncUtils.likeSong(updatedSong)
+            }) {
+                Icon(painterResource(if (song.song.liked) R.drawable.favorite else R.drawable.favorite_border),
+                    stringResource(if (song.song.liked) R.string.action_remove_like else R.string.action_like),
+                    tint = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+    )
 
     Spacer(modifier = Modifier.height(16.dp))
 
@@ -499,7 +489,7 @@ fun SongMenu(
     }
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -513,9 +503,9 @@ fun SongMenu(
 
         item {
             MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
-                NewActionGrid(
+                MusicMenuActionList(
                     actions = primaryActions,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
         }

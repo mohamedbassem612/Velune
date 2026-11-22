@@ -12,6 +12,10 @@ An Android client for YouTube Music, built with Kotlin and Jetpack Compose.
 
 </div>
 
+## Desktop (in development)
+
+The native C++20 / Qt desktop application for Linux and Windows lives in [`desktop/`](desktop/README.md). See its README for build/install instructions, Connect support, validation, and the features still being ported.
+
 ## Screenshots
 
 <div align="center">

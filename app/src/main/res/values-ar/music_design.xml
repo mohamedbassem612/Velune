@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_my_library">مكتبتي</string>
+    <string name="music_now_playing">قيد التشغيل</string>
+    <string name="music_pause">إيقاف مؤقت</string>
+    <string name="music_previous">الأغنية السابقة</string>
+    <string name="music_next">الأغنية التالية</string>
+    <string name="music_options">خيارات الأغنية</string>
+    <string name="music_collapse">تصغير المشغّل</string>
+    <string name="music_unknown_artist">فنان غير معروف</string>
+    <string name="music_search_hint">أغاني، فنانون، ألبومات…</string>
+    <string name="music_search_empty">اكتشف أغنيتك المفضّلة التالية</string>
+    <string name="music_search_description">ابحث عن الموسيقى على الإنترنت أو في مكتبتك.</string>
+    <string name="music_search_loading">جارٍ البحث…</string>
+    <string name="music_search_failed">تعذّر تحميل الاقتراحات. اضغط بحث للمحاولة مجددًا.</string>
+    <string name="music_playing">قيد التشغيل</string>
+    <string name="music_remove_queue">إزالة من قائمة الانتظار</string>
+    <string name="music_shuffle_on">التشغيل العشوائي مفعّل</string>
+    <string name="music_shuffle_off">التشغيل العشوائي متوقف</string>
+    <string name="music_player_design">مشغّل الموسيقى الجديد</string>
+    <string name="music_player_design_description">انتقال مترابط للغلاف، وتحكّم واضح، وأسطح هادئة.</string>
+    <string name="music_back">رجوع</string>
+    <string name="music_close_menu">إغلاق الخيارات</string>
+</resources>

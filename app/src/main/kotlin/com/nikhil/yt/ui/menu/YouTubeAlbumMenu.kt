@@ -34,7 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.ListItem
+import com.nikhil.yt.ui.component.MusicMenuItem as ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -76,7 +76,7 @@ import com.nikhil.yt.playback.ExoDownloadService
 import com.nikhil.yt.playback.queues.YouTubeAlbumRadio
 import com.nikhil.yt.ui.component.ListDialog
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import com.nikhil.yt.ui.component.SongListItem
 import com.nikhil.yt.ui.component.YouTubeListItem
 import com.nikhil.yt.utils.rememberPreference
@@ -303,7 +303,7 @@ fun YouTubeAlbumMenu(
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -313,7 +313,7 @@ fun YouTubeAlbumMenu(
     ) {
         item {
             // Enhanced Action Grid using NewMenuComponents
-            NewActionGrid(
+            MusicMenuActionList(
                 actions = listOf(
                     NewAction(
                         icon = {

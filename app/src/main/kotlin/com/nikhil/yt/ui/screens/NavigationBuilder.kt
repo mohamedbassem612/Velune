@@ -94,6 +94,9 @@ fun NavGraphBuilder.navigationBuilder(
     navController: NavHostController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
+    composable(Screens.Search.route) {
+        com.nikhil.yt.ui.screens.search.MusicSearchScreen(navController)
+    }
     composable(Screens.Home.route) {
         HomeScreen(navController)
     }

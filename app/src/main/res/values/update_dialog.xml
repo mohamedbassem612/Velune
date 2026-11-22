@@ -4,6 +4,8 @@
     <string name="update_dialog_available">Velune %1$s is available to download.</string>
     <string name="update_dialog_downloading">Downloading Velune %1$s…</string>
     <string name="update_dialog_progress">%1$d%%</string>
+    <string name="update_dialog_size">Update size: %1$s</string>
+    <string name="update_dialog_size_unknown">Unavailable</string>
     <string name="update_dialog_whats_new">What’s new</string>
     <string name="update_dialog_download">Download Now</string>
     <string name="update_dialog_later">Remind Me Later</string>

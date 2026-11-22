@@ -144,7 +144,7 @@ fun QuickPicksSection(
         state = rememberCarouselState { distinctQuickPicks.size },
         itemWidth = 250.dp,
         itemSpacing = 8.dp,
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        contentPadding = PaddingValues(horizontal = 24.dp),
         modifier = modifier
             .fillMaxWidth()
             .height(290.dp)
@@ -156,11 +156,7 @@ fun QuickPicksSection(
             modifier = Modifier
                 .offlineSongAppearance(song.id)
                 .fillMaxSize()
-                .maskClip(MaterialTheme.shapes.extraLarge)
-                .maskBorder(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    MaterialTheme.shapes.extraLarge
-                )
+                .maskClip(RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = offlineSongClick(song.id) {
                         if (isActive) {

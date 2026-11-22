@@ -47,6 +47,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -69,7 +71,10 @@ fun BottomSheet(
     modifier: Modifier = Modifier,
     backgroundColor: Color,
     onDismiss: (() -> Unit)? = null,
+    expandedCornerRadius: Dp = 0.dp,
+    onSheetPositioned: (LayoutCoordinates) -> Unit = {},
     collapsedContent: @Composable BoxScope.() -> Unit,
+    overlayContent: @Composable BoxScope.() -> Unit = {},
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
@@ -86,14 +91,14 @@ fun BottomSheet(
             .bottomSheetDraggable(state, onDismiss)
             .clip(
                 RoundedCornerShape(
-                    topStart = if (!state.isExpanded) 16.dp else 0.dp,
-                    topEnd = if (!state.isExpanded) 16.dp else 0.dp,
+                    topStart = if (!state.isExpanded) 30.dp else expandedCornerRadius,
+                    topEnd = if (!state.isExpanded) 30.dp else expandedCornerRadius,
                 ),
             ).background(
                 backgroundColor.copy(
                     alpha = backgroundColor.alpha * state.progress.coerceIn(0f, 1f)
                 )
-            ),
+            ).onGloballyPositioned(onSheetPositioned),
     ) {
         if (!state.isCollapsed && !state.isDismissed) {
             BackHandler(onBack = state::collapseSoft)
@@ -126,6 +131,7 @@ fun BottomSheet(
                 content = collapsedContent,
             )
         }
+        overlayContent()
     }
 }
 
@@ -364,7 +370,10 @@ fun Modifier.bottomSheetDraggable(
             },
             onDragCancel = {
                 velocityTracker.resetTracking()
-                state.snapTo(state.collapsedBound)
+                // A nested scroll child can cancel this detector while the user is
+                // still dragging the sheet. Snapping straight to collapsed makes
+                // the sheet visibly jump up and down; settle at the nearest anchor.
+                state.performFling(0f, onDismiss)
             },
             onDragEnd = {
                 val velocity = -velocityTracker.calculateVelocity().y

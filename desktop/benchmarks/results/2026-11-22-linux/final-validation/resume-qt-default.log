@@ -1,0 +1,2 @@
+[105:10:40.135164987] [1836599] [1;33m WARN [1;37mIPAManager [1;34mipa_manager.cpp:154 [0mNo IPA found in '/usr/lib/x86_64-linux-gnu/libcamera'
+[105:10:40.135235095] [1836599] [1;32m INFO [1;37mCamera [1;34mcamera_manager.cpp:284 [0mlibcamera v0.2.0

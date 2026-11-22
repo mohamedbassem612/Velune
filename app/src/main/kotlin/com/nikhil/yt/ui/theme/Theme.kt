@@ -42,7 +42,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.math.abs
 import kotlin.math.min
 
-val DefaultThemeColor = Color(0xFFED5564)
+val DefaultThemeColor = Color.White
 
 data class ThemeSeedPalette(
     val primary: Color,
@@ -60,13 +60,14 @@ fun VeluneTheme(
     seedPalette: ThemeSeedPalette? = null,
     useSystemFont: Boolean = false,
     ytMusicStyle: Boolean = true,
+    musicDesign: Boolean = com.nikhil.yt.BuildConfig.FLAVOR_device == "mobile",
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
     val useSystemDynamicColor =
         (seedPalette == null && themeColor == DefaultThemeColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
 
-    val typography = remember(useSystemFont) {
+    val typography = remember(useSystemFont, musicDesign) {
         if (useSystemFont) SystemTypography else AppTypography
     }
 
@@ -88,7 +89,19 @@ fun VeluneTheme(
 
     val baseColorScheme =
         if (ytMusicStyle) {
-            if (darkTheme) YtMusicDarkColorScheme else YtMusicLightColorScheme
+            if (musicDesign) {
+                val musicColors = if (darkTheme) MusicDarkColorScheme else MusicLightColorScheme
+                if (seedPalette != null || themeColor != DefaultThemeColor) {
+                    musicColors.copy(
+                        primary = appColorScheme.primary,
+                        onPrimary = appColorScheme.onPrimary,
+                        primaryContainer = appColorScheme.primaryContainer,
+                        onPrimaryContainer = appColorScheme.onPrimaryContainer,
+                    )
+                } else musicColors
+            } else {
+                if (darkTheme) YtMusicDarkColorScheme else YtMusicLightColorScheme
+            }
         } else if (useSystemDynamicColor) {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         } else {
@@ -104,6 +117,7 @@ fun VeluneTheme(
     MaterialExpressiveTheme(
         colorScheme = animatedColorScheme,
         typography = typography,
+        shapes = if (musicDesign) MusicShapes else androidx.compose.material3.Shapes(),
         content = content
     )
 }

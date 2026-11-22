@@ -38,7 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
-import androidx.compose.material3.ListItem
+import com.nikhil.yt.ui.component.MusicMenuItem as ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -81,7 +81,7 @@ import com.nikhil.yt.playback.queues.YouTubeQueue
 import com.nikhil.yt.ui.component.DefaultDialog
 import com.nikhil.yt.ui.component.ListDialog
 import com.nikhil.yt.ui.component.NewAction
-import com.nikhil.yt.ui.component.NewActionGrid
+import com.nikhil.yt.ui.component.MusicMenuActionList
 import com.nikhil.yt.ui.component.YouTubeListItem
 import com.nikhil.yt.utils.joinByBullet
 import com.nikhil.yt.utils.makeTimeString
@@ -337,7 +337,7 @@ fun YouTubePlaylistMenu(
     }
 
     LazyColumn(
-        userScrollEnabled = !isPortrait,
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -352,7 +352,7 @@ fun YouTubePlaylistMenu(
 
         item {
             // Enhanced Action Grid using NewMenuComponents
-            NewActionGrid(
+            MusicMenuActionList(
                 actions = buildList {
                     playlist.playEndpoint?.let { playEndpoint ->
                         add(

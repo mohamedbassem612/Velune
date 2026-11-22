@@ -159,6 +159,9 @@ import com.nikhil.yt.extensions.directorySizeBytes
 import com.nikhil.yt.extensions.findNextMediaItemById
 import com.nikhil.yt.extensions.mediaItems
 import com.nikhil.yt.extensions.metadata
+import com.nikhil.yt.utils.AutomixCandidate
+import com.nikhil.yt.utils.AutomixBlocklist
+import com.nikhil.yt.utils.AutomixFilter
 import com.nikhil.yt.extensions.setOffloadEnabled
 import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.extensions.toPersistQueue
@@ -1852,7 +1855,7 @@ class MusicService :
                         YouTube
                             .next(WatchEndpoint(playlistId = it.endpoint.playlistId))
                             .onSuccess {
-                                val mediaItems = it.items.map { song -> song.toMediaItem() }
+                                val mediaItems = refineAutomixItems(it.items.map { song -> song.toMediaItem() })
                                 withContext(Dispatchers.Main) {
                                     val currentSeed =
                                         player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
@@ -1904,6 +1907,49 @@ class MusicService :
         player.seekToNextMediaItem()
         player.prepare()
         player.play()
+    }
+
+    private fun MediaItem.toAutomixCandidate(): AutomixCandidate {
+        val meta = metadata
+        return AutomixCandidate(
+            id = meta?.id ?: mediaId,
+            title = meta?.title ?: mediaMetadata.title?.toString().orEmpty(),
+            artist = meta?.artists?.firstOrNull()?.name ?: mediaMetadata.artist?.toString(),
+        )
+    }
+
+    // Cleans the automix pool: other versions of queued songs, recently played songs, same-artist streaks.
+    // If anything goes wrong or nothing is left, the original list is returned so automix never breaks.
+    private suspend fun refineAutomixItems(items: List<MediaItem>): List<MediaItem> {
+        if (items.isEmpty()) return items
+        return try {
+            val queueCandidates =
+                withContext(Dispatchers.Main) {
+                    (0 until player.mediaItemCount).map { player.getMediaItemAt(it).toAutomixCandidate() }
+                }
+            val history =
+                withContext(Dispatchers.IO) {
+                    database.recentEvents(AUTOMIX_HISTORY_SIZE).first()
+                }
+            val blocklist =
+                AutomixBlocklist(
+                    queueIds = queueCandidates.map { it.id }.toSet(),
+                    queueKeys = queueCandidates.map { AutomixFilter.songKey(it.title, it.artist) }.toSet(),
+                    historyIds = history.map { it.song.song.id }.toSet(),
+                    historyKeys =
+                        history
+                            .map { AutomixFilter.songKey(it.song.song.title, it.song.artists.firstOrNull()?.name) }
+                            .toSet(),
+                )
+            val byId = items.associateBy { it.toAutomixCandidate().id }
+            val keptIds = AutomixFilter.refine(items.map { it.toAutomixCandidate() }, blocklist)
+            keptIds.mapNotNull { byId[it] }.ifEmpty { items }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.tag("MusicService").w(e, "Automix refine failed, using unfiltered list")
+            items
+        }
     }
 
     fun clearAutomix() {
@@ -2013,8 +2059,13 @@ class MusicService :
                             return@onSuccess
                         }
 
-                        automixItems.value = pool
-                        if (pool.isEmpty()) {
+                        val refinedPool = refineAutomixItems(pool)
+                        if (automixSeedMediaId != seedMediaId) {
+                            automixLoading.value = false
+                            return@onSuccess
+                        }
+                        automixItems.value = refinedPool
+                        if (refinedPool.isEmpty()) {
                             automixError.value = getString(R.string.error_no_similar_songs)
                         }
                         automixLoading.value = false
@@ -3922,11 +3973,13 @@ class MusicService :
                                 YouTube.next(WatchEndpoint(playlistId = nextResult.endpoint.playlistId))
                             }.onSuccess { automixResult ->
                                 if (suppressAutoPlayback || player.playbackState == STATE_IDLE) return@onSuccess
-                                automixItems.value = automixResult.items
-                                    .map { it.toMediaItem() }
-                                    .filter { it.mediaId != lastMediaMetadata.id }
-                                    .filterExplicit(hideExplicit)
-                                    .filterVideo(hideVideo)
+                                automixItems.value = refineAutomixItems(
+                                    automixResult.items
+                                        .map { it.toMediaItem() }
+                                        .filter { it.mediaId != lastMediaMetadata.id }
+                                        .filterExplicit(hideExplicit)
+                                        .filterVideo(hideVideo),
+                                )
                             }
                         }
                     }
@@ -5290,6 +5343,7 @@ class MusicService :
             isPlaybackInactive: Boolean,
         ): Boolean = (isHostSessionActive && isPlaybackInactive) || stopMusicOnTaskClearEnabled
 
+        private const val AUTOMIX_HISTORY_SIZE = 50
         const val ROOT = "root"
         const val SONG = "song"
         const val ARTIST = "artist"

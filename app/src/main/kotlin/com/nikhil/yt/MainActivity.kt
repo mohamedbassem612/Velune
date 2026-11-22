@@ -8,7 +8,7 @@
 
 package com.nikhil.yt
 
-import com.nikhil.yt.ui.component.YtMusicNavigationBar
+import com.nikhil.yt.ui.component.MusicBottomNavigation
 import android.annotation.SuppressLint
 import android.Manifest
 import android.app.ActivityManager
@@ -118,6 +118,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastAny
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.window.Dialog
@@ -588,10 +589,10 @@ class MainActivity : ComponentActivity() {
             // }
 
 
-            val enableDynamicTheme by rememberPreference(DynamicThemeKey, defaultValue = true)
+            val enableDynamicTheme by rememberPreference(DynamicThemeKey, defaultValue = false)
             val customThemeColorValue by rememberPreference(CustomThemeColorKey, defaultValue = "default")
             val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.ON)
-            val useSystemFont by rememberPreference(UseSystemFontKey, defaultValue = false)
+            val useSystemFont by rememberPreference(UseSystemFontKey, defaultValue = true)
             val isSystemInDarkTheme = isSystemInDarkTheme()
             val useDarkTheme =
                 remember(darkTheme, isSystemInDarkTheme) {
@@ -611,6 +612,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     com.nikhil.yt.ui.screens.settings.ThemePalettes
                         .findById(customThemeColorValue)
+                        ?.takeUnless { it.id == "default" }
                         ?.let {
                             com.nikhil.yt.ui.theme.ThemeSeedPalette(
                                 primary = it.primary,
@@ -679,7 +681,7 @@ class MainActivity : ComponentActivity() {
             VeluneTheme(
                 darkTheme = useDarkTheme,
                 pureBlack = pureBlack,
-                themeColor = themeColor,
+                themeColor = if (enableDynamicTheme) themeColor else customThemeColor,
                 seedPalette = if (!enableDynamicTheme) customThemeSeedPalette else null,
                 useSystemFont = useSystemFont,
             ) {
@@ -693,6 +695,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val focusManager = LocalFocusManager.current
                     val density = LocalDensity.current
+                    val appBarHeight = with(density) {
+                        (MaterialTheme.typography.headlineLarge.lineHeight.toDp() + 16.dp).coerceAtLeast(AppBarHeight)
+                    }
                     val windowsInsets = WindowInsets.systemBars
                     val bottomInset = with(density) { windowsInsets.getBottom(density).toDp() }
                     WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
@@ -709,7 +714,12 @@ class MainActivity : ComponentActivity() {
 
                     val navigationItems = remember { Screens.MainScreens }
                     val (slimNav) = rememberPreference(SlimNavBarKey, defaultValue = false)
-                    val (useNewMiniPlayerDesign) = rememberPreference(UseNewMiniPlayerDesignKey, defaultValue = true)
+                    val useMusicPlayer by rememberPreference(com.nikhil.yt.constants.UseMusicPlayerKey, true)
+                    val legacyMiniPlayerDesign by rememberPreference(UseNewMiniPlayerDesignKey, true)
+                    val useNewMiniPlayerDesign = useMusicPlayer || legacyMiniPlayerDesign
+                    val miniPlayerHeight = if (useMusicPlayer) with(density) {
+                        (44.sp.toDp() + 16.dp).coerceAtLeast(MiniPlayerHeight)
+                    } else MiniPlayerHeight
                     val defaultOpenTab by rememberEnumPreference(DefaultOpenTabKey, NavigationTab.HOME)
                     val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)
                     val tabOpenedFromShortcut =
@@ -724,6 +734,7 @@ class MainActivity : ComponentActivity() {
                     val topLevelScreens =
                         listOf(
                             Screens.Home.route,
+                            Screens.Search.route,
                             Screens.Stats.route,
                             Screens.History.route,
                             Screens.Library.route,
@@ -746,6 +757,9 @@ class MainActivity : ComponentActivity() {
                                 onQueryChange(TextFieldValue())
                             }
                         }
+                    }
+                    val openSearch = remember(onActiveChange) {
+                        { onActiveChange(true) }
                     }
 
                     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
@@ -782,16 +796,19 @@ class MainActivity : ComponentActivity() {
                                     !active
                         }
 
+                    val navVisibleHeight = with(density) {
+                        (MaterialTheme.typography.labelMedium.lineHeight.toDp() + 32.dp)
+                            .coerceAtLeast(if (slimNav) SlimNavBarHeight else NavigationBarHeight)
+                    }
                     fun getBottomNavPadding(): Dp {
                         return if (shouldShowNavigationBar && !useRail) {
-                            if (slimNav) SlimNavBarHeight else NavigationBarHeight
+                            navVisibleHeight
                         } else {
                             0.dp
                         }
                     }
 
                     val floatingBarsBottomPadding = 0.dp
-                    val navVisibleHeight = if (slimNav) SlimNavBarHeight else NavigationBarHeight
 
                     val bottomNavigationBarHeight by animateDpAsState(
                         targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
@@ -807,7 +824,7 @@ class MainActivity : ComponentActivity() {
                                         (if (shouldShowNavigationBar && !useRail) floatingBarsBottomPadding else 0.dp) +
                                         getBottomNavPadding() +
                                         (if (useNewMiniPlayerDesign) MiniPlayerBottomSpacing else 0.dp) +
-                                        MiniPlayerHeight,
+                                        miniPlayerHeight,
                             expandedBound = maxHeight,
                         )
 
@@ -861,18 +878,21 @@ class MainActivity : ComponentActivity() {
                     val playerAwareWindowInsets =
                         remember(
                             useRail,
+                            appBarHeight,
+                            miniPlayerHeight,
+                            navVisibleHeight,
                             bottomInset,
                             shouldShowNavigationBar,
                             playerBottomSheetState.isDismissed,
                         ) {
                             var bottom = bottomInset
                             if (shouldShowNavigationBar && !useRail) bottom += getBottomNavPadding()
-                            if (!playerBottomSheetState.isDismissed) bottom += MiniPlayerHeight
+                            if (!playerBottomSheetState.isDismissed) bottom += miniPlayerHeight + MiniPlayerBottomSpacing
                             windowsInsets
                                 .only((if(useRail) {
-                                    WindowInsetsSides.Right
+                                    WindowInsetsSides.End
                                 } else WindowInsetsSides.Horizontal) + WindowInsetsSides.Top)
-                                .add(WindowInsets(top = AppBarHeight, bottom = bottom))
+                                .add(WindowInsets(top = appBarHeight, bottom = bottom))
                         }
 
                     appBarScrollBehavior(
@@ -1119,7 +1139,7 @@ class MainActivity : ComponentActivity() {
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .height(AppBarHeight + with(LocalDensity.current) {
+                                                        .height(appBarHeight + with(LocalDensity.current) {
                                                             WindowInsets.systemBars.getTop(LocalDensity.current).toDp()
                                                         })
                                                         .background(
@@ -1136,41 +1156,40 @@ class MainActivity : ComponentActivity() {
                                             }
 
                                             TopAppBar(
+                                                expandedHeight = appBarHeight,
                                                 windowInsets = WindowInsets.safeDrawing.only((if(useRail) {
-                                                    WindowInsetsSides.Right
+                                                    WindowInsetsSides.End
                                                 } else WindowInsetsSides.Horizontal) + WindowInsetsSides.Top),
                                                 title = {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        // app icon
-                                                        Image(
-                                                            painter = painterResource(id = R.drawable.ic_velune_concept),
-                                                            contentDescription = "Velune Logo",
-                                                            modifier = Modifier
-                                                                .size(35.dp)
-                                                                .padding(end = 6.dp)
-                                                        )
-
                                                         Text(
-                                                            text = stringResource(R.string.app_name),
-                                                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                                            text = stringResource(when (currentRoute) {
+                                                                Screens.Library.route -> R.string.music_my_library
+                                                                Screens.Search.route -> R.string.search
+                                                                Screens.History.route -> R.string.history
+                                                                Screens.Stats.route -> R.string.stats
+                                                                else -> R.string.home
+                                                            }),
+                                                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.SemiBold),
                                                             maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.padding(start = 8.dp)
                                                         )
                                                     }
                                                 },
 
-                                                actions = {
-                                                    IconButton(onClick = { onActiveChange(true) }) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.search),
-                                                            contentDescription = stringResource(R.string.search)
-                                                        )
+                                                navigationIcon = {
+                                                    if (currentRoute == Screens.History.route || currentRoute == Screens.Stats.route) {
+                                                        IconButton(onClick = { navController.popBackStack() }) {
+                                                            Icon(painterResource(R.drawable.arrow_back), stringResource(R.string.music_back))
+                                                        }
                                                     }
-
+                                                },
+                                                actions = {
                                                     IconButton(onClick = { navController.navigate("settings") }) {
                                                         Icon(
                                                             painter = painterResource(R.drawable.settings),
-                                                            contentDescription = "Settings",
+                                                            contentDescription = stringResource(R.string.settings),
                                                             modifier = Modifier.size(24.dp)
                                                         )
                                                     }
@@ -1312,7 +1331,7 @@ class MainActivity : ComponentActivity() {
                                                 modifier =
                                                     Modifier
                                                         .fillMaxSize()
-                                                        .padding(bottom = if(!playerBottomSheetState.isDismissed) MiniPlayerHeight else 0.dp)
+                                                        .padding(bottom = if(!playerBottomSheetState.isDismissed) miniPlayerHeight else 0.dp)
                                                         .navigationBarsPadding(),
                                             ) { searchSource ->
                                                 when (searchSource) {
@@ -1357,7 +1376,8 @@ class MainActivity : ComponentActivity() {
                                         BottomSheetPlayer(
                                             state = playerBottomSheetState,
                                             navController = navController,
-                                            pureBlack = pureBlack
+                                            pureBlack = pureBlack,
+                                            miniPlayerHeight = miniPlayerHeight,
                                         )
 
                                         if(useRail) return@Box
@@ -1396,7 +1416,7 @@ class MainActivity : ComponentActivity() {
                                             if (pureBlack) Color.Black
                                             else MaterialTheme.colorScheme.surfaceContainer
 
-                                            YtMusicNavigationBar(
+                                            MusicBottomNavigation(
                                                 modifier = Modifier.align(Alignment.BottomCenter),
                                                 barHeight = navVisibleHeight,
                                                 bottomInset = bottomInset,
@@ -1404,22 +1424,24 @@ class MainActivity : ComponentActivity() {
                                                 currentRoute = navBackStackEntry?.destination?.route ?: "",
                                                 pureBlack = pureBlack,
                                                 onTabSelected = { screen ->
-                                                    val isSelected = navBackStackEntry?.destination?.hierarchy?.any { it.route == screen.route } == true
-
-                                                    if (screen.route == Screens.Search.route) {
-                                                        onActiveChange(true)
-                                                    } else if (isSelected) {
-                                                        navController.currentBackStackEntry?.savedStateHandle?.set("scrollToTop", true)
-                                                        coroutineScope.launch {
-                                                            searchBarScrollBehavior.state.resetHeightOffset()
-                                                        }
+                                                    if (screen == Screens.Search) {
+                                                        openSearch()
                                                     } else {
-                                                        navController.navigate(screen.route) {
-                                                            popUpTo(navController.graph.startDestinationId) {
-                                                                saveState = true
+                                                        val isSelected = navBackStackEntry?.destination?.hierarchy?.any { it.route == screen.route } == true
+
+                                                        if (isSelected) {
+                                                            navController.currentBackStackEntry?.savedStateHandle?.set("scrollToTop", true)
+                                                            coroutineScope.launch {
+                                                                searchBarScrollBehavior.state.resetHeightOffset()
                                                             }
-                                                            launchSingleTop = true
-                                                            restoreState = true
+                                                        } else {
+                                                            navController.navigate(screen.route) {
+                                                                popUpTo(navController.graph.startDestinationId) {
+                                                                    saveState = true
+                                                                }
+                                                                launchSingleTop = true
+                                                                restoreState = true
+                                                            }
                                                         }
                                                     }
                                                 }

@@ -1,0 +1,264 @@
+{
+  "recorded_utc": "2026-11-22T05:02:20.030249+00:00",
+  "linux_configurations": [
+    {
+      "configuration": "release",
+      "build": "passed",
+      "benchmark_build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 21.94,
+      "native_skips_expected": false,
+      "log": "final-validation/resume-ctest-release.log",
+      "binary_sha256": {
+        "velune": "3cb607082477f0d1d5aa34b0be2ed28607de37eabae3c93459b0fb4b47e8d807",
+        "velune_playback_benchmark": "4ba5b0e6e6243e61d37cd72631292c2ef00a5c6aca8679b9eec1f06e6493dd0c",
+        "velune_playback_tests": "20b8bcdacb7fb6db2027cc8e2c0773e488eb3f396ee5c208d02bcbd6fe308108",
+        "velune_mpv_tests": "533a9b467d7ba866377cdc58e1d9f85f2f8105631129c285ef5827125aa0334a"
+      }
+    },
+    {
+      "configuration": "debug",
+      "build": "passed",
+      "benchmark_build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 22.65,
+      "native_skips_expected": false,
+      "log": "final-validation/resume-ctest-debug.log",
+      "binary_sha256": {
+        "velune": "3bbf4a1c61ece9289fce2df5026754f768f87e5a8fba5b415e1a8381908f0173",
+        "velune_playback_benchmark": "5cbddd162caa376a45f76cf47767a28689acf9603ebe492b60f39cb77005d38a",
+        "velune_playback_tests": "fa32065c1e340c2c3b2adc9f6b3932a346cce0c2bd889028ed3f732014b21ff9",
+        "velune_mpv_tests": "763c06f385428cc18662c6117a4e21cc45bdb0c274dfab1dbc0f8e4f3ad2180f"
+      }
+    },
+    {
+      "configuration": "qt-only",
+      "build": "passed",
+      "benchmark_build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 19.52,
+      "native_skips_expected": true,
+      "log": "final-validation/resume-ctest-qt-only.log",
+      "binary_sha256": {
+        "velune": "79de4a0856998d39cef3a196dc51be68b86b54c7e6036a9cf2733b7ab2bca323",
+        "velune_playback_benchmark": "da1f8f351992460cdf186c332d6740dc84bdcd969e580ba7b4f9e3f9a569ec8f",
+        "velune_playback_tests": "586011cd9e05dca17be7a10275e454f83390023dcf39b0a73fc2b0fa7bb6c11c",
+        "velune_mpv_tests": "c91932ff5db10f64ba04b1fb9acaed8803f71d7966a9b6ee07199e1f72fe0ad9"
+      }
+    },
+    {
+      "configuration": "minimal",
+      "build": "passed",
+      "benchmark_build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 16.34,
+      "native_skips_expected": true,
+      "log": "final-validation/resume-ctest-minimal.log",
+      "binary_sha256": {
+        "velune": "b87313c54510a46c4a199e505d77cd14149c60a4077d33e9cea4a937756a548c",
+        "velune_playback_benchmark": "ce02aa7d7c96296a120098618206a2e2d69cb3371635fba48b09509094bae13b",
+        "velune_playback_tests": "94718a221d6b2fd64ab054ad7064d4daa9ea9e904544f51c78bd6ca1060e2ee0",
+        "velune_mpv_tests": "64aaf1f3af05b5b53a129737d067ffa2af3b0a68f1b950960c5276fb2e19392f"
+      }
+    },
+    {
+      "configuration": "mpv-only",
+      "build": "passed",
+      "benchmark_build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 19.79,
+      "native_skips_expected": false,
+      "log": "final-validation/resume-ctest-mpv-only.log",
+      "binary_sha256": {
+        "velune": "54ad94f5efaa1f89969ad2dc9ac6b5f87699a1463078a50b30e5cb21cc7469ad",
+        "velune_playback_benchmark": "5d7d0267fe786c93ca66b02697786b0a52fe078b967cfe72481f42dee8b98d29",
+        "velune_playback_tests": "e96d6f6521b1b23e774ffc5d9529cd97d28d3305d058ae927ccc03aa56564482",
+        "velune_mpv_tests": "77a94fd85193a6d3b78b2707e5c60958a9ef69339b33215e4ace7cef47b58ce0"
+      }
+    },
+    {
+      "configuration": "no-headers",
+      "build": "passed",
+      "benchmark_build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 19.71,
+      "native_skips_expected": true,
+      "log": "final-validation/resume-ctest-no-headers.log",
+      "binary_sha256": {
+        "velune": "79de4a0856998d39cef3a196dc51be68b86b54c7e6036a9cf2733b7ab2bca323",
+        "velune_playback_benchmark": "da1f8f351992460cdf186c332d6740dc84bdcd969e580ba7b4f9e3f9a569ec8f",
+        "velune_playback_tests": "586011cd9e05dca17be7a10275e454f83390023dcf39b0a73fc2b0fa7bb6c11c",
+        "velune_mpv_tests": "c91932ff5db10f64ba04b1fb9acaed8803f71d7966a9b6ee07199e1f72fe0ad9"
+      }
+    }
+  ],
+  "native_formats": "MP3, AAC/M4A, Opus, FLAC, WAV, audio/video MP4; generated WAV; real mpv null output and separate PulseAudio PCM capture",
+  "benchmarks": {
+    "comparison_groups": 96,
+    "comparison_samples": 2880,
+    "comparison_failures": 0,
+    "stability_sequences": 400,
+    "stability_failures": 0,
+    "wav_output_samples": 120,
+    "additional_codec_output_samples": 60,
+    "mp4_output_samples": 120,
+    "buffering_recovery_samples": 6,
+    "buffering_recovery_failures": 0
+  },
+  "missing_mpv_runtime": "Verified factory fallback diagnostic to Qt; benchmark correctly refuses to silently compare a fallback backend (exit 3).",
+  "forced_missing_qt_media_plugin": {
+    "status": "fixed; original reproduction and fresh-process regressions passed",
+    "result": "Unavailable engine; no abort; request-tagged diagnostic; guarded controls/getters/device injection",
+    "command": "QT_PLUGIN_PATH=/tmp/velune-phase2-empty-plugins /tmp/velune-phase2-release/velune_playback_tests -platform offscreen backendIdleVolumeAndInvalidSource",
+    "regressions": [
+      "missing plugin paths with explicit ffmpeg",
+      "missing plugin paths with platform default",
+      "unknown explicit backend",
+      "Linux plugin with deliberately unresolvable dependent library"
+    ],
+    "limitations": [
+      "Without an explicit backend all matching candidates must load; an unused broken candidate can conservatively disable Qt playback.",
+      "Static plugin execution was not tested.",
+      "Public plugin metadata/loadability does not prove its integration factory can create an integration; no private API or qFatal interception is used."
+    ]
+  },
+  "intermediate_failures": [
+    "Concurrent library/UI edits caused compile/test failures; all eight targets subsequently passed in each listed configuration.",
+    "One Debug desktop/UI run segfaulted in layoutAndLoginGate; isolated gdb execution and later full suites passed. Root cause was not established.",
+    "An initial benchmark lost its unsupervised test server; those results were excluded. Reported comparisons used a supervised isolated server."
+  ],
+  "windows": {
+    "ci_added": true,
+    "ci_executed": false,
+    "native_compilation": "not performed",
+    "native_runtime": "not performed",
+    "packaging_script": "PowerShell 7.4.13 parser and three early manifest rejection checks passed on Linux; actual Windows staging/deployment unexecuted",
+    "local_checks": {
+      "workflow_yaml": "passed",
+      "actionlint_1.7.7": "passed",
+      "workflow_powershell_parser": "all four steps passed after expression substitution",
+      "deployment_powershell_parser": "passed",
+      "deployment_manifest_rejection_tests": [
+        "bad SHA-256",
+        "parent destination",
+        "missing notice"
+      ],
+      "pinned_dependency_commits": "both vcpkg and QtKeychain commits resolve in official GitHub repositories",
+      "benchmark_include_order": "windows.h before psapi.h; native compilation still required",
+      "workflow_error_handling": "PowerShell native command errors fail the step"
+    }
+  },
+  "live_youtube": "not run; explicit opt-in required; missing-opt-in rejection verified",
+  "physical_android_tv": "not tested; source and TLS/session/ACK loopback compatibility checks retained",
+  "connect_and_auth_source": "ConnectClient.cpp/.h and EmbeddedSession.cpp/.h reverified byte-identical to initial desktop-before.tgz snapshot at final validation",
+  "remaining_validation": [
+    "Windows/MSVC compilation and CI execution",
+    "Windows DLL loading, native playback and actual deployment/clean-machine startup",
+    "Live YouTube (opt-in only), physical audio output, physical Android/TV interoperability",
+    "Static Qt multimedia plugins and failure within an otherwise loadable plugin integration factory"
+  ],
+  "previous_linux_configurations": [
+    {
+      "configuration": "release",
+      "build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 21.88,
+      "native_skips_expected": false
+    },
+    {
+      "configuration": "debug",
+      "build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 22.2,
+      "native_skips_expected": false
+    },
+    {
+      "configuration": "qt-only",
+      "build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 18.67,
+      "native_skips_expected": true
+    },
+    {
+      "configuration": "minimal",
+      "build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 16.12,
+      "native_skips_expected": true
+    },
+    {
+      "configuration": "mpv-only",
+      "build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 20.22,
+      "native_skips_expected": false
+    },
+    {
+      "configuration": "no-headers",
+      "build": "passed",
+      "ctest_targets": 8,
+      "ctest": "passed",
+      "duration_seconds": 18.61,
+      "native_skips_expected": true
+    }
+  ],
+  "final_qt_startup": {
+    "constructor_ab": "startup-preflight.json",
+    "targeted_cold": "qt-preflight-cold.json",
+    "cold_samples": 30,
+    "cold_failures": 0,
+    "note": "Only changed Qt startup path remeasured; original comparison matrix retained; constructor A/B bypasses only preflight call in otherwise identical final source."
+  },
+  "qt_default_without_environment_override": "passed; final-validation/qt-default.json; native backend selected by Qt, advancing position confirmed",
+  "final_checks": {
+    "git_diff_check": "passed",
+    "bash_syntax": "passed",
+    "all_builds_up_to_date": "ninja dry run reports no work for all five build directories; no-headers uses final qt-only directory",
+    "release_qtest": "18 native passes; 19 playback passes; live resolver case intentionally skipped",
+    "phase3_started": false,
+    "commits_or_pushes": false
+  },
+  "final_tree": {
+    "head": "326eaa566cf034c92ae9ad163f3ce7e2c0681467",
+    "branch": "feat/cpp-desktop-app",
+    "state": "uncommitted; existing unrelated changes preserved"
+  },
+  "final_source_sha256": {
+    "desktop/src/playback/QtPlaybackEngine.cpp": "9af52c17bddc5f0684e962fa77b88a3390f80bf294853bb65c156a7b1336ba0c",
+    "desktop/src/playback/PlaybackEngineFactory.h": "df5ca5d72d2ccadbf8cb106f6dfef7473e7e61c19ef7548533f59edc864a7588",
+    "desktop/src/playback/MpvApi.h": "c3c102e3a938269930eac6ec341affa131a14c48ee7d95346a03a9ff0aae7de0",
+    "desktop/src/playback/MpvPlaybackEngine.h": "e631055944f971a76451d88baf3a79eb360e493fc500fc2783cf77243e1006a4",
+    "desktop/src/playback/MpvPlaybackEngine.cpp": "36185ba6ecd8b55fe1623105915c488a7c9a2eb4e92f8881fb4738683ecc7431",
+    "desktop/src/playback/IPlaybackEngine.h": "1a3de109690a8103c6f33bb4bda18d7d818c0402147ff607a49f3b6d9eef42f7",
+    "desktop/src/playback/PlaybackEngineFactory.cpp": "98ac1895488fc2c6ca8915d20a69156de1e05d1920a6cbe1c0b5292b7f1b1628",
+    "desktop/src/playback/QtPlaybackEngine.h": "b3445422f47ee4e0613f0aa68630ddf86703e2b9510dc3052af9e664a1f5911e",
+    "desktop/src/playback/PlaybackTrace.h": "dbb6181d5512c4d04128332f37007b3bec4d2a664f049ef12c7134123bbcb9bc",
+    "desktop/src/playback/PlaybackTrace.cpp": "b96fb6f76b0684ebab70de5159626d24708e5c163404a31e7f693ed358d64377",
+    "desktop/src/playback/PlaybackTypes.h": "5ac5cf3de84b2ab21d5315db15b915c7a097677fff3bf055bb19c793a1020d3c",
+    "desktop/benchmarks/PlaybackBenchmark.cpp": "da4ba667c590f1bd16a59f079c6d4a25adcbe8929ab23384fdad98f1135b8976",
+    "desktop/tests/FixtureNetwork.h": "ac9fa90135339d093287005832ef4e2792698ee14bcde8873f653ccda1470981",
+    "desktop/tests/PlaybackTests.cpp": "ad7ba39a9e0bc59ef31c3e40ae3fb754bc416c061bac1469084103c0c68654cf",
+    "desktop/tests/MpvPlaybackTests.cpp": "b1e7a4a2c94a96fb04c50d7e029ab03bda7f25e8637fbd29af54250c52cf97b5",
+    "desktop/CMakeLists.txt": "af1fa8f5298f3b5e689b8675eb826b464fab6067c9c3f957a548d905c3e0f597",
+    ".github/workflows/desktop.yml": "15dfb3eea3768ca4224cb06678c7d58d86e92b2d2fdafab19c5d3eaf095f2676",
+    "desktop/scripts/deploy-windows.ps1": "828be5a92ab680952bc41fa653d051d05537849aa1a26f6e721c1cf49e4689ae"
+  },
+  "collection_fingerprints": "conditions.json retains original comparison and additional-measurement binary hashes; final builds are fingerprinted separately here. Later unavailable/error/TLS correctness changes and plugin preflight were not retroactively assigned to original measurements.",
+  "preservation_checks": {
+    "desktop/src/services/ConnectClient.cpp": true,
+    "desktop/src/services/ConnectClient.h": true,
+    "desktop/src/services/EmbeddedSession.cpp": true,
+    "desktop/src/services/EmbeddedSession.h": true
+  }
+}

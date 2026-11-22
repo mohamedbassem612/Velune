@@ -7,7 +7,8 @@
     <application
         android:banner="@drawable/tv_banner"
         android:label="@string/tv_app_name"
-        tools:replace="android:label">
+        android:supportsRtl="false"
+        tools:replace="android:label,android:supportsRtl">
         <activity android:name=".MainActivity" android:screenOrientation="landscape">
             <!-- Mobile deep-link and share flows need dedicated TV handling. -->
             <intent-filter tools:node="removeAll" />

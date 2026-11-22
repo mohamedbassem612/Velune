@@ -12,7 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,7 +21,7 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Stable
@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 
 val LocalMenuState = compositionLocalOf { MenuState() }
@@ -61,17 +62,22 @@ class MenuState(
 fun BottomSheetMenu(
     modifier: Modifier = Modifier,
     state: MenuState,
-    background: Color = MaterialTheme.colorScheme.surface,
+    background: Color = MaterialTheme.colorScheme.surfaceContainer,
 ) {
     val focusManager = LocalFocusManager.current
 
     if (state.isVisible) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val maximumHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
         ModalBottomSheet(
+            sheetState = sheetState,
             onDismissRequest = {
                 focusManager.clearFocus()
                 state.isVisible = false
             },
             containerColor = background,
+            shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+            scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f),
             contentColor = MaterialTheme.colorScheme.onSurface,
             dragHandle = {
                 Box(
@@ -82,12 +88,12 @@ fun BottomSheetMenu(
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 )
             },
-            modifier = modifier.fillMaxHeight()
+            modifier = modifier.heightIn(max = maximumHeight)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 8.dp)
             ) {
                 state.content(this)
             }

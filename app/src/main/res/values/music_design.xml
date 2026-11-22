@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_my_library">My library</string>
+    <string name="music_now_playing">Now playing</string>
+    <string name="music_pause">Pause</string>
+    <string name="music_previous">Previous track</string>
+    <string name="music_next">Next track</string>
+    <string name="music_options">Song options</string>
+    <string name="music_collapse">Minimize player</string>
+    <string name="music_unknown_artist">Unknown artist</string>
+    <string name="music_search_hint">Songs, artists, albums…</string>
+    <string name="music_search_empty">Your next favorite is a search away</string>
+    <string name="music_search_description">Find music online or in your library.</string>
+    <string name="music_search_loading">Searching…</string>
+    <string name="music_search_failed">Couldn’t load suggestions. Submit your search to try again.</string>
+    <string name="music_playing">Playing</string>
+    <string name="music_remove_queue">Remove from queue</string>
+    <string name="music_shuffle_on">Shuffle on</string>
+    <string name="music_shuffle_off">Shuffle off</string>
+    <string name="music_player_design">Music player</string>
+    <string name="music_player_design_description">Shared artwork transitions, simple controls and calm surfaces.</string>
+    <string name="music_back">Back</string>
+    <string name="music_close_menu">Close options</string>
+</resources>

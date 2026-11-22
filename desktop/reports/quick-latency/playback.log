@@ -1,0 +1,7 @@
+2026-11-22T06:32:00Z | monotonic baseline: process start | request=live-01 | backend=mpv | cache=unknown
+2026-11-22T06:32:00Z | command started: velune_playback_benchmark --backend mpv --live-youtube-id dQw4w9WgXcQ --allow-live --scenario once --iterations 1 | request=live-01
+2026-11-22T06:32:00Z | mpv selection: benchmark requires selected backendName == mpv and exits 3 on unavailable/fallback; process remained running | request=live-01
+2026-11-22T06:34:05Z | resolver/live attempt still running after 125 s; no JSON output, no sanitized trace milestones, no resolver completion | request=live-01
+2026-11-22T06:34:59Z | terminated attempt after >2 min to honor live-test limit | request=live-01 | exit=terminated-by-investigation
+2026-11-22T06:34:59Z | attempts completed=1; attempts skipped=2 because live playback blocker requires stopping | request=live-01
+2026-11-22T06:34:59Z | sensitive values omitted: no URLs, cookies, headers, credentials, signed media URLs, or private history recorded

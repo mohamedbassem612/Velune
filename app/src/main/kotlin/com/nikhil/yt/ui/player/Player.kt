@@ -14,7 +14,6 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
@@ -102,6 +102,7 @@ import com.nikhil.yt.constants.SliderStyleKey
 import com.nikhil.yt.constants.UseNewMiniPlayerDesignKey
 import com.nikhil.yt.extensions.metadata
 import com.nikhil.yt.extensions.togglePlayPause
+import com.nikhil.yt.extensions.toggleRepeatMode
 import com.nikhil.yt.innertube.toHighResThumbnail
 import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.ui.component.BottomSheet
@@ -123,7 +124,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BottomSheetPlayer(
+fun LegacyBottomSheetPlayer(
     state: BottomSheetState,
     navController: NavController,
     modifier: Modifier = Modifier,
@@ -461,13 +462,13 @@ fun BottomSheetPlayer(
             QueuePeekHeight
         }
 
-    val dismissedBound =
+    val dismissedBound = if (playerDesignStyle == PlayerDesignStyle.V5) 0.dp else
         dynamicQueuePeekHeight + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
 
     val queueSheetState = rememberBottomSheetState(
         dismissedBound = dismissedBound,
         expandedBound = state.expandedBound,
-        collapsedBound = dismissedBound + 1.dp,
+        collapsedBound = if (playerDesignStyle == PlayerDesignStyle.V5) 0.dp else dismissedBound + 1.dp,
         initialAnchor = 1
     )
 
@@ -632,6 +633,7 @@ fun BottomSheetPlayer(
                             playerConnection = playerConnection,
                             onToggleLike = playerConnection::toggleLike,
                             onExpandQueue = queueSheetState::expandSoft,
+                            onShowLyrics = { lyricsSheetState.expandSoft() },
                             onMenuClick = {
                                 menuState.show {
                                     PlayerMenu(
@@ -646,7 +648,7 @@ fun BottomSheetPlayer(
                                 }
                             },
                             context = context,
-                            bottomPadding = dynamicQueuePeekHeight
+                            bottomPadding = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
 
                         )
                     }
@@ -706,6 +708,7 @@ fun BottomSheetPlayer(
                             playerConnection = playerConnection,
                             onToggleLike = playerConnection::toggleLike,
                             onExpandQueue = queueSheetState::expandSoft,
+                            onShowLyrics = { lyricsSheetState.expandSoft() },
                             onMenuClick = {
                                 menuState.show {
                                     PlayerMenu(
@@ -720,7 +723,7 @@ fun BottomSheetPlayer(
                                 }
                             },
                             context = context,
-                            bottomPadding = dynamicQueuePeekHeight
+                            bottomPadding = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
 
                         )
                     }
@@ -825,267 +828,81 @@ private fun MetroPlayerContent(
     playerConnection: com.nikhil.yt.playback.PlayerConnection,
     onToggleLike: () -> Unit,
     onExpandQueue: () -> Unit,
+    onShowLyrics: () -> Unit,
     onMenuClick: () -> Unit,
     context: Context,
     bottomPadding: androidx.compose.ui.unit.Dp
 ) {
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val playbackState by playerConnection.playbackState.collectAsState()
-    val isLoading = playbackState == STATE_BUFFERING
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
+    val queueTitle by playerConnection.queueTitle.collectAsState()
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(
-                WindowInsets.systemBars.only(
-                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                )
-            )
+        Modifier.fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .padding(bottom = bottomPadding),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 24.dp, bottom = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "Now Playing",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                color = textColor.copy(alpha = 0.7f)
-            )
-            Text(
-                text = mediaMetadata.album?.title ?: "Playing from Library",
-                style = MaterialTheme.typography.bodyMedium,
-                color = textColor.copy(alpha = 0.5f),
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 32.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            coil3.compose.AsyncImage(
-                model = mediaMetadata.thumbnailUrl?.toHighResThumbnail(),
-                contentDescription = "Album Art",
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(12.dp))
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = com.nikhil.yt.constants.PlayerHorizontalPadding)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = mediaMetadata.title ?: "Unknown",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        color = textColor,
-                        maxLines = 1,
-                        modifier = Modifier.basicMarquee()
-                    )
-                    Text(
-                        text = mediaMetadata.artists.joinToString { it.name },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = textColor.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        modifier = Modifier.basicMarquee()
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                HandoverButton(playerConnection)
-                Surface(
-                    onClick = {
-                        val intent = android.content.Intent().apply {
-                            action = android.content.Intent.ACTION_SEND; type =
-                            "text/plain"; putExtra(
-                            android.content.Intent.EXTRA_TEXT,
-                            "https://music.youtube.com/watch?v=${mediaMetadata.id}"
-                        )
-                        }; context.startActivity(android.content.Intent.createChooser(intent, null))
-                    },
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = Color.White,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.share),
-                            contentDescription = "Share",
-                            tint = Color.Black,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    onClick = onToggleLike,
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = Color.White,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painterResource(if (liked) R.drawable.favorite else R.drawable.favorite_border),
-                            contentDescription = "Like",
-                            tint = if (liked) MaterialTheme.colorScheme.error else Color.Black,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
+        Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(stringResource(R.string.now_playing), style = MaterialTheme.typography.titleMedium, color = textColor)
+            (queueTitle?.takeIf { it.isNotBlank() } ?: mediaMetadata.album?.title)?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = textColor.copy(alpha = 0.7f),
+                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            val displayPositionMs = sliderPosition ?: positionMs
-            StyledPlaybackSlider(
-                sliderStyle = SliderStyle.Wavy,
-                value = (displayPositionMs.toFloat() / durationMs.coerceAtLeast(1L)).coerceIn(
-                    0f,
-                    1f
-                ),
-                valueRange = 0f..1f,
-                onValueChange = { fraction -> playerConnection.seekTo((durationMs * fraction).toLong()) },
-                onValueChangeFinished = {},
-                activeColor = textColor,
-                isPlaying = isPlaying,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp)
-                    .offset(y = (-8).dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = com.nikhil.yt.utils.makeTimeString(displayPositionMs),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = textColor.copy(alpha = 0.7f)
-                )
-                Text(
-                    text = if (durationMs != C.TIME_UNSET) com.nikhil.yt.utils.makeTimeString(
-                        durationMs
-                    ) else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = textColor.copy(alpha = 0.7f)
+        }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 8.dp)) {
+            val coverSize = minOf(maxWidth, maxHeight)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                coil3.compose.AsyncImage(
+                    model = mediaMetadata.thumbnailUrl?.toHighResThumbnail(),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.size(coverSize).clip(RoundedCornerShape(16.dp))
                 )
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            val playInteractionSource =
-                androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            val isPlayPressed by playInteractionSource.collectIsPressedAsState()
-            val sideButtonWidth by androidx.compose.animation.core.animateDpAsState(
-                targetValue = if (isPlayPressed) 48.dp else 64.dp,
-                animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.6f,
-                    stiffness = 400f
-                ),
-                label = "SideWidth"
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
             ) {
-                Surface(
-                    onClick = playerConnection::seekToPrevious,
-                    shape = RoundedCornerShape(50),
-                    color = textColor.copy(alpha = 0.08f),
-                    modifier = Modifier
-                        .width(sideButtonWidth)
-                        .height(64.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painterResource(R.drawable.skip_previous),
-                            contentDescription = "Previous",
-                            tint = textColor.copy(alpha = if (canSkipPrevious) 1f else 0.4f),
-                            modifier = Modifier.size(32.dp)
-                        )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(mediaMetadata.title, style = MaterialTheme.typography.titleLarge,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = textColor,
+                            maxLines = 1, modifier = Modifier.basicMarquee())
+                        Text(mediaMetadata.artists.joinToString { it.name }, style = MaterialTheme.typography.bodyMedium,
+                            color = textColor.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.basicMarquee())
                     }
+                    PlayerTrackActions(mediaMetadata, playerConnection, liked, textColor)
                 }
-                Surface(
-                    onClick = {
-                        if (playbackState == androidx.media3.common.Player.STATE_ENDED && playerConnection.service.handoverController.selected.value == null) {
-                            playerConnection.player.seekTo(
-                                0,
-                                0
-                            ); playerConnection.player.playWhenReady = true
-                        } else playerConnection.togglePlayPause()
-                    },
-                    shape = RoundedCornerShape(50),
-                    color = Color.White,
-                    interactionSource = playInteractionSource,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(64.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        if (isLoading) com.nikhil.yt.ui.component.VeluneLoader(size = 24.dp)
-                        else {
-                            Icon(
-                                painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),
-                                contentDescription = "Play",
-                                tint = Color.Black,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (isPlaying) "Pause" else "Play",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.Black
-                            )
-                        }
-                    }
-                }
-                Surface(
-                    onClick = playerConnection::seekToNext,
-                    shape = RoundedCornerShape(50),
-                    color = textColor.copy(alpha = 0.08f),
-                    modifier = Modifier
-                        .width(sideButtonWidth)
-                        .height(64.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painterResource(R.drawable.skip_next),
-                            contentDescription = "Next",
-                            tint = textColor.copy(alpha = if (canSkipNext) 1f else 0.4f),
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
+                Spacer(Modifier.height(16.dp))
+                val displayPositionMs = sliderPosition ?: positionMs
+                val duration = durationMs.takeIf { it != C.TIME_UNSET && it > 0L } ?: 1L
+                StyledPlaybackSlider(
+                    sliderStyle = SliderStyle.Wavy,
+                    value = (displayPositionMs.toFloat() / duration).coerceIn(0f, 1f),
+                    valueRange = 0f..1f,
+                    onValueChange = { playerConnection.seekTo((duration * it).toLong()) },
+                    onValueChangeFinished = {},
+                    activeColor = textColor,
+                    isPlaying = isPlaying,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(com.nikhil.yt.utils.makeTimeString(displayPositionMs),
+                        style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
+                    Text(if (durationMs != C.TIME_UNSET) com.nikhil.yt.utils.makeTimeString(durationMs) else "",
+                        style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
                 }
             }
-
-            Spacer(modifier = Modifier.height(72.dp))
+            Spacer(Modifier.height(8.dp))
+            PlayerTransportControls(playerConnection, isPlaying, playbackState == STATE_BUFFERING,
+                canSkipPrevious, canSkipNext, textColor, Color.Black)
+            Spacer(Modifier.height(16.dp))
+            PlayerFooterActions(playerConnection, textColor, onExpandQueue, onShowLyrics, onMenuClick)
         }
     }
 }
