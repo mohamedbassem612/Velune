@@ -104,6 +104,7 @@ fun UpdateScreen(
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     var updateRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+    var latestRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
     updateRelease?.let { release ->
         UpdateAvailableDialog(release = release, onDismiss = { updateRelease = null })
     }
@@ -314,8 +315,9 @@ fun UpdateScreen(
 
     LaunchedEffect(Unit) {
         coroutineScope.launch {
-            Updater.getLatestVersionName().onSuccess {
-                latestVersion = it
+            Updater.getLatestReleaseInfo().onSuccess {
+                latestRelease = it
+                latestVersion = it.name.ifBlank { it.tagName }
             }
             Updater.getCommitHistory(30).onSuccess {
                 commits = it
@@ -413,6 +415,14 @@ fun UpdateScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary
                                     )
+                                    latestRelease?.apkSizeBytes?.takeIf { it > 0L }?.let { bytes ->
+                                        Text(
+                                            stringResource(R.string.update_dialog_size,
+                                                android.text.format.Formatter.formatShortFileSize(context, bytes)),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -1,6 +1,7 @@
 package com.nikhil.yt.ui.component
 
 import android.widget.Toast
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -45,6 +46,10 @@ fun UpdateAvailableDialog(
     }
     val downloading = downloadJob != null
     val version = release.tagName.removePrefix("v")
+    val sizeBytes = readyFile?.length()?.takeIf { it > 0L }
+        ?: release.apkSizeBytes?.takeIf { it > 0L }
+    val sizeLabel = sizeBytes?.let { Formatter.formatShortFileSize(context, it) }
+        ?: stringResource(R.string.update_dialog_size_unknown)
     // An optional Markdown image at the start of the release becomes the banner.
     val body = release.body.orEmpty().trim()
     val banner = remember(body) {
@@ -84,6 +89,9 @@ fun UpdateAvailableDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Text(stringResource(R.string.update_dialog_size, sizeLabel),
+                        style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
                     if (downloading) {
                         Spacer(Modifier.height(16.dp))
                         if (progress < 0) {

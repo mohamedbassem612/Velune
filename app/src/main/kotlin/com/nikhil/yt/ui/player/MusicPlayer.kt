@@ -75,8 +75,8 @@ fun BottomSheetPlayer(
     val pages = LocalBottomSheetPageState.current
     val bottomInset = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
     val queueState = rememberBottomSheetState(
-        dismissedBound = 64.dp + bottomInset,
-        collapsedBound = 65.dp + bottomInset,
+        dismissedBound = 0.dp,
+        collapsedBound = 0.dp,
         expandedBound = state.expandedBound,
         initialAnchor = COLLAPSED_ANCHOR,
     )
@@ -145,11 +145,13 @@ fun BottomSheetPlayer(
                     MusicArtwork(metadata?.thumbnailUrl, songId = metadata?.id, modifier =
                         Modifier.absoluteOffset(with(density) { cover.left.toDp() }, with(density) { cover.top.toDp() })
                             .size(with(density) { cover.width.toDp() }, with(density) { cover.height.toDp() })
+                            .miniPlayerSwipe(progress == 0f, connection::seekToPrevious, connection::seekToNext)
                             .then(if (progress == 0f) Modifier.clickable(onClick = state::expandSoft) else Modifier))
                     MusicTrackInfo(metadata?.title.orEmpty(), metadata?.artists?.joinToString { it.name }.orEmpty(),
                         expandedFraction = progress,
                         modifier = Modifier.absoluteOffset(with(density) { title.left.toDp() }, with(density) { title.top.toDp() })
                             .width(with(density) { title.width.toDp() })
+                            .miniPlayerSwipe(progress == 0f, connection::seekToPrevious, connection::seekToNext)
                             .then(if (progress == 0f) Modifier.clickable(onClick = state::expandSoft) else Modifier))
                 }
                 }
@@ -174,8 +176,9 @@ fun BottomSheetPlayer(
                 isPlaying = isPlaying, loading = playbackState == Player.STATE_BUFFERING,
                 canPrevious = canPrevious, canNext = canNext,
                 liked = currentSong?.song?.liked == true,
-                bottomPadding = queueState.collapsedBound,
+                bottomPadding = bottomInset,
                 onCollapse = state::collapseSoft, onMenu = showMenu,
+                onQueue = queueState::expandSoft, onLyrics = { lyricsVisible = true },
                 onArtworkPositioned = { coordinates ->
                     sheetCoordinates?.takeIf { it.isAttached && coordinates.isAttached }?.let {
                         coverBounds = it.localBoundingBoxOf(coordinates, clipBounds = false)
@@ -210,6 +213,7 @@ private fun MusicMiniPlayer(
 ) {
     Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(height)
         .clip(RoundedCornerShape(32.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+        .miniPlayerSwipe(true, connection::seekToPrevious, onNext)
         .clickable(onClick = onExpand)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))
@@ -245,44 +249,48 @@ private fun MusicFullPlayer(
     metadata: MediaMetadata, connection: PlayerConnection,
     isPlaying: Boolean, loading: Boolean, canPrevious: Boolean, canNext: Boolean, liked: Boolean,
     bottomPadding: Dp, onCollapse: () -> Unit, onMenu: () -> Unit,
+    onQueue: () -> Unit, onLyrics: () -> Unit,
     onArtworkPositioned: (LayoutCoordinates) -> Unit, onTitlePositioned: (LayoutCoordinates) -> Unit,
 ) {
+    val queueTitle by connection.queueTitle.collectAsState()
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(
         WindowInsetsSides.Horizontal + WindowInsetsSides.Top)).padding(bottom = bottomPadding)) {
         val wide = maxWidth > maxHeight
-        val coverSize = minOf(if (wide) maxWidth * 0.4f else maxWidth - 48.dp, maxHeight * if (wide) 0.68f else 0.40f)
+        val coverSize = minOf(if (wide) maxWidth * 0.4f else maxWidth - 48.dp, maxHeight * if (wide) 0.68f else 0.46f)
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp),
+            Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onCollapse) {
                     Icon(painterResource(R.drawable.expand_more), stringResource(R.string.music_collapse))
                 }
-                Text(stringResource(R.string.music_now_playing),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                HandoverButton(connection)
-                IconButton(onClick = onMenu) {
-                    Icon(painterResource(R.drawable.more_vert), stringResource(R.string.music_options))
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(stringResource(R.string.music_now_playing), style = MaterialTheme.typography.titleMedium)
+                    val source = queueTitle?.takeIf { it.isNotBlank() } ?: metadata.album?.title
+                    source?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
+                Spacer(Modifier.size(48.dp))
             }
             val art: @Composable () -> Unit = {
                 Spacer(Modifier.size(coverSize).onGloballyPositioned(onArtworkPositioned))
             }
             val controls: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-                    // These placeholders measure the destinations for the shared cover and text.
-                    MusicTrackInfo(metadata.title, metadata.artists.joinToString { it.name }, 1f,
-                        Modifier.fillMaxWidth().graphicsLayer { alpha = 0f }.clearAndSetSemantics { }
-                            .onGloballyPositioned(onTitlePositioned))
-                    Spacer(Modifier.height(16.dp))
-                    MusicProgress(connection, metadata.id)
-                    PlayerControls(connection, isPlaying, loading, canPrevious, canNext)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        IconButton(onClick = connection::toggleLike, modifier = Modifier.size(48.dp)) {
-                            Icon(painterResource(if (liked) R.drawable.favorite else R.drawable.favorite_border),
-                                stringResource(if (liked) R.string.action_remove_like else R.string.action_like), tint = if (liked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            // The shared title follows this exact slot and cannot overlap its actions.
+                            MusicTrackInfo(metadata.title, metadata.artists.joinToString { it.name }, 1f,
+                                Modifier.weight(1f).graphicsLayer { alpha = 0f }.clearAndSetSemantics { }
+                                    .onGloballyPositioned(onTitlePositioned))
+                            PlayerTrackActions(metadata, connection, liked, MaterialTheme.colorScheme.onSurface)
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
+                    MusicProgress(connection, metadata.id)
+                    PlayerTransportControls(connection, isPlaying, loading, canPrevious, canNext)
                     val error by connection.error.collectAsState()
                     error?.let { PlaybackError(it, retry = { connection.player.prepare() }) }
                 }
@@ -299,43 +307,10 @@ private fun MusicFullPlayer(
                     art()
                     Spacer(Modifier.height(24.dp))
                     controls()
-                    Spacer(Modifier.height(8.dp))
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PlayerControls(connection: PlayerConnection, playing: Boolean, loading: Boolean, canPrevious: Boolean, canNext: Boolean) {
-    val shuffle by connection.shuffleModeEnabled.collectAsState()
-    val repeat by connection.repeatMode.collectAsState()
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { connection.player.shuffleModeEnabled = !shuffle }) {
-                Icon(painterResource(R.drawable.shuffle), stringResource(if (shuffle) R.string.music_shuffle_on else R.string.music_shuffle_off),
-                    tint = if (shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = connection::seekToPrevious, enabled = canPrevious) {
-                Icon(painterResource(R.drawable.skip_previous), stringResource(R.string.music_previous), modifier = Modifier.size(28.dp))
-            }
-            FilledIconButton(onClick = connection::togglePlayPause,
-                modifier = Modifier.size(72.dp), shape = CircleShape) {
-                if (loading) CircularProgressIndicator(Modifier.size(28.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                else Icon(painterResource(if (playing) R.drawable.pause else R.drawable.play),
-                    stringResource(if (playing) R.string.music_pause else R.string.play), modifier = Modifier.size(32.dp))
-            }
-            IconButton(onClick = connection::seekToNext, enabled = canNext) {
-                Icon(painterResource(R.drawable.skip_next), stringResource(R.string.music_next), modifier = Modifier.size(28.dp))
-            }
-            IconButton(onClick = { connection.player.toggleRepeatMode() }) {
-                Icon(painterResource(if (repeat == Player.REPEAT_MODE_ONE) R.drawable.repeat_one else R.drawable.repeat),
-                    stringResource(when(repeat) {
-                        Player.REPEAT_MODE_ONE -> R.string.repeat_mode_one
-                        Player.REPEAT_MODE_ALL -> R.string.repeat_mode_all
-                        else -> R.string.repeat_mode_off
-                    }), tint = if (repeat != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                PlayerFooterActions(connection, MaterialTheme.colorScheme.onSurface, onQueue, onLyrics, onMenu)
             }
         }
     }

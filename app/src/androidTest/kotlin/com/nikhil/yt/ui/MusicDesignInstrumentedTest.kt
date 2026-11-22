@@ -12,20 +12,29 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.datastore.preferences.core.edit
+import androidx.activity.compose.setContent
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.*
 import androidx.media3.common.Player
 import androidx.media3.datasource.cache.ContentMetadataMutations
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.nikhil.yt.MainActivity
 import com.nikhil.yt.R
 import com.nikhil.yt.constants.*
 import com.nikhil.yt.db.entities.FormatEntity
+import com.nikhil.yt.db.entities.LyricsEntity
 import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.playback.MusicService
 import com.nikhil.yt.playback.queues.ListQueue
 import com.nikhil.yt.ui.screens.settings.DarkMode
+import com.nikhil.yt.ui.screens.settings.NavigationTab
 import com.nikhil.yt.utils.dataStore
+import com.nikhil.yt.utils.ReleaseInfo
+import com.nikhil.yt.ui.component.UpdateAvailableDialog
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -33,6 +42,7 @@ import java.time.LocalDateTime
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,16 +55,44 @@ class MusicDesignInstrumentedTest {
     private val automation get() = instrumentation.uiAutomation
     private val title = "ليل هادئ — A quiet evening with a very long song title"
 
-    @Test fun sharedPlaybackSurvivesPlayerSearchThemeAndRotation() {
+    @Test fun sharedPlaybackSurvivesPlayerSearchThemeAndRotation() = exercisePlayer(true)
+
+    @Test fun metroControlsAndLyricsKeepTheirOwnScreen() = exercisePlayer(false)
+
+    @Test fun updateDialogShowsSizeBeforeDownload() {
+        runBlocking { context.dataStore.edit { it[DefaultOpenTabKey] = NavigationTab.LIBRARY.name } }
+        val activity = launchActivity()
+        val size = 73400320L
+        val label = context.getString(R.string.update_dialog_size,
+            android.text.format.Formatter.formatShortFileSize(context, size))
+        try {
+            instrumentation.runOnMainSync {
+                activity.setContent {
+                    MaterialTheme {
+                        UpdateAvailableDialog(ReleaseInfo("v9.9.9", "UI fixture", "Test release notes", "", "",
+                            "https://example.com/fixture.apk", size), onDismiss = {})
+                    }
+                }
+            }
+            await("Update size must be visible before download") { find(label) != null }
+            capture("08-update-size")
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
+    private fun exercisePlayer(useMusicPlayer: Boolean) {
         runBlocking { context.dataStore.edit {
             it[DarkModeKey] = DarkMode.ON.name
             it[PureBlackKey] = true
             it[DynamicThemeKey] = false
-            it[UseMusicPlayerKey] = true
+            it[UseMusicPlayerKey] = useMusicPlayer
+            it[PlayerDesignStyleKey] = PlayerDesignStyle.V5.name
+            it[PlayerBackgroundStyleKey] = PlayerBackgroundStyle.DEFAULT.name
+            it[DefaultOpenTabKey] = NavigationTab.LIBRARY.name
             it[AppLanguageKey] = InstrumentationRegistry.getArguments().getString("language", "en")
         } }
-        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
+        val activity = launchActivity()
         val bound = CountDownLatch(1)
         lateinit var service: MusicService
         val binding = object : ServiceConnection {
@@ -76,6 +114,8 @@ class MusicDesignInstrumentedTest {
             tracks.forEach { track ->
                 service.database.insert(track)
                 service.database.upsert(FormatEntity(track.id, 0, "audio/wav", "pcm_s16le", 128_000, 8_000, wav.size.toLong(), null, playbackUrl = null))
+                service.database.upsert(LyricsEntity(track.id,
+                    "[00:00.00]First lyric line\n[00:15.00]Second lyric line\n[00:30.00]Third lyric line"))
                 val hole = service.downloadCache.startReadWrite(track.id, 0, wav.size.toLong())
                 try {
                     if (!hole.isCached) {
@@ -93,10 +133,24 @@ class MusicDesignInstrumentedTest {
             await("Cached fixture did not become ready") { main { service.sessionPlayer.playbackState == Player.STATE_READY } }
             instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(17_000) }
             await("Mini player did not appear") { find(title) != null }
+            if (useMusicPlayer) {
+                swipe(title, toLeft = true)
+                await("Left swipe did not select next song") { main { service.sessionPlayer.currentMediaItem?.mediaId } == tracks[1].id }
+                instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(0) }
+                await("Next track title did not update") { find(tracks[1].title) != null }
+                assertNull("Horizontal swipe must not expand the player", find(activity.getString(R.string.queue)))
+                capture("00-mini-swipe-next")
+                swipe(tracks[1].title, toLeft = false)
+                await("Right swipe did not select previous song") { main { service.sessionPlayer.currentMediaItem?.mediaId } == tracks[0].id }
+                assertNull("Reverse swipe must not expand the player", find(activity.getString(R.string.queue)))
+                instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(17_000) }
+                await("Previous track did not return to the mini player") { find(title) != null }
+            }
             capture("01-home-amoled")
             tap(title)
-            await("Full player did not open") { find(activity.getString(R.string.music_collapse)) != null }
+            await("Full player did not open") { find(activity.getString(R.string.music_options)) != null }
             capture("02-player-amoled")
+            assertControlPositions(activity)
             assertPosition(service)
             tap(activity.getString(R.string.music_options))
             capture("03-options")
@@ -106,7 +160,14 @@ class MusicDesignInstrumentedTest {
             capture("04-queue")
             pressBack()
             assertPosition(service)
-            tap(activity.getString(R.string.music_collapse))
+            tap(activity.getString(R.string.lyrics))
+            await("Lyrics screen did not open") { find(activity.getString(R.string.close)) != null }
+            capture("04b-lyrics-opaque")
+            assertPosition(service)
+            pressBack()
+            await("Closing lyrics did not restore the player") { find(activity.getString(R.string.queue)) != null }
+            assertControlPositions(activity)
+            pressBack()
             tap(activity.getString(R.string.search))
             capture("05-search-empty")
             assertPosition(service)
@@ -131,6 +192,43 @@ class MusicDesignInstrumentedTest {
     private fun assertPosition(service: MusicService) {
         assertEquals("UI navigation replaced the current track", "music-ui-fixture-1", main { service.sessionPlayer.currentMediaItem?.mediaId })
         assertTrue("UI navigation reset playback progress", main { service.sessionPlayer.currentPosition } in 16_500L..17_500L)
+    }
+
+    private fun assertControlPositions(activity: MainActivity) {
+        fun bounds(resource: Int): Rect {
+            val label = activity.getString(resource)
+            await("Missing control $label") { find(label) != null }
+            return Rect().also { find(label)!!.getBoundsInScreen(it) }
+        }
+        val devices = bounds(R.string.connect_devices)
+        val share = bounds(R.string.share)
+        val like = bounds(R.string.action_like)
+        assertTrue("Track actions must be devices, share, like", devices.centerX() < share.centerX() && share.centerX() < like.centerX())
+        val shuffle = bounds(R.string.music_shuffle_off)
+        val previous = bounds(R.string.music_previous)
+        val play = bounds(R.string.play)
+        val next = bounds(R.string.music_next)
+        val repeat = bounds(R.string.repeat_mode_off)
+        assertTrue("Transport order must match the reference",
+            shuffle.centerX() < previous.centerX() && previous.centerX() < play.centerX() &&
+                play.centerX() < next.centerX() && next.centerX() < repeat.centerX())
+        assertTrue("Track actions must be above transport controls", share.centerY() < previous.top)
+        assertTrue("Queue and lyrics must be below transport controls", bounds(R.string.queue).centerY() > play.bottom)
+        assertTrue("Play button must be larger than previous/next", play.height() > previous.height())
+    }
+
+    private fun launchActivity(): MainActivity {
+        context.startActivity(Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        var activity: MainActivity? = null
+        await("Activity did not resume") {
+            instrumentation.runOnMainSync {
+                activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                    .filterIsInstance<MainActivity>().firstOrNull()
+            }
+            activity != null
+        }
+        return activity!!
     }
 
     private fun <T> main(block: () -> T): T {
@@ -163,6 +261,27 @@ class MusicDesignInstrumentedTest {
         SystemClock.sleep(600)
     }
 
+    private fun swipe(label: String, toLeft: Boolean) {
+        val bounds = Rect().also { find(label)!!.getBoundsInScreen(it) }
+        val startX = bounds.left + bounds.width() * if (toLeft) 0.9f else 0.1f
+        val endX = bounds.left + bounds.width() * if (toLeft) 0.1f else 0.9f
+        val downTime = SystemClock.uptimeMillis()
+        for (step in 0..12) {
+            val action = when (step) {
+                0 -> MotionEvent.ACTION_DOWN
+                12 -> MotionEvent.ACTION_UP
+                else -> MotionEvent.ACTION_MOVE
+            }
+            val x = startX + (endX - startX) * step / 12f
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, bounds.exactCenterY(), 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            automation.injectInputEvent(event, true)
+            event.recycle()
+            SystemClock.sleep(25)
+        }
+        SystemClock.sleep(600)
+    }
+
     private fun pressBack() {
         automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         SystemClock.sleep(600)
@@ -170,7 +289,8 @@ class MusicDesignInstrumentedTest {
 
     private fun capture(name: String) {
         val language = InstrumentationRegistry.getArguments().getString("language", "en")
-        val file = File(context.getExternalFilesDir(null), "music-ui/$language-$name.png")
+        val player = runBlocking { context.dataStore.data.first()[UseMusicPlayerKey] ?: true }
+        val file = File(context.getExternalFilesDir(null), "music-ui/$language-${if (player) "default" else "metro"}-$name.png")
         file.parentFile!!.mkdirs()
         automation.takeScreenshot()!!.let { bitmap ->
             file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }

@@ -38,7 +38,8 @@ data class ReleaseInfo(
     val body: String?,
     val publishedAt: String,
     val htmlUrl: String,
-    val apkUrl: String? = null
+    val apkUrl: String? = null,
+    val apkSizeBytes: Long? = null,
 )
 
 private data class ReleasesNetworkResult(
@@ -56,28 +57,7 @@ object Updater {
     private fun parseReleasesJson(
         json: String,
     ): List<ReleaseInfo> {
-        val jsonArray = JSONArray(json)
-        val releases = ArrayList<ReleaseInfo>(jsonArray.length())
-        for (i in 0 until jsonArray.length()) {
-            val item = jsonArray.getJSONObject(i)
-            val assets = item.optJSONArray("assets")
-            val candidates = (0 until (assets?.length() ?: 0)).map { index ->
-                val asset = assets!!.getJSONObject(index)
-                UpdateAsset(asset.optString("name"), asset.optString("browser_download_url"))
-            }
-            val apkUrl = UpdateAssetSelector.select(candidates, BuildConfig.FLAVOR_device, BuildConfig.ARCHITECTURE)?.downloadUrl
-            releases.add(
-                ReleaseInfo(
-                    tagName = item.optString("tag_name", ""),
-                    name = item.optString("name", ""),
-                    body = if (item.has("body")) item.optString("body") else null,
-                    publishedAt = item.optString("published_at", ""),
-                    htmlUrl = item.optString("html_url", ""),
-                    apkUrl = apkUrl
-                )
-            )
-        }
-        return releases
+        return ReleaseInfoParser.parse(json, BuildConfig.FLAVOR_device, BuildConfig.ARCHITECTURE)
     }
 
     private fun getTopReleaseFingerprint(releases: List<ReleaseInfo>): String {

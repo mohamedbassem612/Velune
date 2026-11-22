@@ -4,6 +4,8 @@
     <string name="update_dialog_available">إصدار Velune %1$s متاح للتحميل.</string>
     <string name="update_dialog_downloading">جارٍ تحميل Velune %1$s…</string>
     <string name="update_dialog_progress">%1$d%%</string>
+    <string name="update_dialog_size">حجم التحديث: %1$s</string>
+    <string name="update_dialog_size_unknown">غير متاح</string>
     <string name="update_dialog_whats_new">الجديد في التحديث</string>
     <string name="update_dialog_download">تحميل الآن</string>
     <string name="update_dialog_later">ذكّرني لاحقًا</string>

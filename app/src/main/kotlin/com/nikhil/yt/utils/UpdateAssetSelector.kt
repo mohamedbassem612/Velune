@@ -1,6 +1,6 @@
 package com.nikhil.yt.utils
 
-data class UpdateAsset(val name: String, val downloadUrl: String)
+data class UpdateAsset(val name: String, val downloadUrl: String, val sizeBytes: Long? = null)
 
 /** GitHub asset ordering is not a device compatibility guarantee. */
 object UpdateAssetSelector {
