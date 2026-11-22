@@ -190,9 +190,11 @@ fun BottomSheetPlayer(
         }
     }
     if (lyricsVisible) {
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { lyricsVisible = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        // Keep lyrics and its option sheets in the same window, with an opaque full-screen surface.
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = surface.copy(alpha = 1f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             metadata?.let { LyricsScreen(it, { lyricsVisible = false }, navController) }
         }

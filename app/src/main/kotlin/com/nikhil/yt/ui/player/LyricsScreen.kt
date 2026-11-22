@@ -23,7 +23,6 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.lerp
 import kotlin.math.floor
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +49,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -294,7 +294,13 @@ fun LyricsScreen(
 
     BackHandler(onBack = onBackClick)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Player backgrounds may be translucent or empty while artwork loads.
+    // An opaque surface hides the player beneath and blocks touches reaching it.
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 1f),
+        contentColor = textBackgroundColor,
+    ) {
         Box(modifier = Modifier.fillMaxSize()) {
             PlayerBackground(
                 playerBackground = playerBackground,
