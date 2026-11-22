@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-22",
+  "platform": "Ubuntu 24.04 / Qt 6.4.2 / Qt FFmpeg",
+  "conditions": "Public YouTube streams, fresh benchmark processes; no account cookies. Some checks overlapped. Small diagnostic sample, not a latency guarantee. Nonzero PCM on isolated PulseAudio sink, not physical speaker output.",
+  "checks": "Playback/resolver/relay/UI/library/search/mpv checks passed. Auth check required software rendering for headless Qt WebEngine. Live M4A playback, seek forward/back, pause passed.",
+  "measurements": [
+    {
+      "case": "native initial",
+      "capture": "isolated sink nonzero PCM receipt; includes capture buffering, not speaker/audibility confirmation",
+      "samples": [
+        {
+          "active_ms": 740.676159,
+          "backend_load_ms": 666.275641,
+          "backend_to_first_position_proxy_ms": 174.96534900000006,
+          "buffering_episodes": 0,
+          "buffering_recovery_ms": 0,
+          "buffering_unrecovered": false,
+          "errors": 0,
+          "first_audio_output_ms": 778.593354,
+          "first_position_proxy_ms": 841.24099,
+          "main_to_first_position_ms": 1192.264163,
+          "playable_ms": 740.708178,
+          "relay_ready_ms": 666.263238,
+          "resolver_completed_ms": 665.890993,
+          "resolver_duration_ms": 665.8791719999999,
+          "resolver_started_ms": 0.011821,
+          "success": true
+        }
+      ]
+    },
+    {
+      "case": "native visitor context",
+      "capture": "isolated sink nonzero PCM receipt; includes capture buffering, not speaker/audibility confirmation",
+      "samples": [
+        {
+          "active_ms": 816.388742,
+          "backend_load_ms": 713.104807,
+          "backend_to_first_position_proxy_ms": 203.80076299999996,
+          "buffering_episodes": 0,
+          "buffering_recovery_ms": 0,
+          "buffering_unrecovered": false,
+          "errors": 0,
+          "first_audio_output_ms": 897.643037,
+          "first_position_proxy_ms": 916.90557,
+          "main_to_first_position_ms": 1253.174367,
+          "playable_ms": 816.457456,
+          "relay_ready_ms": 713.090686,
+          "resolver_completed_ms": 712.664991,
+          "resolver_duration_ms": 712.652308,
+          "resolver_started_ms": 0.012683,
+          "success": true
+        }
+      ]
+    },
+    {
+      "case": "fallback outlier during concurrent checks",
+      "capture": "isolated sink nonzero PCM receipt; includes capture buffering, not speaker/audibility confirmation",
+      "samples": [
+        {
+          "active_ms": 13596.609955,
+          "backend_load_ms": 13476.332692,
+          "backend_to_first_position_proxy_ms": 220.56182500000068,
+          "buffering_episodes": 0,
+          "buffering_recovery_ms": 0,
+          "buffering_unrecovered": false,
+          "errors": 0,
+          "first_audio_output_ms": 13641.266435,
+          "first_position_proxy_ms": 13696.894517,
+          "main_to_first_position_ms": 14033.579753,
+          "playable_ms": 13596.679773,
+          "relay_ready_ms": 13476.330567,
+          "resolver_completed_ms": 13476.062933,
+          "resolver_duration_ms": 13476.050722999998,
+          "resolver_started_ms": 0.01221,
+          "success": true
+        }
+      ]
+    },
+    {
+      "case": "native diagnostic repeat",
+      "capture": "isolated sink nonzero PCM receipt; includes capture buffering, not speaker/audibility confirmation",
+      "samples": [
+        {
+          "active_ms": 726.521885,
+          "backend_load_ms": 645.422453,
+          "backend_to_first_position_proxy_ms": 182.213431,
+          "buffering_episodes": 0,
+          "buffering_recovery_ms": 0,
+          "buffering_unrecovered": false,
+          "errors": 0,
+          "first_audio_output_ms": 771.13616,
+          "first_position_proxy_ms": 827.635884,
+          "main_to_first_position_ms": 1167.802771,
+          "playable_ms": 726.632997,
+          "relay_ready_ms": 645.415901,
+          "resolver_completed_ms": 645.075747,
+          "resolver_duration_ms": 645.0634709999999,
+          "resolver_started_ms": 0.012276,
+          "success": true
+        }
+      ]
+    }
+  ]
+}

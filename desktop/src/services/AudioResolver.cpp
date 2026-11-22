@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QUrlQuery>
 #include <utility>
 namespace velune {
 struct CachedSource {
@@ -17,6 +18,30 @@ struct CachedSource {
     qint64 duration = 0, expiry = 0;
 };
 static QHash<QString, CachedSource> sources;
+static QString sourceKey(const QString &id, const QByteArray &cookies) {
+    return id + ":" +
+           QString::fromLatin1(QCryptographicHash::hash(cookies, QCryptographicHash::Sha256).toHex());
+}
+bool AudioResolver::matches(const QString &id, const QByteArray &cookies) const {
+    return busy() && cacheKey == sourceKey(id, cookies);
+}
+void AudioResolver::publish(const QUrl &url, const QJsonObject &headers, qint64 duration, qint64 lifetime) {
+    const auto now = QDateTime::currentSecsSinceEpoch();
+    const auto expiry = QUrlQuery(url).queryItemValue("expire").toLongLong();
+    if (expiry > 0)
+        lifetime = qMin(lifetime, expiry - now - 60);
+    for (auto i = sources.begin(); i != sources.end();)
+        if (i->expiry <= now)
+            i = sources.erase(i);
+        else
+            ++i;
+    if (sources.size() >= 64)
+        sources.erase(sources.begin());
+    if (lifetime > 0)
+        sources[cacheKey] = {url, headers, duration, now + qMin(lifetime, qint64(1800))};
+    accountCookies.clear();
+    emit ready(url, headers, duration);
+}
 
 QString AudioResolver::toolPath(const QString &name) {
 #ifdef Q_OS_WIN
@@ -29,9 +54,16 @@ QString AudioResolver::toolPath(const QString &name) {
         return bundled;
     return QStandardPaths::findExecutable(filename);
 }
-AudioResolver::AudioResolver(QObject *parent, QString binary, QString js)
-    : QObject(parent), executable(binary.isEmpty() ? toolPath("yt-dlp") : binary),
+AudioResolver::AudioResolver(QObject *parent, QString binary, QString js, QNetworkAccessManager *transport)
+    : QObject(parent), direct(this, transport), useDirect(binary.isEmpty() || transport),
+      executable(binary.isEmpty() ? toolPath("yt-dlp") : binary),
       runtime(js.isEmpty() ? toolPath("deno") : js) {
+    connect(&direct, &NativeAudioResolver::ready, this,
+            [this](QUrl url, QJsonObject headers, qint64 duration, qint64 lifetime) {
+                emit stage("native_resolver_completed");
+                publish(url, headers, duration, lifetime);
+            });
+    connect(&direct, &NativeAudioResolver::unavailable, this, [this] { launch(true); });
     timeout.setSingleShot(true);
     timeout.setInterval(120000);
     connect(&timeout, &QTimer::timeout, this,
@@ -67,7 +99,7 @@ void AudioResolver::createProcess() {
             QFile::remove(work->filePath("cookies.txt"));
             if (code != 0 || status != QProcess::NormalExit) {
                 if (fastAttempt && status == QProcess::NormalExit) {
-                    // The public low-latency client is not available for every song.
+                    // Retry with complete extraction and the account session when needed.
                     work.reset();
                     output.clear();
                     diagnostic.clear();
@@ -86,8 +118,6 @@ void AudioResolver::createProcess() {
                          detail.contains("challenge"))
                     message =
                         "YouTube rejected the playback request. Please retry or update the playback tools.";
-                else if (detail.contains("max-filesize") || detail.contains("larger than max"))
-                    message = "This song exceeds the temporary playback size limit (128 MB).";
                 failed(message);
                 return;
             }
@@ -100,11 +130,8 @@ void AudioResolver::createProcess() {
             }
             const auto headers = object["http_headers"].toObject();
             const auto duration = qint64(object["duration"].toDouble() * 1000);
-            if (sources.size() >= 64)
-                sources.clear();
-            sources[cacheKey] = {url, headers, duration, QDateTime::currentSecsSinceEpoch() + 300};
             work.reset();
-            emit ready(url, headers, duration);
+            publish(url, headers, duration, 300);
         });
 }
 
@@ -112,6 +139,7 @@ AudioResolver::~AudioResolver() {
     cancel();
 }
 void AudioResolver::cancel() {
+    direct.cancel();
     timeout.stop();
     auto oldWork = std::shared_ptr<QTemporaryDir>(std::move(work));
     if (oldWork)
@@ -143,12 +171,7 @@ void AudioResolver::resolve(const QString &id, const QByteArray &cookies, bool t
         emit error("This item does not have a valid YouTube video ID.");
         return;
     }
-    if (executable.isEmpty() || runtime.isEmpty()) {
-        emit error("YouTube playback tools are missing. Install Velune's playback tools, then restart.");
-        return;
-    }
-    cacheKey = videoId + ":" +
-               QString::fromLatin1(QCryptographicHash::hash(cookies, QCryptographicHash::Sha256).toHex());
+    cacheKey = sourceKey(videoId, cookies);
     const auto cached = sources.value(cacheKey);
     if (!thorough && cached.expiry > QDateTime::currentSecsSinceEpoch()) {
         emit cacheHit();
@@ -157,9 +180,20 @@ void AudioResolver::resolve(const QString &id, const QByteArray &cookies, bool t
     }
     this->videoId = videoId;
     accountCookies = cookies;
-    launch(!thorough);
+    if (thorough)
+        sources.remove(cacheKey);
+    if (useDirect && !thorough) {
+        emit stage("native_resolver_started");
+        direct.resolve(videoId);
+    } else
+        launch(!thorough);
 }
 void AudioResolver::launch(bool fast) {
+    if (executable.isEmpty() || runtime.isEmpty()) {
+        failed("This song needs the playback helper. Install Velune's playback tools, then restart.");
+        return;
+    }
+    emit stage(fast ? "helper_resolver_started" : "helper_fallback_started");
     fastAttempt = fast;
     work = std::make_unique<QTemporaryDir>(QDir::tempPath() + "/velune-playback-XXXXXX");
     if (!work->isValid()) {
@@ -183,13 +217,16 @@ void AudioResolver::launch(bool fast) {
                      "--dump-single-json",
                      "--check-formats",
                      "--format",
-                     "bestaudio[ext=m4a]/bestaudio/best",
+                     "bestaudio[ext=m4a][protocol=https]/bestaudio[protocol=https]/best[protocol=https]",
                      "--js-runtimes",
                      "deno:" + runtime};
     if (fast) {
-        args.removeOne("--check-formats");
-        args << "--extractor-args" << "youtube:player_client=web_music";
-        args[args.indexOf("--format") + 1] = "18/bestaudio[ext=m4a]/bestaudio/best";
+        // web_music alone rejects some public videos and favors muxed video.
+        // Resolve the public audio clients together, without related metadata or
+        // manifests. Keep the small format probe: an extracted URL can still be
+        // rejected by the CDN. The full retry retains yt-dlp's default clients.
+        args << "--extractor-args"
+             << "youtube:player_client=web_music,visionos;player_skip=initial_data;skip=hls,dash";
     }
     if (!fast && !accountCookies.isEmpty()) {
         QFile file(work->filePath("cookies.txt"));

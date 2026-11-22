@@ -41,7 +41,7 @@ static QJsonValue findKey(const QJsonValue &v, const QString &key) {
 MusicService::MusicService(Library *l, ConnectClient *c, QObject *parent)
     : MusicService(l, c, createPlaybackEngine(), parent) {}
 MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlaybackEngine> playback,
-                           QObject *parent)
+                           QObject *parent, QNetworkAccessManager *playbackNetwork)
     : QObject(parent), library(l), remote(c), auth(l->directory(), this),
       searchEngine(
           l->directory(),
@@ -55,7 +55,8 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
               return post(endpoint, body, done, session);
           },
           this),
-      resolver(this), prefetch(this), stream(this), engine(std::move(playback)) {
+      resolver(new AudioResolver(this, {}, {}, playbackNetwork)),
+      prefetch(new AudioResolver(this, {}, {}, playbackNetwork)), stream(this), engine(std::move(playback)) {
     Q_ASSERT(engine);
     connect(&catalog, &LibraryCatalog::message, this, &MusicService::message);
     connect(this, &MusicService::authenticationChanged, &catalog, [this] { catalog.cancel(); });
@@ -70,13 +71,14 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
     connect(&searchEngine, &SearchEngine::failed, this, &MusicService::message);
     connect(this, &MusicService::authenticationChanged, &searchEngine, &SearchEngine::invalidate);
     prepareNext.setSingleShot(true);
-    prepareNext.setInterval(1500);
+    prepareNext.setInterval(250);
     connect(&prepareNext, &QTimer::timeout, this, [this] {
         const int next = current["index"].toInt() + 1;
         if (remote->hasTarget() || shuffled || !wantsPlayback || next >= queue.size())
             return;
-        if (library->mediaPath(queue[next].id).isEmpty())
-            prefetch.resolve(queue[next].id, authenticated ? auth.playbackCookies() : QByteArray());
+        const auto cookies = authenticated ? auth.playbackCookies() : QByteArray();
+        if (library->mediaPath(queue[next].id).isEmpty() && !prefetch->matches(queue[next].id, cookies))
+            prefetch->resolve(queue[next].id, cookies);
     });
     connect(engine.get(), &IPlaybackEngine::positionChanged, this, [this](PlaybackRequest id, qint64 v) {
         if (!active(id))
@@ -129,7 +131,7 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
             if (repeatMode == 1) {
                 const auto source = engine->source();
                 const auto next = ++playbackGeneration;
-                disconnect(&resolver, nullptr, this, nullptr);
+                disconnect(resolver, nullptr, this, nullptr);
                 disconnect(&stream, nullptr, this, nullptr);
                 bindSourceCallbacks(next);
                 trace.begin(next, engine->backendName(), source.isLocalFile() ? "local" : "relay");
@@ -145,6 +147,9 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
     connect(&auth, &EmbeddedSession::status, this, &MusicService::message);
     connect(&auth, &EmbeddedSession::error, this, &MusicService::message);
     connect(&auth, &EmbeddedSession::authenticatedChanged, this, [this](bool value) {
+        prefetch->cancel();
+        prepareNext.stop();
+        NativeAudioResolver::setVisitorData({});
         bool newlyConnected = value && (!authenticated || account != auth.accountName());
         authenticated = value;
         account = value ? auth.accountName() : QString();
@@ -172,17 +177,17 @@ MusicService::~MusicService() {
 bool MusicService::active(PlaybackRequest id) const {
     return id != 0 && id == playbackGeneration && !remote->hasTarget() && !remoteRoute;
 }
-void MusicService::cancelPlayback() {
+void MusicService::cancelPlayback(bool keepPrefetch) {
     trace.finish("cancelled");
     ++playbackGeneration;
     ++streamGeneration;
     wantsPlayback = false;
     pendingSeek = -1;
-    disconnect(&resolver, nullptr, this, nullptr);
+    disconnect(resolver, nullptr, this, nullptr);
     disconnect(&stream, nullptr, this, nullptr);
     engine->cancel();
-    resolver.cancel();
-    prefetch.cancel();
+    resolver->cancel();
+    if (!keepPrefetch) prefetch->cancel();
     prepareNext.stop();
     stream.stop();
 }
@@ -249,8 +254,11 @@ QNetworkReply *MusicService::post(const QString &endpoint, QJsonObject body,
                                    error == QNetworkReply::TemporaryNetworkFailureError ||
                                    error == QNetworkReply::OperationCanceledError;
             done({{"error", reply->errorString()}, {"retryable", retryable}});
-        } else
+        } else {
+            const auto visitor = doc.object()["responseContext"].toObject()["visitorData"].toString();
+            if (!visitor.isEmpty()) NativeAudioResolver::setVisitorData(visitor);
             done(doc.object());
+        }
         reply->deleteLater();
     });
     return reply;
@@ -396,9 +404,6 @@ void MusicService::loadLibrary(QString continuation, QList<Track> accumulated) {
     });
 }
 
-QJsonObject MusicService::parseSuggestions(const QJsonObject &response) {
-    return SearchParser::suggestions(response);
-}
 void MusicService::suggest(QString query) {
     cancelSearch();
     query = query.trimmed();
@@ -568,7 +573,10 @@ void MusicService::play(QList<Track> items, int index) {
         remote->play(items, index);
         return;
     }
-    cancelPlayback();
+    const auto cookies = authenticated ? auth.playbackCookies() : QByteArray();
+    const bool adoptPrepared = prefetch->matches(items[index].id, cookies);
+    cancelPlayback(adoptPrepared);
+    if (adoptPrepared) std::swap(resolver, prefetch);
     queue = items;
     current = {{"queue", QJsonArray{}},
                {"index", index},
@@ -588,11 +596,14 @@ void MusicService::play(QList<Track> items, int index) {
         resolveAndPlay(items[index], generation);
 }
 void MusicService::bindSourceCallbacks(PlaybackRequest generation) {
-    connect(&resolver, &AudioResolver::cacheHit, this, [this, generation] {
+    connect(resolver, &AudioResolver::stage, this, [this, generation](const QString &name) {
+        if (active(generation)) trace.mark(generation, name);
+    });
+    connect(resolver, &AudioResolver::cacheHit, this, [this, generation] {
         if (active(generation))
             trace.mark(generation, "resolver_cache_hit");
     });
-    connect(&resolver, &AudioResolver::ready, this,
+    connect(resolver, &AudioResolver::ready, this,
             [this, generation](QUrl source, QJsonObject headers, qint64 duration) {
                 if (!active(generation))
                     return;
@@ -614,7 +625,7 @@ void MusicService::bindSourceCallbacks(PlaybackRequest generation) {
                 if (wantsPlayback)
                     engine->play();
             });
-    connect(&resolver, &AudioResolver::error, this, [this, generation](QString error) {
+    connect(resolver, &AudioResolver::error, this, [this, generation](QString error) {
         if (!active(generation))
             return;
         trace.finish("resolver_error");
@@ -636,7 +647,7 @@ void MusicService::bindSourceCallbacks(PlaybackRequest generation) {
             if (active(generation))
                 trace.mark(generation, "refresh_resolver_started");
             if (active(generation))
-                resolver.resolve(queue[current["index"].toInt()].id,
+                resolver->resolve(queue[current["index"].toInt()].id,
                                  authenticated ? auth.playbackCookies() : QByteArray(), true);
             return;
         }
@@ -665,8 +676,13 @@ void MusicService::resolveAndPlay(const Track &track, PlaybackRequest generation
     }
     emit message("Preparing audio…");
     trace.mark(generation, "resolver_started");
-    if (active(generation))
-        resolver.resolve(track.id, authenticated ? auth.playbackCookies() : QByteArray());
+    if (active(generation)) {
+        const auto cookies = authenticated ? auth.playbackCookies() : QByteArray();
+        if (resolver->matches(track.id, cookies))
+            trace.mark(generation, "resolver_prefetch_joined");
+        else
+            resolver->resolve(track.id, cookies);
+    }
 }
 void MusicService::action(QString name) {
     if (remoteUnavailable())
@@ -689,7 +705,7 @@ void MusicService::action(QString name) {
         wantsPlayback = true;
         if (!engine->source().isEmpty() && endedGeneration != playbackGeneration)
             engine->resume();
-        else if (resolver.busy())
+        else if (resolver->busy())
             return;
         else if (!queue.isEmpty()) {
             cancelPlayback();

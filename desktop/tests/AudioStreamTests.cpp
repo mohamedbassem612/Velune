@@ -8,11 +8,17 @@ class MediaReply : public QNetworkReply {
     QByteArray data;
 
   public:
-    MediaReply(const QNetworkRequest &request, QObject *parent) : QNetworkReply(parent) {
+    MediaReply(const QNetworkRequest &request, QObject *parent, bool fail = false) : QNetworkReply(parent) {
         setRequest(request);
         setUrl(request.url());
         open(QIODevice::ReadOnly);
-        QTimer::singleShot(0, this, [this, request] {
+        QTimer::singleShot(0, this, [this, request, fail] {
+            if (fail) {
+                setError(QNetworkReply::ConnectionRefusedError, "Fixture connection refused");
+                setFinished(true);
+                emit finished();
+                return;
+            }
             const bool ranged = request.rawHeader("Range") == "bytes=4-7";
             data = ranged ? "4567" : "0123456789";
             setAttribute(QNetworkRequest::HttpStatusCodeAttribute, ranged ? 206 : 200);
@@ -42,16 +48,37 @@ class MediaReply : public QNetworkReply {
 class MediaNetwork : public QNetworkAccessManager {
   public:
     QList<QNetworkRequest> requests;
+    bool failBeforeHeaders = false;
 
   protected:
     QNetworkReply *createRequest(Operation, const QNetworkRequest &request, QIODevice *) override {
         requests.append(request);
-        return new MediaReply(request, this);
+        return new MediaReply(request, this, failBeforeHeaders);
     }
 };
 class AudioStreamTests : public QObject {
     Q_OBJECT
   private slots:
+    void connectionFailureRequestsSourceRefresh() {
+        MediaNetwork network;
+        network.failBeforeHeaders = true;
+        AudioStream stream(nullptr, &network);
+        QSignalSpy errors(&stream, &AudioStream::requestError);
+        const auto local = stream.start(QUrl("https://fixture.googlevideo.com/audio"), {}, 17);
+        QTcpSocket client;
+        client.connectToHost(local.host(), local.port());
+        QVERIFY(client.waitForConnected(2000));
+        client.write("GET " + local.path().toLatin1() +
+                     " HTTP/1.1\r\nHost: 127.0.0.1:" + QByteArray::number(local.port()) + "\r\n\r\n");
+        QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 1, 3000);
+        QCOMPARE(errors[0][0].toULongLong(), 17ULL);
+        QByteArray response;
+        QTRY_VERIFY_WITH_TIMEOUT(([&] {
+                                     response += client.readAll();
+                                     return response.contains("HTTP/1.1 502");
+                                 })(),
+                                 3000);
+    }
     void queuedErrorsKeepTheirOriginalRequestIdentity() {
         AudioStream stream;
         QSignalSpy errors(&stream, &AudioStream::requestError);

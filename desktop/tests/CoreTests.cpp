@@ -850,7 +850,7 @@ class CoreTests : public QObject {
         QFile fixture(QFINDTESTDATA("fixtures/search-suggestions.json"));
         QVERIFY(fixture.open(QIODevice::ReadOnly));
         const auto response = QJsonDocument::fromJson(fixture.readAll()).object();
-        const auto parsed = MusicService::parseSuggestions(response);
+        const auto parsed = SearchParser::suggestions(response);
         QCOMPARE(parsed["queries"].toArray(), QJsonArray({"test song", "test artist"}));
         const auto items = parsed["items"].toArray();
         QCOMPARE(items.size(), 3);
@@ -861,7 +861,7 @@ class CoreTests : public QObject {
         QCOMPARE(items[1].toObject()["browseId"].toString(), "MPRE-album");
         QCOMPARE(items[2].toObject()["kind"].toString(), "artist");
         QCOMPARE(items[2].toObject()["thumbnail"].toString(), "https://example.com/artist.jpg");
-        QVERIFY(MusicService::parseSuggestions({})["items"].toArray().isEmpty());
+        QVERIFY(SearchParser::suggestions({})["items"].toArray().isEmpty());
         QTemporaryDir dir;
         Library library(dir.path());
         ConnectClient remote(&library);

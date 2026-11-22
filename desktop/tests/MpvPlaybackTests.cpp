@@ -33,7 +33,13 @@ class MpvPlaybackTests : public QObject {
     }
     void selectionAndTrace() {
         auto qt = selectPlaybackEngine("qt");
+#ifdef VELUNE_MULTIMEDIA
         QCOMPARE(qt.engine->backendName(), QString("qt"));
+#else
+        QCOMPARE(qt.engine->backendName(), QString("mpv"));
+        QVERIFY(qt.diagnostic.contains("disabled"));
+        QCOMPARE(selectPlaybackEngine("").engine->backendName(), QString("mpv"));
+#endif
         auto invalid = selectPlaybackEngine("invalid-secret-must-not-appear");
         QVERIFY(!invalid.diagnostic.isEmpty());
         QVERIFY(!invalid.diagnostic.contains("invalid-secret"));

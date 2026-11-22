@@ -35,7 +35,6 @@ AudioStream::AudioStream(QObject *parent, QNetworkAccessManager *manager)
     worker->moveToThread(&thread);
     connect(worker, &AudioStreamWorker::error, this, [this](quint64 id, QString message) {
         emit requestError(id, message);
-        emit error(message);
     });
     connect(&thread, &QThread::finished, worker, &QObject::deleteLater);
     thread.start();
@@ -206,7 +205,7 @@ void AudioStreamWorker::accept() {
                     drain();
                 });
                 connect(socket, &QTcpSocket::bytesWritten, socket, [drain](qint64) { drain(); });
-                connect(reply, &QNetworkReply::finished, socket, [state, reply, reject, sendHeaders, drain] {
+                connect(reply, &QNetworkReply::finished, socket, [this, state, reply, reject, sendHeaders, drain, streamRequest] {
                     state->finished = true;
                     sendHeaders();
                     if (!state->sent) {
@@ -214,6 +213,7 @@ void AudioStreamWorker::accept() {
                                  int(reply->error()));
                         state->sent = true;
                         reject(502);
+                        emit error(streamRequest, "The audio connection failed. Try the song again.");
                         return;
                     }
                     drain();

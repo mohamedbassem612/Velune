@@ -16,7 +16,6 @@ class AudioStream : public QObject {
     QUrl start(const QUrl &source, const QJsonObject &headers, quint64 request = 0);
     void stop();
   signals:
-    void error(QString message);
     void requestError(quint64 request, QString message);
 
   private:

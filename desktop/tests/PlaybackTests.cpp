@@ -1,4 +1,5 @@
 #include "FakePlaybackEngine.h"
+#include "NativeResolverFixture.h"
 #include "playback/QtPlaybackEngine.h"
 #include "services/MusicService.h"
 #include <QTemporaryDir>
@@ -15,10 +16,11 @@ class PlaybackTests : public QObject {
         Library library{directory.path()};
         ConnectClient remote{&library};
         FakePlaybackEngine *engine = new FakePlaybackEngine;
-        MusicService music{&library, &remote, std::unique_ptr<IPlaybackEngine>(engine)};
+        MusicService music;
         Track first{"local:first", "First", "Test", {}, 20};
         Track second{"local:second", "Second", "Test", {}, 20};
-        Session() {
+        Session(QNetworkAccessManager *network = nullptr)
+            : music(&library, &remote, std::unique_ptr<IPlaybackEngine>(engine), nullptr, network) {
             QFile file(directory.filePath("audio.wav"));
             if (!file.open(QIODevice::WriteOnly))
                 qFatal("Cannot create fixture");
@@ -35,6 +37,23 @@ class PlaybackTests : public QObject {
         }
     };
   private slots:
+    void nextTrackAdoptsUnfinishedPreparation() {
+        NativeFixtureNetwork network;
+        network.delay = 500;
+        Session s(&network);
+        Track next{"PREFETCH001", "Next", "Test", {}, 180};
+        s.music.play({s.first, next});
+        QTRY_COMPARE(network.playerBodies.size(), 1);
+        s.music.action("pause");
+        s.music.action("resume");
+        QTest::qWait(300); // A restarted preparation timer must not restart the pending request.
+        s.music.action("next");
+        QTRY_VERIFY(s.playing());
+        QCOMPARE(s.song(), next.id);
+        QCOMPARE(network.playerBodies.size(), 1); // No cancel/restart on the click.
+        QCOMPARE(network.probes, 1);
+        s.music.action("stop");
+    }
     void rapidTenTrackControlsAndShuffle() {
         Session s;
         QList<Track> tracks;

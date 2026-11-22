@@ -21,7 +21,7 @@ class MusicService : public QObject {
   public:
     MusicService(Library *library, ConnectClient *connect, QObject *parent = nullptr);
     MusicService(Library *library, ConnectClient *connect, std::unique_ptr<IPlaybackEngine> engine,
-                 QObject *parent = nullptr);
+                 QObject *parent = nullptr, QNetworkAccessManager *playbackNetwork = nullptr);
     ~MusicService() override;
     bool loggedIn() const {
         return authenticated;
@@ -47,7 +47,6 @@ class MusicService : public QObject {
     }
     QJsonArray localSearchItems(bool offlineOnly = false) const;
     void suggest(QString query);
-    static QJsonObject parseSuggestions(const QJsonObject &response);
     void playBrowse(QString browseId, QString playlistId = {});
     void cancelSearch();
     void explore();
@@ -83,7 +82,7 @@ class MusicService : public QObject {
     EmbeddedSession auth;
     SearchEngine searchEngine;
     LibraryCatalog catalog;
-    AudioResolver resolver, prefetch;
+    AudioResolver *resolver, *prefetch;
     QTimer prepareNext;
     AudioStream stream;
     bool wantsPlayback = false, retriedStream = false;
@@ -97,7 +96,7 @@ class MusicService : public QObject {
     quint64 streamGeneration = 0, radioGeneration = 0;
     std::unique_ptr<IPlaybackEngine> engine;
     PlaybackTrace trace;
-    void cancelPlayback();
+    void cancelPlayback(bool keepPrefetch = false);
     void updateRoute();
     bool active(PlaybackRequest request) const;
     QNetworkReply *post(const QString &endpoint, QJsonObject body, std::function<void(QJsonObject)> done,

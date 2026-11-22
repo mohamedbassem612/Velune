@@ -3,6 +3,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 build_dir=${1:-"$script_dir/../build"}
 runtime_prefix=${2:-}
+mpv_runtime_prefix=${3:-}
 install_dir="$HOME/.local/lib/velune"
 mkdir -p "$install_dir" "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/scalable/apps"
 install -m755 "$build_dir/velune" "$install_dir/velune.next"
@@ -11,6 +12,16 @@ mkdir -p "$install_dir/notices"
 install -m644 "$script_dir/../../LICENSE" "$install_dir/notices/Velune-GPL-3.0.txt"
 if [[ -f "$script_dir/../THIRD_PARTY.md" ]]; then
  install -m644 "$script_dir/../THIRD_PARTY.md" "$install_dir/notices/THIRD_PARTY.md"
+fi
+if [[ -n "$mpv_runtime_prefix" ]]; then
+ mkdir -p "$install_dir/lib"
+ find "$mpv_runtime_prefix/usr/lib/x86_64-linux-gnu" -maxdepth 1 -name 'lib*.so*' -exec cp -a -t "$install_dir/lib" {} +
+ if [[ -d "$mpv_runtime_prefix/usr/share/doc" ]]; then
+  while IFS= read -r -d '' notice; do
+   package=$(basename "$(dirname "$notice")")
+   install -m644 "$notice" "$install_dir/notices/$package.copyright"
+  done < <(find "$mpv_runtime_prefix/usr/share/doc" -name copyright -type f -print0)
+ fi
 fi
 if [[ -d "$build_dir/tools" ]]; then
  mkdir -p "$install_dir/tools"
@@ -46,7 +57,6 @@ velune_dir="$HOME/.local/lib/velune"
 if [[ -d "$velune_dir/lib" ]]; then
  export LD_LIBRARY_PATH="$velune_dir/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
  export QT_PLUGIN_PATH="$velune_dir/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
- export QT_MEDIA_BACKEND=ffmpeg
 fi
 if [[ -x "$velune_dir/QtWebEngineProcess" ]]; then
  export QTWEBENGINEPROCESS_PATH="$velune_dir/QtWebEngineProcess"

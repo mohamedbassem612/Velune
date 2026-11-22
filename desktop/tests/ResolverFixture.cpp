@@ -3,7 +3,6 @@
 #include <QFileInfo>
 #include <QTextStream>
 #include <QThread>
-#include <QtEndian>
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     auto args = app.arguments();
@@ -15,10 +14,18 @@ int main(int argc, char **argv) {
     if (url.endsWith("SLOWSLOWSLO"))
         QThread::msleep(2000);
     auto cookieIndex = args.indexOf("--cookies");
+    if (url.endsWith("AUTHONLY123") && cookieIndex < 0) {
+        QTextStream(stderr) << "ERROR: Sign in required\n";
+        return 1;
+    }
     if (cookieIndex >= 0) {
         QFileInfo file(args[cookieIndex + 1]);
         if (!file.exists() || (file.permissions() & (QFile::ReadGroup | QFile::ReadOther)))
             return 2;
+    }
+    if (url.endsWith("REFRESH1234") && !args.contains("--extractor-args")) {
+        QTextStream(stdout) << R"({"url":"https://fixture.googlevideo.com/refreshed","duration":180})" << '\n';
+        return 0;
     }
     QTextStream(stdout)
         << (url.endsWith("PATHPATHPAT")
