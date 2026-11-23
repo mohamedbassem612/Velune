@@ -876,7 +876,7 @@ private fun MetroPlayerContent(
                         Text(mediaMetadata.artists.joinToString { it.name }, style = MaterialTheme.typography.bodyMedium,
                             color = textColor.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.basicMarquee())
                     }
-                    PlayerTrackActions(mediaMetadata, playerConnection, liked, textColor)
+                    PlayerTrackActions(playerConnection, liked, textColor)
                 }
                 Spacer(Modifier.height(16.dp))
                 val displayPositionMs = sliderPosition ?: positionMs

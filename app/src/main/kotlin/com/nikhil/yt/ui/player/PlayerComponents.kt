@@ -12,7 +12,6 @@ import com.nikhil.yt.ui.component.VeluneLoader
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
@@ -253,47 +252,12 @@ fun PlayerTopActions(
 ) {
     when (playerDesignStyle) {
         PlayerDesignStyle.V2 -> {
-            val shareShape = RoundedCornerShape(
-                topStart = 50.dp, bottomStart = 50.dp,
-                topEnd = 10.dp, bottomEnd = 10.dp
-            )
-
-            val favShape = RoundedCornerShape(
-                topStart = 10.dp, bottomStart = 10.dp,
-                topEnd = 50.dp, bottomEnd = 50.dp
-            )
+            val favShape = RoundedCornerShape(50.dp)
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(shareShape)
-                        .background(textButtonColor)
-                        .clickable {
-                            val intent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "https://music.youtube.com/watch?v=${mediaMetadata.id}"
-                                )
-                            }
-                            context.startActivity(Intent.createChooser(intent, null))
-                        }
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.share),
-                        contentDescription = null,
-                        colorFilter = ColorFilter.tint(iconButtonColor),
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(24.dp)
-                    )
-                }
-
                 Box(
                     modifier = Modifier
                         .size(42.dp)
@@ -329,30 +293,6 @@ fun PlayerTopActions(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            val intent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "https://music.youtube.com/watch?v=${mediaMetadata.id}"
-                                )
-                            }
-                            context.startActivity(Intent.createChooser(intent, null))
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.share),
-                        contentDescription = null,
-                        tint = textBackgroundColor.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(12.dp))
                         .clickable { playerConnection.toggleLike() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -376,34 +316,6 @@ fun PlayerTopActions(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    onClick = {
-                        val intent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            type = "text/plain"
-                            putExtra(
-                                Intent.EXTRA_TEXT,
-                                "https://music.youtube.com/watch?v=${mediaMetadata.id}"
-                            )
-                        }
-                        context.startActivity(Intent.createChooser(intent, null))
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    color = textBackgroundColor.copy(alpha = 0.12f),
-                    modifier = Modifier
-                        .height(44.dp)
-                        .width(44.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Icon(
-                            painter = painterResource(R.drawable.share),
-                            contentDescription = null,
-                            tint = textBackgroundColor,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-
                 Surface(
                     onClick = { playerConnection.toggleLike() },
                     shape = RoundedCornerShape(14.dp),
@@ -466,38 +378,6 @@ fun PlayerTopActions(
         }
 
         PlayerDesignStyle.V1 -> {
-            Box(
-                modifier =
-                Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(textButtonColor)
-                    .clickable {
-                        val intent =
-                            Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "https://music.youtube.com/watch?v=${mediaMetadata.id}"
-                                )
-                            }
-                        context.startActivity(Intent.createChooser(intent, null))
-                    },
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.share),
-                    contentDescription = null,
-                    colorFilter = ColorFilter.tint(iconButtonColor),
-                    modifier =
-                    Modifier
-                        .align(Alignment.Center)
-                        .size(24.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.size(12.dp))
-
             Box(
                 contentAlignment = Alignment.Center,
                 modifier =

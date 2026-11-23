@@ -1,6 +1,7 @@
 package com.nikhil.yt.handover
 
 import com.nikhil.yt.models.MediaMetadata
+import com.nikhil.yt.playback.SleepTimerState
 
 /** One queue and one renderer. The TV coordinates ownership while either device can render. */
 data class HandoverPlayback(
@@ -21,6 +22,7 @@ data class HandoverPlayback(
     val queueRevision: Long = 0,
     val playbackState: Int = 3,
     val deviceVolume: HandoverVolume = HandoverVolume(),
+    val sleepTimer: SleepTimerState = SleepTimerState(),
 ) {
     val song: MediaMetadata? get() = queue.getOrNull(index)
 }

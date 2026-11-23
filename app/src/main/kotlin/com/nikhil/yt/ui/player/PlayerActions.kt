@@ -1,6 +1,5 @@
 package com.nikhil.yt.ui.player
 
-import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,33 +8,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import com.nikhil.yt.R
 import com.nikhil.yt.extensions.toggleRepeatMode
-import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.playback.PlayerConnection
 
 /** Shared by the default and Metro players, with a fixed visual order in either language. */
 @Composable
-internal fun PlayerTrackActions(metadata: MediaMetadata, connection: PlayerConnection, liked: Boolean, color: Color) {
-    val context = LocalContext.current
+internal fun PlayerTrackActions(connection: PlayerConnection, liked: Boolean, color: Color) {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CompositionLocalProvider(LocalContentColor provides color) { HandoverButton(connection) }
-            IconButton(onClick = {
-                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=${metadata.id}")
-                }, null))
-            }) {
-                Icon(painterResource(R.drawable.share), stringResource(R.string.share), tint = color)
-            }
             IconButton(onClick = connection::toggleLike) {
                 Icon(painterResource(if (liked) R.drawable.favorite else R.drawable.favorite_border),
                     stringResource(if (liked) R.string.action_remove_like else R.string.action_like), tint = color)
@@ -106,23 +95,31 @@ internal fun PlayerFooterActions(connection: PlayerConnection, color: Color, onQ
     var showSleepTimer by remember { mutableStateOf(false) }
     val sleepTimer = connection.service.sleepTimer
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onQueue) {
-                Icon(painterResource(R.drawable.queue_music), null, tint = color)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.queue), color = color)
+        // Four equal slots keep the action centers mirrored around the player's center line,
+        // independent of label lengths or whether an action includes text.
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onQueue,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+                Icon(painterResource(R.drawable.queue_music), null, tint = color, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.queue), color = color, modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = { if (sleepTimer.isActive) sleepTimer.clear() else showSleepTimer = true }) {
+            IconButton(onClick = { if (sleepTimer.isActive) sleepTimer.clear() else showSleepTimer = true },
+                modifier = Modifier.weight(1f).height(48.dp)) {
                 Icon(painterResource(R.drawable.bedtime), stringResource(R.string.sleep_timer),
                     tint = color.copy(alpha = if (sleepTimer.isActive) 1f else 0.65f))
             }
-            TextButton(onClick = onLyrics) {
-                Icon(painterResource(R.drawable.lyrics), null, tint = color)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.lyrics), color = color)
+            TextButton(onClick = onLyrics,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+                Icon(painterResource(R.drawable.lyrics), null, tint = color, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.lyrics), color = color, modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = onMenu) {
+            IconButton(onClick = onMenu, modifier = Modifier.weight(1f).height(48.dp)) {
                 Icon(painterResource(R.drawable.more_vert), stringResource(R.string.music_options), tint = color)
             }
         }

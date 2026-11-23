@@ -82,7 +82,6 @@ import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.session.CommandButton
-import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -120,8 +119,6 @@ import com.nikhil.yt.constants.ListenBrainzTokenKey
 import com.nikhil.yt.constants.MaxSongCacheSizeKey
 import com.nikhil.yt.constants.MediaSessionConstants.CommandToggleLike
 import com.nikhil.yt.constants.MediaSessionConstants.CommandToggleRepeatMode
-import com.nikhil.yt.constants.MediaSessionConstants.CommandToggleShuffle
-import com.nikhil.yt.constants.MediaSessionConstants.CommandToggleStartRadio
 import com.nikhil.yt.constants.PauseListenHistoryKey
 import com.nikhil.yt.constants.PauseOnDeviceMuteKey
 import com.nikhil.yt.constants.PermanentShuffleKey
@@ -249,6 +246,7 @@ class MusicService :
     PlaybackStatsListener.Callback {
     val handoverController by lazy { com.nikhil.yt.handover.HandoverController(this) }
     val sessionPlayer by lazy { com.nikhil.yt.handover.HandoverPlayer(player, handoverController) }
+    private lateinit var notificationBitmapLoader: CoilBitmapLoader
     @Inject
     lateinit var database: MusicDatabase
 
@@ -587,7 +585,8 @@ class MusicService :
                 .build()
                 .apply {
                     addListener(this@MusicService)
-                    sleepTimer = SleepTimer(scope, this)
+                    sleepTimer = SleepTimer(scope, this,
+                        requestRemoteChange = { handoverController.setSleepTimer(it) })
                     addListener(sleepTimer)
                     addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
                     setOffloadEnabled(false)
@@ -615,6 +614,7 @@ class MusicService :
             toggleStartRadio = ::toggleStartRadio
             toggleLibrary = ::toggleLibrary
         }
+        notificationBitmapLoader = CoilBitmapLoader(this, scope)
         mediaSession =
             MediaLibrarySession
                 .Builder(this, sessionPlayer, mediaLibrarySessionCallback)
@@ -625,12 +625,13 @@ class MusicService :
                         Intent(this, MainActivity::class.java),
                         PendingIntent.FLAG_IMMUTABLE,
                     ),
-                ).setBitmapLoader(CoilBitmapLoader(this, scope))
+                ).setBitmapLoader(notificationBitmapLoader)
                 .build()
+        prefetchNotificationArtwork()
         setMediaNotificationProvider(
-            DefaultMediaNotificationProvider(
+            VeluneMediaNotificationProvider(
                 this,
-                { NOTIFICATION_ID },
+                NOTIFICATION_ID,
                 CHANNEL_ID,
                 R.string.music_player
             ).apply {
@@ -1356,22 +1357,7 @@ class MusicService :
 
     private fun updateNotification() {
         try {
-            val customLayout = listOf(
-                CommandButton
-                    .Builder()
-                    .setDisplayName(
-                        getString(
-                            if (currentSong.value?.song?.liked == true) {
-                                R.string.action_remove_like
-                            } else {
-                                R.string.action_like
-                            },
-                        ),
-                    )
-                    .setIconResId(if (currentSong.value?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border)
-                    .setSessionCommand(CommandToggleLike)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
+            val mediaButtonPreferences = listOf(
                 CommandButton
                     .Builder()
                     .setDisplayName(
@@ -1391,21 +1377,27 @@ class MusicService :
                             else -> R.drawable.repeat
                         },
                     ).setSessionCommand(CommandToggleRepeatMode)
+                    .setSlots(CommandButton.SLOT_OVERFLOW)
                     .build(),
                 CommandButton
                     .Builder()
-                    .setDisplayName(getString(if (player.shuffleModeEnabled) R.string.action_shuffle_off else R.string.action_shuffle_on))
-                    .setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
-                    .setSessionCommand(CommandToggleShuffle)
-                    .build(),
-                CommandButton.Builder()
-                    .setDisplayName(getString(R.string.start_radio))
-                    .setIconResId(R.drawable.radio)
-                    .setSessionCommand(CommandToggleStartRadio)
+                    .setDisplayName(
+                        getString(
+                            if (currentSong.value?.song?.liked == true) {
+                                R.string.action_remove_like
+                            } else {
+                                R.string.action_like
+                            },
+                        ),
+                    )
+                    .setIconResId(if (currentSong.value?.song?.liked == true) R.drawable.favorite else R.drawable.notification_favorite_border)
+                    .setSessionCommand(CommandToggleLike)
+                    .setSlots(CommandButton.SLOT_OVERFLOW)
                     .setEnabled(currentSong.value != null)
                     .build(),
             )
-            mediaSession.setCustomLayout(customLayout)
+            // Keep repeat and favorite in the two outer custom slots; transport controls stay native.
+            mediaSession.setMediaButtonPreferences(mediaButtonPreferences)
         } catch (e: Exception) {
             reportException(e)
         }
@@ -4043,6 +4035,11 @@ class MusicService :
 
 
     override fun onEvents(player: Player, events: Player.Events) {
+    if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED,
+            Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
+            Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+        prefetchNotificationArtwork()
+    }
     if (handoverController.applyingState || handoverController.selected.value != null) return
     val joined = togetherSessionState.value as? com.nikhil.yt.together.TogetherSessionState.Joined
     if (joined?.role is com.nikhil.yt.together.TogetherRole.Guest &&
@@ -4718,6 +4715,15 @@ class MusicService :
     }
 
     private val prefetchInFlight = ConcurrentHashMap.newKeySet<String>()
+
+    /** Warm the current/next/previous covers in the actual shuffle order without delaying audio. */
+    private fun prefetchNotificationArtwork() {
+        if (!::notificationBitmapLoader.isInitialized) return
+        val indices = listOf(player.currentMediaItemIndex, player.nextMediaItemIndex, player.previousMediaItemIndex)
+        notificationBitmapLoader.prefetch(indices.distinct().mapNotNull { index ->
+            if (index in 0 until player.mediaItemCount) player.getMediaItemAt(index).mediaMetadata.artworkUri else null
+        })
+    }
 
     /**
      * Resolves the stream URL of the next song in the background so skipping or auto-advancing

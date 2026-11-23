@@ -1,6 +1,7 @@
 package com.nikhil.yt.handover
 
 import com.nikhil.yt.models.MediaMetadata
+import com.nikhil.yt.playback.SleepTimerState
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,6 +43,7 @@ internal fun HandoverPlayback.toSessionJson(includeQueue: Boolean = true) = JSON
     put("epoch", epoch); put("revision", revision); put("queueRevision", queueRevision)
     put("index", index); put("position", positionMs); put("duration", durationMs)
     put("playing", playing); put("playbackState", playbackState)
+    put("sleepTimer", sleepTimer.toHandoverJson())
     put("queueTitle", queueTitle); put("repeat", repeatMode); put("shuffle", shuffle); put("speed", speed)
     put("song", song?.toHandoverJson())
     put("deviceVolume", JSONObject().put("level", deviceVolume.level).put("min", deviceVolume.min)
@@ -72,6 +74,7 @@ internal fun JSONObject.sessionState(base: HandoverPlayback? = null): HandoverPl
         sessionId = optString("sessionId"), rendererId = optString("rendererId"),
         epoch = optLong("epoch"), revision = optLong("revision"), queueRevision = optLong("queueRevision"),
         playbackState = optInt("playbackState", 3),
+        sleepTimer = optJSONObject("sleepTimer")?.sleepTimerState() ?: base?.sleepTimer ?: SleepTimerState(),
         deviceVolume = optJSONObject("deviceVolume")?.let {
             val min = it.optInt("min").coerceAtLeast(0)
             val max = it.optInt("max").coerceAtLeast(min)
@@ -79,6 +82,17 @@ internal fun JSONObject.sessionState(base: HandoverPlayback? = null): HandoverPl
                 it.optBoolean("muted"), it.optBoolean("fixed"))
         } ?: base?.deviceVolume ?: HandoverVolume(),
     )
+}
+
+internal fun SleepTimerState.toHandoverJson() = JSONObject()
+    .put("id", id).put("remainingMs", remainingMs).put("endOfSong", pauseWhenSongEnd)
+
+internal fun JSONObject.sleepTimerState(): SleepTimerState {
+    val id = optString("id")
+    if (id.isBlank() || id.length > 128) return SleepTimerState()
+    return SleepTimerState(id,
+        remainingMs = optLong("remainingMs", -1L).coerceIn(-1L, 7L * 24 * 60 * 60 * 1000),
+        pauseWhenSongEnd = optBoolean("endOfSong"))
 }
 
 internal fun playbackOrder(player: androidx.media3.common.Player): List<Int> {

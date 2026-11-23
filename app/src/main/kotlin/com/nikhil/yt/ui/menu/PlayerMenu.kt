@@ -341,7 +341,7 @@ fun PlayerMenu(
             onVolumeChange = { playerConnection.service.playerVolume.value = it },
         )
     }
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(4.dp))
 
     LazyColumn(
         userScrollEnabled = true,
@@ -409,6 +409,24 @@ fun PlayerMenu(
                     NewAction(
                         icon = {
                             Icon(
+                                painter = painterResource(R.drawable.share),
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        text = stringResource(R.string.share),
+                        onClick = {
+                            onDismiss()
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=${mediaMetadata.id}")
+                            }, null))
+                        }
+                    ),
+                    NewAction(
+                        icon = {
+                            Icon(
                                 painter = painterResource(R.drawable.fire),
                                 contentDescription = null,
                                 modifier = Modifier.size(28.dp),
@@ -423,15 +441,11 @@ fun PlayerMenu(
                         }
                     )
                 ),
-                modifier = Modifier.padding(vertical = 4.dp)
             )
-        }
-        item {
-            Spacer(modifier = Modifier.height(12.dp))
         }
         if (splitArtists.isNotEmpty() || mediaMetadata.album != null) {
             item {
-                MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                MenuSurfaceSection {
                     Column {
                         if (splitArtists.isNotEmpty()) {
                             ListItem(
@@ -484,14 +498,11 @@ fun PlayerMenu(
                     }
                 }
             }
-            item {
-                Spacer(modifier = Modifier.height(12.dp))
-            }
         }
         item {
             when (download?.state) {
                 Download.STATE_COMPLETED -> {
-                    MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                    MenuSurfaceSection {
                         ListItem(
                         headlineContent = {
                             Text(
@@ -519,7 +530,7 @@ fun PlayerMenu(
                     }
                 }
                 Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
-                    MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                    MenuSurfaceSection {
                         ListItem(
                         headlineContent = { Text(text = stringResource(R.string.downloading)) },
                         leadingContent = {
@@ -538,7 +549,7 @@ fun PlayerMenu(
                     }
                 }
                 else -> {
-                    MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                    MenuSurfaceSection {
                         ListItem(
                         headlineContent = { Text(text = stringResource(R.string.action_download)) },
                         leadingContent = {
@@ -571,7 +582,7 @@ fun PlayerMenu(
             }
         }
         item {
-            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+            MenuSurfaceSection {
                 Column {
                     ListItem(
                         headlineContent = { Text(text = stringResource(R.string.details)) },

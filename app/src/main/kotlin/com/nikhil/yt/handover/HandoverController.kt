@@ -15,6 +15,7 @@ import com.nikhil.yt.extensions.metadata
 import com.nikhil.yt.extensions.toMediaItem
 import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.playback.MusicService
+import com.nikhil.yt.playback.SleepTimerState
 import com.nikhil.yt.playback.queues.Queue
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -103,6 +104,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     val controlsFrozen get() = preparedId != null || releasedTransferId != null || transferStatus.value != null
     private var preparedId: String? = null
     private var preparedBackup: HandoverPlayback? = null
+    private var preparedTimerExecutedLocally = true
     private var preparedJob: Job? = null
     private val responses = mutableMapOf<String, CompletableDeferred<JSONObject>>()
     private val pendingCommands = mutableMapOf<String, CompletableDeferred<JSONObject>>()
@@ -253,7 +255,8 @@ class HandoverController(private val service: MusicService) : Player.Listener {
             player.currentPosition.coerceAtLeast(0), player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0,
             player.playWhenReady, service.queueTitle, player.repeatMode, player.shuffleModeEnabled,
             order.takeIf { it.size == queue.size && it.toSet() == queue.indices.toSet() } ?: queue.indices.toList(),
-            player.playbackParameters.speed, rendererId = localId, playbackState = player.playbackState, deviceVolume = currentDeviceVolume())
+            player.playbackParameters.speed, rendererId = localId, playbackState = player.playbackState,
+            deviceVolume = currentDeviceVolume(), sleepTimer = service.sleepTimer.snapshot())
     }
 
     private fun publishLocal() {
@@ -281,8 +284,13 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         playback.value = state; receivedAt = SystemClock.elapsedRealtime()
         val takeover = !remote && (previous == null || previous.rendererId != localId || previous.epoch != state.epoch)
         if ((remote || takeover) && preparedId == null) {
+            service.sleepTimer.suspendExecution()
             applyingState = true
-            try { service.applyHandoverState(state, renderLocally = !remote) }
+            try {
+                val expired = state.sleepTimer.isActive && state.sleepTimer.remainingMs == 0L
+                service.applyHandoverState(if (expired) state.copy(playing = false) else state, renderLocally = !remote)
+                service.sleepTimer.restore(state.sleepTimer, execute = !remote)
+            }
             finally { applyingState = false }
         }
         service.sessionPlayer.onSessionStateChanged(previous, state)
@@ -299,7 +307,8 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         if (!isTv || (!force && SystemClock.elapsedRealtime() - lastPersistedAt < 2000)) return
         val state = authority?.state ?: return
         lastPersistedAt = SystemClock.elapsedRealtime()
-        val raw = state.toSessionJson().put("coordinatorId", localId).toString()
+        val raw = state.toSessionJson().put("coordinatorId", localId)
+            .put("savedAtMs", System.currentTimeMillis()).toString()
         // Small serialized disk writes; transfer commits call this before announcing ownership.
         val output = sessionFile.startWrite()
         try { output.write(raw.toByteArray()); sessionFile.finishWrite(output) }
@@ -311,7 +320,9 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         runCatching {
             val saved = sessionFile.openRead().bufferedReader().use { JSONObject(it.readText()) }
             require(saved.getString("coordinatorId") == localId) { "Coordinator identity changed" }
-            val state = saved.sessionState()
+            val savedState = saved.sessionState()
+            val elapsed = (System.currentTimeMillis() - saved.optLong("savedAtMs", System.currentTimeMillis())).coerceAtLeast(0)
+            val state = savedState.copy(sleepTimer = savedState.sleepTimer.elapsed(elapsed))
             // No unsolicited restart audio; user may resume after Android starts the service.
             val restored = recoverHandoverSession(state)
             authority = HandoverSessionAuthority(restored)
@@ -400,11 +411,15 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         val state = playback.value ?: return
         if (state.rendererId == localId) return
         if (!connected.value) {
-            val checkpoint = offlineCheckpoint ?: state
+            val checkpoint = (offlineCheckpoint ?: state).copy(sleepTimer = service.sleepTimer.snapshot())
             disconnect()
             error.value = null
             applyingState = true
-            try { service.applyHandoverState(checkpoint, renderLocally = true) }
+            try {
+                val expired = checkpoint.sleepTimer.isActive && checkpoint.sleepTimer.remainingMs == 0L
+                service.applyHandoverState(if (expired) checkpoint.copy(playing = false) else checkpoint, renderLocally = true)
+                service.sleepTimer.restore(checkpoint.sleepTimer)
+            }
             finally { applyingState = false }
             return
         }
@@ -425,7 +440,10 @@ class HandoverController(private val service: MusicService) : Player.Listener {
         // Never resume a remote mirror merely because a connection disappears.
         if (!isTv && selected.value != null) {
             applyingState = true
-            try { service.player.pause() } finally { applyingState = false }
+            try {
+                service.sleepTimer.restore(SleepTimerState())
+                service.player.pause()
+            } finally { applyingState = false }
         }
         if (!isTv) {
             releasedTransferId = null; releasedEpoch = -1
@@ -579,6 +597,16 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     fun command(name: String, positionMs: Long? = null) {
         request(JSONObject().put("name", name).apply { if (positionMs != null) put("position", positionMs) })
     }
+    /** UI timer changes go to the current renderer; its countdown then survives controller loss. */
+    fun setSleepTimer(state: SleepTimerState): Boolean {
+        if (controlsFrozen) {
+            error.value = "Wait for playback transfer"
+            return true
+        }
+        if (selected.value == null) return false
+        request(JSONObject().put("name", "sleepTimer").put("timer", state.toHandoverJson()))
+        return true
+    }
     fun request(command: JSONObject) {
         if (!available()) return
         if (isTv) dispatch(command)
@@ -643,6 +671,7 @@ class HandoverController(private val service: MusicService) : Player.Listener {
                 }
             }
             "pause" -> player.pause()
+            "sleepTimer" -> service.sleepTimer.restore(command.getJSONObject("timer").sleepTimerState())
             "resume" -> { player.prepare(); player.play() }
             "next" -> { player.seekToNext(); player.prepare(); player.play() }
             "previous" -> { player.seekToPrevious(); player.prepare(); player.play() }
@@ -694,6 +723,8 @@ class HandoverController(private val service: MusicService) : Player.Listener {
 
     private suspend fun buffer(state: HandoverPlayback) {
         check(state.queue.isNotEmpty()) { "There is no queue to transfer" }
+        preparedTimerExecutedLocally = service.sleepTimer.executesLocally
+        service.sleepTimer.suspendExecution()
         applyingState = true
         try { service.applyHandoverState(state.copy(playing = false), renderLocally = true) }
         finally { applyingState = false }
@@ -728,10 +759,15 @@ class HandoverController(private val service: MusicService) : Player.Listener {
     private fun abortPreparation(id: String) {
         if (preparedId != id) return
         val backup = preparedBackup
+        val timer = service.sleepTimer.snapshot()
+        val executeTimer = preparedTimerExecutedLocally
         finishPreparation()
         if (backup != null) {
             applyingState = true
-            try { service.applyHandoverState(backup.copy(playing = false), renderLocally = true) }
+            try {
+                service.applyHandoverState(backup.copy(playing = false), renderLocally = true)
+                service.sleepTimer.restore(timer, execute = executeTimer)
+            }
             finally { applyingState = false }
         }
     }

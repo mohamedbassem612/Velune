@@ -27,6 +27,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.nikhil.yt.BuildConfig
+import com.nikhil.yt.LocalPlayerAwareWindowInsets
 import com.nikhil.yt.R
 import com.nikhil.yt.viewmodels.HomeViewModel
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +49,9 @@ fun VeluneSettingsScreen(
     val (innerTubeCookie, onInnerTubeCookieChange) = rememberPreference(InnerTubeCookieKey, "")
 
     Scaffold(
+        contentWindowInsets = LocalPlayerAwareWindowInsets.current.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+        ),
         topBar = {
             TopAppBar(
                 title = { Text("Settings", fontSize = 20.sp) },
@@ -72,7 +76,8 @@ fun VeluneSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
         ) {
 
             item {
@@ -211,7 +216,6 @@ fun VeluneSettingsScreen(
                 )
             }
 
-            item { Spacer(Modifier.height(32.dp)) }
         }
 
         if (showLogoutDialog) {

@@ -295,7 +295,7 @@ private fun MusicFullPlayer(
                             MusicTrackInfo(metadata.title, metadata.artists.joinToString { it.name }, 1f,
                                 Modifier.weight(1f).graphicsLayer { alpha = 0f }.clearAndSetSemantics { }
                                     .onGloballyPositioned(onTitlePositioned))
-                            PlayerTrackActions(metadata, connection, liked, MaterialTheme.colorScheme.onSurface)
+                            PlayerTrackActions(connection, liked, MaterialTheme.colorScheme.onSurface)
                         }
                     }
                     Spacer(Modifier.height(16.dp))
