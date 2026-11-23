@@ -37,6 +37,9 @@ import androidx.navigation.NavController
 import com.nikhil.yt.LocalPlayerConnection
 import com.nikhil.yt.R
 import com.nikhil.yt.constants.MiniPlayerHeight
+import com.nikhil.yt.constants.UseNewMiniPlayerDesignKey
+import com.nikhil.yt.constants.SwipeThumbnailKey
+import com.nikhil.yt.constants.SwipeSensitivityKey
 import com.nikhil.yt.extensions.togglePlayPause
 import com.nikhil.yt.extensions.toggleRepeatMode
 import com.nikhil.yt.models.MediaMetadata
@@ -45,6 +48,7 @@ import com.nikhil.yt.ui.component.*
 import com.nikhil.yt.ui.menu.PlayerMenu
 import com.nikhil.yt.ui.utils.ShowMediaInfo
 import com.nikhil.yt.utils.makeTimeString
+import com.nikhil.yt.utils.rememberPreference
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -75,6 +79,12 @@ fun BottomSheetPlayer(
         }
     }
     val currentSong by connection.currentSong.collectAsState(initial = null)
+    val useNewMiniPlayerDesign by rememberPreference(UseNewMiniPlayerDesignKey, true)
+    val swipeEnabled by rememberPreference(SwipeThumbnailKey, true)
+    val swipeSensitivity by rememberPreference(SwipeSensitivityKey, 0.73f)
+    val swipeState = rememberMiniPlayerSwipeState()
+    val canSwipe = state.isCollapsed && swipeEnabled && useNewMiniPlayerDesign
+    LaunchedEffect(canSwipe) { if (!canSwipe) swipeState.reset() }
     val menu = LocalMenuState.current
     val pages = LocalBottomSheetPageState.current
     val bottomInset = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
@@ -111,16 +121,25 @@ fun BottomSheetPlayer(
         backgroundColor = surface,
         onDismiss = { connection.service.stopAndClearPlayback() },
         collapsedContent = {
-            MusicMiniPlayer(
-                isPlaying = isPlaying,
-                loading = playbackState == Player.STATE_BUFFERING,
-                canNext = canNext,
-                onPlayPause = connection::togglePlayPause,
-                onNext = connection::seekToNext,
-                onExpand = state::expandSoft,
-                connection = connection,
-                height = miniPlayerHeight,
-            )
+            if (!useNewMiniPlayerDesign) {
+                val clock by rememberPlaybackClock(connection)
+                MiniPlayer(position = clock.first, duration = clock.second, pureBlack = pureBlack)
+            } else {
+                MusicMiniPlayer(
+                    isPlaying = isPlaying,
+                    loading = playbackState == Player.STATE_BUFFERING,
+                    canNext = canNext,
+                    onPlayPause = connection::togglePlayPause,
+                    onNext = connection::seekToNext,
+                    onExpand = state::expandSoft,
+                    connection = connection,
+                    height = miniPlayerHeight,
+                    swipeState = swipeState,
+                    swipeEnabled = canSwipe,
+                    swipeSensitivity = swipeSensitivity,
+                    canPrevious = canPrevious,
+                )
+            }
         },
         overlayContent = {
             val progress = state.progress.coerceIn(0f, 1f)
@@ -129,33 +148,41 @@ fun BottomSheetPlayer(
                 val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
                 val widthPx = with(density) { maxWidth.toPx() }
                 fun px(value: Dp) = with(density) { value.toPx() }
-                val miniCoverX = if (rtl) widthPx - px(72.dp) else px(24.dp)
+                val coverInset = if (useNewMiniPlayerDesign) 24.dp else 12.dp
+                val miniCoverX = if (rtl) widthPx - px(coverInset + 48.dp) else px(coverInset)
                 val coverY = px((miniPlayerHeight - 48.dp) / 2)
                 val miniCover = Rect(miniCoverX, coverY, miniCoverX + px(48.dp), coverY + px(48.dp))
-                val miniTitleX = if (rtl) px(120.dp) else px(84.dp)
+                val miniTitleX = if (rtl) px(if (useNewMiniPlayerDesign) 120.dp else 156.dp)
+                    else px(if (useNewMiniPlayerDesign) 84.dp else 78.dp)
                 val miniTitleY = with(density) { (miniPlayerHeight.toPx() - 44.sp.toPx()) / 2 }
-                val miniTitle = Rect(miniTitleX, miniTitleY, miniTitleX + (widthPx - px(204.dp)).coerceAtLeast(1f), miniTitleY + px(48.dp))
+                val miniTitle = Rect(miniTitleX, miniTitleY,
+                    miniTitleX + (widthPx - px(if (useNewMiniPlayerDesign) 204.dp else 234.dp)).coerceAtLeast(1f), miniTitleY + px(48.dp))
                 val targetCover = coverBounds ?: miniCover
                 val targetTitle = titleBounds ?: miniTitle
                 val cover = androidx.compose.ui.geometry.lerp(miniCover, targetCover, progress)
                 val title = androidx.compose.ui.geometry.lerp(miniTitle, targetTitle, progress)
                 val viewportTop = px(WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 56.dp)
                 val viewportBottom = px(maxHeight - queueState.collapsedBound)
-                if (!lyricsVisible) {
-                    Box(Modifier.fillMaxSize().drawWithContent {
+                if (!lyricsVisible && (useNewMiniPlayerDesign || progress > 0f)) {
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        translationX = if (useNewMiniPlayerDesign) swipeState.offset * (1f - progress) else 0f
+                        alpha = if (useNewMiniPlayerDesign) 1f else (progress * 4).coerceIn(0f, 1f)
+                    }.drawWithContent {
                         clipRect(top = viewportTop * progress,
                             bottom = size.height + (viewportBottom - size.height) * progress) { this@drawWithContent.drawContent() }
                     }) {
                     MusicArtwork(metadata?.thumbnailUrl, songId = metadata?.id, modifier =
                         Modifier.absoluteOffset(with(density) { cover.left.toDp() }, with(density) { cover.top.toDp() })
                             .size(with(density) { cover.width.toDp() }, with(density) { cover.height.toDp() })
-                            .miniPlayerSwipe(progress == 0f, connection::seekToPrevious, connection::seekToNext)
+                            .miniPlayerSwipe(swipeState, canSwipe, connection::seekToPrevious, connection::seekToNext,
+                                canPrevious, canNext, swipeSensitivity, active = state.isCollapsed)
                             .then(if (progress == 0f) Modifier.clickable(onClick = state::expandSoft) else Modifier))
                     MusicTrackInfo(metadata?.title.orEmpty(), metadata?.artists?.joinToString { it.name }.orEmpty(),
                         expandedFraction = progress,
                         modifier = Modifier.absoluteOffset(with(density) { title.left.toDp() }, with(density) { title.top.toDp() })
                             .width(with(density) { title.width.toDp() })
-                            .miniPlayerSwipe(progress == 0f, connection::seekToPrevious, connection::seekToNext)
+                            .miniPlayerSwipe(swipeState, canSwipe, connection::seekToPrevious, connection::seekToNext,
+                                canPrevious, canNext, swipeSensitivity, active = state.isCollapsed)
                             .then(if (progress == 0f) Modifier.clickable(onClick = state::expandSoft) else Modifier))
                 }
                 }
@@ -214,10 +241,16 @@ private fun MusicMiniPlayer(
     onPlayPause: () -> Unit, onNext: () -> Unit, onExpand: () -> Unit,
     connection: PlayerConnection,
     height: Dp,
+    swipeState: MiniPlayerSwipeState,
+    swipeEnabled: Boolean,
+    swipeSensitivity: Float,
+    canPrevious: Boolean,
 ) {
-    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(height)
+    Box(Modifier.graphicsLayer { translationX = swipeState.offset }
+        .padding(horizontal = 16.dp).fillMaxWidth().height(height)
         .clip(RoundedCornerShape(32.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
-        .miniPlayerSwipe(true, connection::seekToPrevious, onNext)
+        .miniPlayerSwipe(swipeState, swipeEnabled, connection::seekToPrevious, onNext,
+            canPrevious, canNext, swipeSensitivity)
         .clickable(onClick = onExpand)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))

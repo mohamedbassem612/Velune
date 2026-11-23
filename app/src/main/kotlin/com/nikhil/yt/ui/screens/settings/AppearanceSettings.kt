@@ -420,16 +420,13 @@ fun AppearanceSettings(
                 },
             )
 
-            SwitchPreference(
-                title = { Text(stringResource(R.string.new_mini_player_design)) },
-                icon = { Icon(painterResource(R.drawable.nav_bar), null) },
-                checked = useNewMiniPlayerDesign,
-                onCheckedChange = onUseNewMiniPlayerDesignChange,
-            )
-
-
-
         }
+        SwitchPreference(
+            title = { Text(stringResource(R.string.new_mini_player_design)) },
+            icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+            checked = useNewMiniPlayerDesign,
+            onCheckedChange = onUseNewMiniPlayerDesignChange,
+        )
         SwitchPreference(
             title = { Text(stringResource(R.string.new_library_design)) },
             description = stringResource(R.string.new_library_design_description),
@@ -522,88 +519,89 @@ fun AppearanceSettings(
                 },
             )
 
-            SwitchPreference(
-                title = { Text(stringResource(R.string.enable_swipe_thumbnail)) },
-                icon = { Icon(painterResource(R.drawable.swipe), null) },
-                checked = swipeThumbnail,
-                onCheckedChange = onSwipeThumbnailChange,
-            )
+        }
 
-            AnimatedVisibility(swipeThumbnail) {
-                var showSensitivityDialog by rememberSaveable { mutableStateOf(false) }
+        SwitchPreference(
+            title = { Text(stringResource(R.string.enable_swipe_thumbnail)) },
+            icon = { Icon(painterResource(R.drawable.swipe), null) },
+            checked = swipeThumbnail,
+            onCheckedChange = onSwipeThumbnailChange,
+        )
 
-                if (showSensitivityDialog) {
-                    var tempSensitivity by remember { mutableFloatStateOf(swipeSensitivity) }
+        AnimatedVisibility(swipeThumbnail) {
+            var showSensitivityDialog by rememberSaveable { mutableStateOf(false) }
 
-                    DefaultDialog(
-                        onDismiss = {
-                            tempSensitivity = swipeSensitivity
-                            showSensitivityDialog = false
-                        },
-                        buttons = {
-                            TextButton(
-                                onClick = {
-                                    tempSensitivity = 0.73f
-                                }
-                            ) {
-                                Text(stringResource(R.string.reset))
+            if (showSensitivityDialog) {
+                var tempSensitivity by remember { mutableFloatStateOf(swipeSensitivity) }
+
+                DefaultDialog(
+                    onDismiss = {
+                        tempSensitivity = swipeSensitivity
+                        showSensitivityDialog = false
+                    },
+                    buttons = {
+                        TextButton(
+                            onClick = {
+                                tempSensitivity = 0.73f
                             }
-
-                            Spacer(modifier = Modifier.weight(1f))
-
-                            TextButton(
-                                onClick = {
-                                    tempSensitivity = swipeSensitivity
-                                    showSensitivityDialog = false
-                                }
-                            ) {
-                                Text(stringResource(android.R.string.cancel))
-                            }
-                            TextButton(
-                                onClick = {
-                                    onSwipeSensitivityChange(tempSensitivity)
-                                    showSensitivityDialog = false
-                                }
-                            ) {
-                                Text(stringResource(android.R.string.ok))
-                            }
-                        }
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(16.dp)
                         ) {
-                            Text(
-                                text = stringResource(R.string.swipe_sensitivity),
-                                style = MaterialTheme.typography.headlineSmall,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            )
+                            Text(stringResource(R.string.reset))
+                        }
 
-                            Text(
-                                text = stringResource(R.string.sensitivity_percentage, (tempSensitivity * 100).roundToInt()),
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            )
+                        Spacer(modifier = Modifier.weight(1f))
 
-                            Slider(
-                                value = tempSensitivity,
-                                onValueChange = { tempSensitivity = it },
-                                valueRange = 0f..1f,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                        TextButton(
+                            onClick = {
+                                tempSensitivity = swipeSensitivity
+                                showSensitivityDialog = false
+                            }
+                        ) {
+                            Text(stringResource(android.R.string.cancel))
+                        }
+                        TextButton(
+                            onClick = {
+                                onSwipeSensitivityChange(tempSensitivity)
+                                showSensitivityDialog = false
+                            }
+                        ) {
+                            Text(stringResource(android.R.string.ok))
                         }
                     }
-                }
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.swipe_sensitivity),
+                            style = MaterialTheme.typography.headlineSmall,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
 
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.swipe_sensitivity)) },
-                    description = stringResource(R.string.sensitivity_percentage, (swipeSensitivity * 100).roundToInt()),
-                    icon = { Icon(painterResource(R.drawable.tune), null) },
-                    onClick = { showSensitivityDialog = true }
-                )
+                        Text(
+                            text = stringResource(R.string.sensitivity_percentage, (tempSensitivity * 100).roundToInt()),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        Slider(
+                            value = tempSensitivity,
+                            onValueChange = { tempSensitivity = it },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
 
+            PreferenceEntry(
+                title = { Text(stringResource(R.string.swipe_sensitivity)) },
+                description = stringResource(R.string.sensitivity_percentage, (swipeSensitivity * 100).roundToInt()),
+                icon = { Icon(painterResource(R.drawable.tune), null) },
+                onClick = { showSensitivityDialog = true }
+            )
         }
+
         PreferenceGroupTitle(
             title = stringResource(R.string.lyrics),
         )

@@ -715,9 +715,8 @@ class MainActivity : ComponentActivity() {
                     val navigationItems = remember { Screens.MainScreens }
                     val (slimNav) = rememberPreference(SlimNavBarKey, defaultValue = false)
                     val useMusicPlayer by rememberPreference(com.nikhil.yt.constants.UseMusicPlayerKey, true)
-                    val legacyMiniPlayerDesign by rememberPreference(UseNewMiniPlayerDesignKey, true)
-                    val useNewMiniPlayerDesign = useMusicPlayer || legacyMiniPlayerDesign
-                    val miniPlayerHeight = if (useMusicPlayer) with(density) {
+                    val useNewMiniPlayerDesign by rememberPreference(UseNewMiniPlayerDesignKey, true)
+                    val miniPlayerHeight = if (useMusicPlayer && useNewMiniPlayerDesign) with(density) {
                         (44.sp.toDp() + 16.dp).coerceAtLeast(MiniPlayerHeight)
                     } else MiniPlayerHeight
                     val defaultOpenTab by rememberEnumPreference(DefaultOpenTabKey, NavigationTab.HOME)

@@ -61,6 +61,10 @@ class MusicDesignInstrumentedTest {
 
     @Test fun metroFooterMatchesReference() = exercisePlayer(false, footerOnly = true)
 
+    @Test fun newMiniPlayerSwipeHasMotionAndSettles() = exercisePlayer(true, miniOnly = true)
+
+    @Test fun classicMiniPlayerSwipeHasMotionAndSettles() = exercisePlayer(true, miniOnly = true, newMiniDesign = false)
+
     @Test fun updateDialogShowsSizeBeforeDownload() {
         runBlocking { context.dataStore.edit { it[DefaultOpenTabKey] = NavigationTab.LIBRARY.name } }
         val activity = launchActivity()
@@ -83,7 +87,7 @@ class MusicDesignInstrumentedTest {
         }
     }
 
-    private fun exercisePlayer(useMusicPlayer: Boolean, footerOnly: Boolean = false) {
+    private fun exercisePlayer(useMusicPlayer: Boolean, footerOnly: Boolean = false, miniOnly: Boolean = false, newMiniDesign: Boolean = true) {
         val permission = if (android.os.Build.VERSION.SDK_INT >= 33)
             "android.permission.READ_MEDIA_AUDIO" else "android.permission.READ_EXTERNAL_STORAGE"
         automation.grantRuntimePermission(context.packageName, permission)
@@ -94,9 +98,12 @@ class MusicDesignInstrumentedTest {
             it[PureBlackKey] = true
             it[DynamicThemeKey] = false
             it[UseMusicPlayerKey] = useMusicPlayer
+            it[UseNewMiniPlayerDesignKey] = newMiniDesign
+            it[SwipeThumbnailKey] = true
+            it[SwipeSensitivityKey] = 0.73f
             it[PlayerDesignStyleKey] = PlayerDesignStyle.V5.name
             it[PlayerBackgroundStyleKey] = PlayerBackgroundStyle.DEFAULT.name
-            it[DefaultOpenTabKey] = NavigationTab.LIBRARY.name
+            it[DefaultOpenTabKey] = if (miniOnly) NavigationTab.HOME.name else NavigationTab.LIBRARY.name
             it[AppLanguageKey] = InstrumentationRegistry.getArguments().getString("language", "en")
         } }
         val activity = launchActivity()
@@ -140,6 +147,10 @@ class MusicDesignInstrumentedTest {
             await("Cached fixture did not become ready") { main { service.sessionPlayer.playbackState == Player.STATE_READY } }
             instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(17_000) }
             await("Mini player did not appear") { find(title) != null }
+            if (miniOnly) {
+                assertMiniPlayerMotion(activity, service, tracks, newMiniDesign)
+                return
+            }
             if (useMusicPlayer && !footerOnly) {
                 swipe(title, toLeft = true)
                 await("Left swipe did not select next song") { main { service.sessionPlayer.currentMediaItem?.mediaId } == tracks[1].id }
@@ -203,11 +214,95 @@ class MusicDesignInstrumentedTest {
         assertTrue("UI navigation reset playback progress", main { service.sessionPlayer.currentPosition } in 16_500L..17_500L)
     }
 
+    private fun assertMiniPlayerMotion(activity: MainActivity, service: MusicService, tracks: List<MediaMetadata>, newDesign: Boolean) {
+        fun labelBounds(label: String, minTop: Int = Int.MIN_VALUE) = Rect().also { rect ->
+            find(label, minTop)!!.let { node -> node.refresh(); node.getBoundsInScreen(rect) }
+        }
+        fun drag(label: String, distanceDp: Float, screenshot: String, expectMotion: Boolean = true) {
+            SystemClock.sleep(600)
+            val before = labelBounds(label)
+            await("Paused mini player control must be visible", 5_000) { find(activity.getString(R.string.play), before.top - 32) != null }
+            val playBefore = labelBounds(activity.getString(R.string.play), before.top - 32)
+            val distance = distanceDp * context.resources.displayMetrics.density
+            val downTime = SystemClock.uptimeMillis()
+            fun event(action: Int, x: Float) {
+                MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, before.exactCenterY(), 0).let {
+                    it.source = InputDevice.SOURCE_TOUCHSCREEN
+                    automation.injectInputEvent(it, true)
+                    it.recycle()
+                }
+            }
+            event(MotionEvent.ACTION_DOWN, before.exactCenterX())
+            try {
+                for (step in 1..8) {
+                    event(MotionEvent.ACTION_MOVE, before.exactCenterX() + distance * step / 8)
+                    SystemClock.sleep(20)
+                }
+                android.util.Log.i("MiniGeometry", "new=$newDesign before=$before held=${labelBounds(label)}")
+                if (expectMotion) {
+                    await("Mini player must visibly follow a horizontal drag", 5_000) {
+                        val moved = labelBounds(label).left - before.left
+                        kotlin.math.abs(moved) > 4 && moved * distance > 0
+                    }
+                } else {
+                    assertEquals("Disabled swipe gestures must not move the mini player", before.left, labelBounds(label).left)
+                }
+                val titleOffset = labelBounds(label).left - before.left
+                val playOffset = labelBounds(activity.getString(R.string.play), before.top - 32).left - playBefore.left
+                assertTrue("Title and controls must move together", kotlin.math.abs(titleOffset - playOffset) <= 2)
+                assertTrue("Swipe motion must stay light and bounded", kotlin.math.abs(titleOffset) < 48 * context.resources.displayMetrics.density)
+                assertNull("Dragging must not expand the player", find(activity.getString(R.string.music_options)))
+                capture("$screenshot-${if (newDesign) "new" else "classic"}")
+            } finally {
+                event(MotionEvent.ACTION_UP, before.exactCenterX() + distance)
+            }
+        }
+        val restingLeft = labelBounds(title).left
+        if (newDesign) assertNull(find(activity.getString(R.string.connect_devices)))
+        else assertNotNull("Classic mini player must retain its device control", find(activity.getString(R.string.connect_devices)))
+        drag(title, 28f, "09-mini-short-drag")
+        await("Short drag must return to its resting position", 5_000) {
+            kotlin.math.abs(labelBounds(title).left - restingLeft) <= 2
+        }
+        android.util.Log.i("MiniGeometry", "new=$newDesign resting=$restingLeft settled=${labelBounds(title)}")
+        capture("09-mini-short-settled-${if (newDesign) "new" else "classic"}")
+        assertEquals("A short drag must not skip tracks", tracks[0].id, main { service.sessionPlayer.currentMediaItem?.mediaId })
+        assertTrue("Short drag must return to its resting position", kotlin.math.abs(labelBounds(title).left - restingLeft) <= 2)
+        drag(title, -110f, "10-mini-drag-left")
+        await("Left drag must select the next track") { main { service.sessionPlayer.currentMediaItem?.mediaId } == tracks[1].id && find(tracks[1].title) != null }
+        instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(0) }
+        await("Next track must settle at the original position", 5_000) {
+            kotlin.math.abs(labelBounds(tracks[1].title).left - restingLeft) <= 2
+        }
+        drag(tracks[1].title, 110f, "11-mini-drag-right")
+        await("Right drag must select the previous track") { main { service.sessionPlayer.currentMediaItem?.mediaId } == tracks[0].id && find(title) != null }
+        instrumentation.runOnMainSync { service.sessionPlayer.pause() }
+        await("Previous track must settle at the original position", 5_000) {
+            kotlin.math.abs(labelBounds(title).left - restingLeft) <= 2
+        }
+        capture("12-mini-settled-${if (newDesign) "new" else "classic"}")
+        runBlocking { context.dataStore.edit { it[SwipeThumbnailKey] = false } }
+        drag(title, -110f, "13-mini-disabled", expectMotion = false)
+        SystemClock.sleep(600)
+        assertNull("Disabled horizontal swipes must not become expand taps", find(activity.getString(R.string.music_options)))
+        assertEquals("Disabled swipe gestures must not skip tracks", tracks[0].id, main { service.sessionPlayer.currentMediaItem?.mediaId })
+        runBlocking { context.dataStore.edit { it[SwipeThumbnailKey] = true } }
+        runBlocking { context.dataStore.edit { it[UseNewMiniPlayerDesignKey] = !newDesign } }
+        await("Appearance mini player switch must apply without changing the full player design") {
+            (find(activity.getString(R.string.connect_devices)) != null) == newDesign
+        }
+        assertEquals(3, main { service.sessionPlayer.mediaItemCount })
+        assertEquals(tracks[0].id, main { service.sessionPlayer.currentMediaItem?.mediaId })
+        tap(title)
+        await("Tapping either mini player style must open the player") { find(activity.getString(R.string.music_options)) != null }
+        assertControlPositions(activity)
+    }
+
     private fun assertControlPositions(activity: MainActivity) {
-        fun bounds(resource: Int): Rect {
+        fun bounds(resource: Int, minTop: Int = Int.MIN_VALUE, maxTop: Int = Int.MAX_VALUE): Rect {
             val label = activity.getString(resource)
-            await("Missing control $label") { find(label) != null }
-            var node = find(label)!!
+            await("Missing control $label") { find(label, minTop, maxTop) != null }
+            var node = find(label, minTop, maxTop)!!
             // A text label can be a child of the button's merged accessibility node.
             while (!node.isClickable) {
                 node = node.parent ?: error("No clickable control for $label")
@@ -220,7 +315,7 @@ class MusicDesignInstrumentedTest {
         assertNull("Share belongs in the options menu", find(activity.getString(R.string.share)))
         val shuffle = bounds(R.string.music_shuffle_off)
         val previous = bounds(R.string.music_previous)
-        val play = bounds(R.string.play)
+        val play = bounds(R.string.play, previous.top - 64, previous.bottom)
         val next = bounds(R.string.music_next)
         val repeat = bounds(R.string.repeat_mode_off)
         assertTrue("Transport order must match the reference",
@@ -270,11 +365,16 @@ class MusicDesignInstrumentedTest {
         @Suppress("UNCHECKED_CAST") return result as T
     }
 
-    private fun find(label: String): AccessibilityNodeInfo? {
+    private fun find(label: String, minTop: Int = Int.MIN_VALUE, maxTop: Int = Int.MAX_VALUE): AccessibilityNodeInfo? {
         val root = automation.rootInActiveWindow ?: return null
         fun walk(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-            if (node.isVisibleToUser && (node.text?.toString() == label || node.contentDescription?.toString() == label)) return node
-            for (index in 0 until node.childCount) node.getChild(index)?.let { walk(it)?.let { result -> return result } }
+            if (!node.refresh()) return null
+            if (node.isVisibleToUser && (node.text?.toString() == label || node.contentDescription?.toString() == label)) {
+                val bounds = Rect().also(node::getBoundsInScreen)
+                if (bounds.top in minTop..maxTop) return node
+            }
+            // Prefer the player or sheet drawn above Home's own playback buttons.
+            for (index in node.childCount - 1 downTo 0) node.getChild(index)?.let { walk(it)?.let { result -> return result } }
             return null
         }
         return walk(root)
@@ -331,8 +431,8 @@ class MusicDesignInstrumentedTest {
         }
     }
 
-    private fun await(message: String, condition: () -> Boolean) {
-        val deadline = SystemClock.elapsedRealtime() + 90_000
+    private fun await(message: String, timeoutMs: Long = 90_000, condition: () -> Boolean) {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (SystemClock.elapsedRealtime() < deadline) {
             if (condition()) return
             SystemClock.sleep(250)

@@ -1357,6 +1357,7 @@ class MusicService :
 
     private fun updateNotification() {
         try {
+            // Padded notification icons balance custom actions with System UI's playback buttons.
             val mediaButtonPreferences = listOf(
                 CommandButton
                     .Builder()
@@ -1371,10 +1372,10 @@ class MusicService :
                         ),
                     ).setIconResId(
                         when (player.repeatMode) {
-                            REPEAT_MODE_OFF -> R.drawable.repeat
-                            REPEAT_MODE_ONE -> R.drawable.repeat_one_on
-                            REPEAT_MODE_ALL -> R.drawable.repeat_on
-                            else -> R.drawable.repeat
+                            REPEAT_MODE_OFF -> R.drawable.notification_repeat
+                            REPEAT_MODE_ONE -> R.drawable.notification_repeat_one_on
+                            REPEAT_MODE_ALL -> R.drawable.notification_repeat_on
+                            else -> R.drawable.notification_repeat
                         },
                     ).setSessionCommand(CommandToggleRepeatMode)
                     .setSlots(CommandButton.SLOT_OVERFLOW)
@@ -1390,7 +1391,7 @@ class MusicService :
                             },
                         ),
                     )
-                    .setIconResId(if (currentSong.value?.song?.liked == true) R.drawable.favorite else R.drawable.notification_favorite_border)
+                    .setIconResId(if (currentSong.value?.song?.liked == true) R.drawable.notification_favorite else R.drawable.notification_favorite_border)
                     .setSessionCommand(CommandToggleLike)
                     .setSlots(CommandButton.SLOT_OVERFLOW)
                     .setEnabled(currentSong.value != null)
