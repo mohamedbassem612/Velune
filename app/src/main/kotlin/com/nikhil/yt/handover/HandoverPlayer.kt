@@ -102,8 +102,21 @@ class HandoverPlayer(private val local: ExoPlayer, private val session: Handover
     }
     override fun seekToDefaultPosition() = seekTo(0L)
     override fun seekToDefaultPosition(mediaItemIndex: Int) = seekTo(mediaItemIndex, 0L)
-    override fun seekToNext() { if (remote) session.command("next") else local.seekToNext() }
-    override fun seekToNextMediaItem() { if (remote) session.command("next") else local.seekToNextMediaItem() }
+    override fun seekToNext() {
+        if (remote) session.command("next") else {
+            local.seekToNext()
+            // MediaSession notification controls call this Player directly, bypassing PlayerConnection.
+            prepare()
+            play()
+        }
+    }
+    override fun seekToNextMediaItem() {
+        if (remote) session.command("next") else {
+            local.seekToNextMediaItem()
+            prepare()
+            play()
+        }
+    }
     override fun seekToPrevious() { if (remote) session.command("previous") else local.seekToPrevious() }
     override fun seekToPreviousMediaItem() { if (remote) session.command("previous") else local.seekToPreviousMediaItem() }
     override fun seekBack() = seekTo((currentPosition - seekBackIncrement).coerceAtLeast(0))
