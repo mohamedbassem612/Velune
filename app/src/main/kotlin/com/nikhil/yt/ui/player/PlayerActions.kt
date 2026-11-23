@@ -95,31 +95,26 @@ internal fun PlayerFooterActions(connection: PlayerConnection, color: Color, onQ
     var showSleepTimer by remember { mutableStateOf(false) }
     val sleepTimer = connection.service.sleepTimer
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        // Four equal slots keep the action centers mirrored around the player's center line,
-        // independent of label lengths or whether an action includes text.
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onQueue,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
-                Icon(painterResource(R.drawable.queue_music), null, tint = color, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.queue), color = color, modifier = Modifier.weight(1f, fill = false),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+        BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+            // Anchor the labels to the supplied reference, independently of their icon graphics.
+            // Both player layouts provide the same 24 dp horizontal inset.
+            val queueLabelX = maxWidth * 0.227f
+            val lyricsLabelX = maxWidth * 0.735f
+            val iconAndPadding = 34.dp // 4 dp inset + 24 dp icon + 6 dp gap.
+            val queueLeft = (queueLabelX - iconAndPadding).coerceAtLeast(0.dp)
+            val lyricsLeft = (lyricsLabelX - iconAndPadding).coerceAtLeast(0.dp)
+            PlayerFooterTextAction(stringResource(R.string.queue), R.drawable.queue_music, color, onQueue,
+                Modifier.align(Alignment.CenterStart).offset(x = queueLeft)
+                    .width((maxWidth / 2 - 24.dp - queueLeft).coerceAtLeast(48.dp)))
             IconButton(onClick = { if (sleepTimer.isActive) sleepTimer.clear() else showSleepTimer = true },
-                modifier = Modifier.weight(1f).height(48.dp)) {
+                modifier = Modifier.align(Alignment.Center).size(48.dp)) {
                 Icon(painterResource(R.drawable.bedtime), stringResource(R.string.sleep_timer),
                     tint = color.copy(alpha = if (sleepTimer.isActive) 1f else 0.65f))
             }
-            TextButton(onClick = onLyrics,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
-                Icon(painterResource(R.drawable.lyrics), null, tint = color, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.lyrics), color = color, modifier = Modifier.weight(1f, fill = false),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            IconButton(onClick = onMenu, modifier = Modifier.weight(1f).height(48.dp)) {
+            PlayerFooterTextAction(stringResource(R.string.lyrics), R.drawable.lyrics, color, onLyrics,
+                Modifier.align(Alignment.CenterStart).offset(x = lyricsLeft)
+                    .width((maxWidth - 48.dp - lyricsLeft).coerceAtLeast(48.dp)))
+            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).size(48.dp)) {
                 Icon(painterResource(R.drawable.more_vert), stringResource(R.string.music_options), tint = color)
             }
         }
@@ -129,4 +124,16 @@ internal fun PlayerFooterActions(connection: PlayerConnection, color: Color, onQ
         onConfirm = { sleepTimer.start(it); showSleepTimer = false },
         onEndOfSong = { sleepTimer.start(-1); showSleepTimer = false },
     )
+}
+
+@Composable
+private fun PlayerFooterTextAction(label: String, icon: Int, color: Color, onClick: () -> Unit, modifier: Modifier) {
+    TextButton(onClick = onClick, modifier = modifier.heightIn(min = 48.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(icon), null, tint = color, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(label, color = color, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }

@@ -36,8 +36,6 @@ import com.nikhil.yt.utils.dataStore
 import com.nikhil.yt.utils.ReleaseInfo
 import com.nikhil.yt.ui.component.UpdateAvailableDialog
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.time.LocalDateTime
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -47,7 +45,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Run on a disposable emulator. A fully cached silent WAV keeps this test independent of YouTube. */
+/** Run on a disposable emulator. A fully cached silent MP3 keeps this test independent of YouTube. */
 @RunWith(AndroidJUnit4::class)
 class MusicDesignInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -58,6 +56,10 @@ class MusicDesignInstrumentedTest {
     @Test fun sharedPlaybackSurvivesPlayerSearchThemeAndRotation() = exercisePlayer(true)
 
     @Test fun metroControlsAndLyricsKeepTheirOwnScreen() = exercisePlayer(false)
+
+    @Test fun defaultFooterMatchesReference() = exercisePlayer(true, footerOnly = true)
+
+    @Test fun metroFooterMatchesReference() = exercisePlayer(false, footerOnly = true)
 
     @Test fun updateDialogShowsSizeBeforeDownload() {
         runBlocking { context.dataStore.edit { it[DefaultOpenTabKey] = NavigationTab.LIBRARY.name } }
@@ -81,7 +83,12 @@ class MusicDesignInstrumentedTest {
         }
     }
 
-    private fun exercisePlayer(useMusicPlayer: Boolean) {
+    private fun exercisePlayer(useMusicPlayer: Boolean, footerOnly: Boolean = false) {
+        val permission = if (android.os.Build.VERSION.SDK_INT >= 33)
+            "android.permission.READ_MEDIA_AUDIO" else "android.permission.READ_EXTERNAL_STORAGE"
+        automation.grantRuntimePermission(context.packageName, permission)
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            automation.grantRuntimePermission(context.packageName, "android.permission.POST_NOTIFICATIONS")
         runBlocking { context.dataStore.edit {
             it[DarkModeKey] = DarkMode.ON.name
             it[PureBlackKey] = true
@@ -109,21 +116,21 @@ class MusicDesignInstrumentedTest {
             MediaMetadata("music-ui-fixture-2", "Evening light", emptyList(), 120, inLibrary = LocalDateTime.now()),
             MediaMetadata("music-ui-fixture-3", "موسيقى بلا غلاف", listOf(MediaMetadata.Artist(null, "فنان تجريبي")), 120, inLibrary = LocalDateTime.now()),
         )
-        val wav = silentWav()
+        val audio = silentMp3()
         try {
             tracks.forEach { track ->
                 service.database.insert(track)
-                service.database.upsert(FormatEntity(track.id, 0, "audio/wav", "pcm_s16le", 128_000, 8_000, wav.size.toLong(), null, playbackUrl = null))
+                service.database.upsert(FormatEntity(track.id, 0, "audio/mpeg", "mp3", 128_000, 44_100, audio.size.toLong(), null, playbackUrl = null))
                 service.database.upsert(LyricsEntity(track.id,
                     "[00:00.00]First lyric line\n[00:15.00]Second lyric line\n[00:30.00]Third lyric line"))
-                val hole = service.downloadCache.startReadWrite(track.id, 0, wav.size.toLong())
+                val hole = service.downloadCache.startReadWrite(track.id, 0, audio.size.toLong())
                 try {
                     if (!hole.isCached) {
-                        val file = service.downloadCache.startFile(track.id, 0, wav.size.toLong())
-                        file.writeBytes(wav)
-                        service.downloadCache.commitFile(file, wav.size.toLong())
+                        val file = service.downloadCache.startFile(track.id, 0, audio.size.toLong())
+                        file.writeBytes(audio)
+                        service.downloadCache.commitFile(file, audio.size.toLong())
                         service.downloadCache.applyContentMetadataMutations(track.id,
-                            ContentMetadataMutations().apply { ContentMetadataMutations.setContentLength(this, wav.size.toLong()) })
+                            ContentMetadataMutations().apply { ContentMetadataMutations.setContentLength(this, audio.size.toLong()) })
                     }
                 } finally { if (!hole.isCached) service.downloadCache.releaseHoleSpan(hole) }
             }
@@ -133,7 +140,7 @@ class MusicDesignInstrumentedTest {
             await("Cached fixture did not become ready") { main { service.sessionPlayer.playbackState == Player.STATE_READY } }
             instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(17_000) }
             await("Mini player did not appear") { find(title) != null }
-            if (useMusicPlayer) {
+            if (useMusicPlayer && !footerOnly) {
                 swipe(title, toLeft = true)
                 await("Left swipe did not select next song") { main { service.sessionPlayer.currentMediaItem?.mediaId } == tracks[1].id }
                 instrumentation.runOnMainSync { service.sessionPlayer.pause(); service.sessionPlayer.seekTo(0) }
@@ -149,8 +156,10 @@ class MusicDesignInstrumentedTest {
             capture("01-home-amoled")
             tap(title)
             await("Full player did not open") { find(activity.getString(R.string.music_options)) != null }
-            capture("02-player-amoled")
             assertControlPositions(activity)
+            SystemClock.sleep(600)
+            capture("02-player-amoled")
+            if (footerOnly) return
             assertPosition(service)
             tap(activity.getString(R.string.music_options))
             capture("03-options")
@@ -198,12 +207,17 @@ class MusicDesignInstrumentedTest {
         fun bounds(resource: Int): Rect {
             val label = activity.getString(resource)
             await("Missing control $label") { find(label) != null }
-            return Rect().also { find(label)!!.getBoundsInScreen(it) }
+            var node = find(label)!!
+            // A text label can be a child of the button's merged accessibility node.
+            while (!node.isClickable) {
+                node = node.parent ?: error("No clickable control for $label")
+            }
+            return Rect().also(node::getBoundsInScreen)
         }
         val devices = bounds(R.string.connect_devices)
-        val share = bounds(R.string.share)
         val like = bounds(R.string.action_like)
-        assertTrue("Track actions must be devices, share, like", devices.centerX() < share.centerX() && share.centerX() < like.centerX())
+        assertTrue("Track actions must be devices then like", devices.centerX() < like.centerX())
+        assertNull("Share belongs in the options menu", find(activity.getString(R.string.share)))
         val shuffle = bounds(R.string.music_shuffle_off)
         val previous = bounds(R.string.music_previous)
         val play = bounds(R.string.play)
@@ -212,8 +226,27 @@ class MusicDesignInstrumentedTest {
         assertTrue("Transport order must match the reference",
             shuffle.centerX() < previous.centerX() && previous.centerX() < play.centerX() &&
                 play.centerX() < next.centerX() && next.centerX() < repeat.centerX())
-        assertTrue("Track actions must be above transport controls", share.centerY() < previous.top)
-        assertTrue("Queue and lyrics must be below transport controls", bounds(R.string.queue).centerY() > play.bottom)
+        assertTrue("Track actions must be above transport controls", like.centerY() < previous.top)
+        val queue = bounds(R.string.queue)
+        val sleep = bounds(R.string.sleep_timer)
+        val menu = bounds(R.string.music_options)
+        val lyrics = bounds(R.string.lyrics)
+        val queueLabel = Rect().also { find(activity.getString(R.string.queue))!!.getBoundsInScreen(it) }
+        val lyricsLabel = Rect().also { find(activity.getString(R.string.lyrics))!!.getBoundsInScreen(it) }
+        val viewport = Rect().also { automation.rootInActiveWindow!!.getBoundsInScreen(it) }
+        android.util.Log.i("PlayerGeometry", "play=${play.centerX()} queueLabel=${queueLabel.left} sleep=${sleep.centerX()} lyricsLabel=${lyricsLabel.left} menu=${menu.centerX()}")
+        assertTrue("Footer order must match the supplied reference",
+            queue.centerX() < sleep.centerX() && sleep.centerX() < lyrics.centerX() && lyrics.centerX() < menu.centerX())
+        assertTrue("Sleep must align with the play button", kotlin.math.abs(sleep.centerX() - play.centerX()) <= 1)
+        assertTrue("Queue title must retain its reference position",
+            kotlin.math.abs(queueLabel.left - viewport.width() * (281f / 1080f)) <= 2)
+        assertTrue("Lyrics title must retain its reference position",
+            kotlin.math.abs(lyricsLabel.left - viewport.width() * (763f / 1080f)) <= 2)
+        assertTrue("Footer touch targets must not overlap",
+            queue.right <= sleep.left && sleep.right <= lyrics.left && lyrics.right <= menu.left)
+        assertTrue("Footer controls must share a vertical center",
+            listOf(queue, sleep, lyrics, menu).all { kotlin.math.abs(it.centerY() - sleep.centerY()) <= 1 })
+        assertTrue("Queue and lyrics must be below transport controls", queue.centerY() > play.bottom)
         assertTrue("Play button must be larger than previous/next", play.height() > previous.height())
     }
 
@@ -307,12 +340,18 @@ class MusicDesignInstrumentedTest {
         fail(message)
     }
 
-    private fun silentWav(): ByteArray {
-        val dataSize = 120 * 8_000 * 2
-        return ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN).apply {
-            put("RIFF".toByteArray()); putInt(36 + dataSize); put("WAVEfmt ".toByteArray())
-            putInt(16); putShort(1); putShort(1); putInt(8_000); putInt(16_000); putShort(2); putShort(16)
-            put("data".toByteArray()); putInt(dataSize)
-        }.array()
+    /** 120 seconds of valid CBR MPEG-1 Layer III silence, supported by the production extractors. */
+    private fun silentMp3(): ByteArray {
+        val frameSize = 417 // 128 kbps, 44.1 kHz, unpadded MPEG-1 Layer III.
+        val frameCount = 4_594 // 1,152 samples per frame.
+        return ByteArray(frameSize * frameCount).apply {
+            repeat(frameCount) { frame ->
+                val offset = frame * frameSize
+                this[offset] = 0xFF.toByte()
+                this[offset + 1] = 0xFB.toByte()
+                this[offset + 2] = 0x90.toByte()
+                this[offset + 3] = 0xC0.toByte() // Mono; zeroed side information encodes silent granules.
+            }
+        }
     }
 }
