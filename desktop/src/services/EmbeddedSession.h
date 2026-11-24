@@ -3,11 +3,9 @@
 #include <QNetworkCookie>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QProcess>
 #include <QTimer>
 #include <QUrl>
-class QDialog;
-class QWebEngineProfile;
-class QWidget;
 namespace velune {
 // Only cookies belonging to the YouTube Music origin may reach InnerTube.
 QByteArray musicCookieHeader(const QList<QNetworkCookie> &cookies, const QDateTime &now);
@@ -28,7 +26,7 @@ class EmbeddedSession : public QObject {
     QString accountEmail() const {
         return email;
     }
-    void start(QWidget *parent);
+    void start();
     void cancel();
     void logout();
     void restore();
@@ -43,14 +41,13 @@ class EmbeddedSession : public QObject {
   private:
     QString directory, storageKey, name, email;
     QList<QNetworkCookie> cookies;
-    QWebEngineProfile *profile = nullptr;
-    QPointer<QDialog> dialog;
+    QPointer<QProcess> helper;
+    QByteArray helperOutput;
     QNetworkAccessManager network;
     QNetworkAccessManager *verificationNetwork;
     QTimer retry, saveTimer;
     bool pending = false, verified = false, checking = false, persistSession;
     quint64 generation = 0, cookieRevision = 0;
-    void ensureProfile();
     void verify();
     void save();
     void setBusy(bool value);

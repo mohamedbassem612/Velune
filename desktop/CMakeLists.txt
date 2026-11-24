@@ -1,126 +1,60 @@
 cmake_minimum_required(VERSION 3.21)
-project(VeluneDesktop VERSION 0.1.4 LANGUAGES CXX)
+project(VeluneDesktop VERSION 0.3.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
-find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network Test WebEngineWidgets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 WebEngineQuick)
 find_package(OpenSSL REQUIRED)
-option(VELUNE_MINIMAL_BUILD "Build without local audio or secure session storage" OFF)
-option(VELUNE_ENABLE_QT_MULTIMEDIA "Compile the Qt Multimedia audio backend" ON)
-option(VELUNE_ENABLE_MPV "Compile optional runtime-loaded libmpv backend when headers are available" ON)
-set(MPV_ROOT "" CACHE PATH "Optional libmpv development prefix")
-if(VELUNE_ENABLE_MPV)
- find_package(PkgConfig QUIET)
- if(PkgConfig_FOUND)
-  pkg_check_modules(MPV QUIET mpv>=0.37)
- endif()
- find_path(MPV_INCLUDE_DIR mpv/client.h HINTS ${MPV_INCLUDE_DIRS} ${MPV_ROOT}/include)
- if(MPV_INCLUDE_DIR)
-  include(CheckCXXSourceCompiles)
-  set(CMAKE_REQUIRED_INCLUDES "${MPV_INCLUDE_DIR}")
-  check_cxx_source_compiles("#include <mpv/client.h>
-   #if MPV_CLIENT_API_VERSION < MPV_MAKE_VERSION(2,2)
-   #error Unsupported libmpv headers
-   #endif
-   int main() { return 0; }" VELUNE_MPV_API_COMPATIBLE)
-  unset(CMAKE_REQUIRED_INCLUDES)
- endif()
-endif()
-if(VELUNE_MINIMAL_BUILD)
- if(VELUNE_ENABLE_QT_MULTIMEDIA)
-  find_package(Qt6 6.4 QUIET COMPONENTS Multimedia)
- endif()
- find_package(Qt6Keychain QUIET)
-else()
- if(VELUNE_ENABLE_QT_MULTIMEDIA)
-  find_package(Qt6 6.4 REQUIRED COMPONENTS Multimedia)
- elseif(NOT (VELUNE_ENABLE_MPV AND MPV_INCLUDE_DIR AND VELUNE_MPV_API_COMPATIBLE))
-  message(FATAL_ERROR "Qt Multimedia is disabled: install compatible libmpv headers and enable VELUNE_ENABLE_MPV.")
- endif()
- find_package(Qt6Keychain REQUIRED)
-endif()
+find_package(Qt6Keychain REQUIRED)
+qt_standard_project_setup()
+add_subdirectory(native)
 add_library(velune_core
- src/playback/IPlaybackEngine.h
- src/playback/PlaybackTypes.h
- src/playback/QtPlaybackEngine.h
- src/playback/QtPlaybackEngine.cpp
- src/playback/MpvPlaybackEngine.h
- src/playback/MpvPlaybackEngine.cpp
- src/playback/PlaybackEngineFactory.cpp
- src/playback/PlaybackTrace.cpp
  src/core/Library.cpp
- src/services/ConnectClient.cpp
- src/services/Discovery.cpp
- src/services/EmbeddedSession.cpp
- src/services/LibraryCatalog.cpp
- src/services/SearchEngine.cpp
- src/services/MusicService.cpp
- src/services/AudioResolver.cpp
- src/services/NativeAudioResolver.cpp
- src/services/AudioStream.cpp
+ src/playback/IPlaybackEngine.h src/playback/ProcessPlaybackEngine.cpp
+ src/playback/PlaybackEngineFactory.cpp src/playback/PlaybackTrace.cpp
+ src/playback/CrossfadePlaybackEngine.cpp
+ src/services/ConnectClient.cpp src/services/ConnectHost.cpp src/services/ConnectMediaCache.cpp
+ src/services/ConnectMediaProvider.cpp
+ src/services/Discovery.cpp src/services/EmbeddedSession.cpp
+ src/services/LibraryCatalog.cpp src/services/SearchEngine.cpp
+ src/services/MusicService.cpp src/services/MusicServiceConnect.cpp
+ src/services/AudioResolver.cpp src/services/NativeAudioResolver.cpp src/services/AudioStream.cpp
+ src/services/DownloadService.cpp src/services/Mp3Tags.cpp
+ src/services/CacheStorage.cpp
+ src/services/BackupService.cpp
 )
 target_include_directories(velune_core PUBLIC src)
-target_link_libraries(velune_core PUBLIC Qt6::Widgets Qt6::Network Qt6::WebEngineWidgets OpenSSL::Crypto)
-if(MSVC)
- target_compile_options(velune_core PUBLIC /utf-8)
+target_compile_definitions(velune_core PRIVATE VELUNE_KEYCHAIN)
+target_link_libraries(velune_core PUBLIC Qt6::Gui Qt6::Network OpenSSL::Crypto PRIVATE qt6keychain)
+qt_add_executable(velune src/main.cpp src/DesktopController.cpp)
+target_link_libraries(velune PRIVATE velune_core Qt6::Quick Qt6::QuickControls2)
+qt_add_qml_module(velune URI Velune VERSION 1.0 RESOURCE_PREFIX / QML_FILES
+ qml/Main.qml qml/ActionButton.qml qml/TrackRow.qml qml/Artwork.qml
+ qml/SettingsPage.qml qml/SettingsGroup.qml qml/SettingsToggle.qml qml/SettingsChoice.qml)
+qt_add_executable(velune-login src/login/main.cpp)
+target_link_libraries(velune-login PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::WebEngineQuick)
+qt_add_qml_module(velune-login URI VeluneLogin VERSION 1.0 RESOURCE_PREFIX / QML_FILES qml/Login.qml)
+qt_add_resources(velune assets PREFIX / FILES assets/velune.svg)
+install(TARGETS velune velune-login RUNTIME DESTINATION bin)
+option(VELUNE_DOWNLOAD_TESTS "Build downloads and Android MP3 compatibility tests" OFF)
+if(VELUNE_DOWNLOAD_TESTS)
+ find_package(Qt6 REQUIRED COMPONENTS Test)
+ enable_testing()
+ qt_add_executable(velune-download-tests tests/DownloadFeatureTests.cpp)
+ target_link_libraries(velune-download-tests PRIVATE velune_core Qt6::Test)
+ add_test(NAME downloads COMMAND velune-download-tests)
+ qt_add_executable(velune-resume-tests tests/PlaybackResumeTests.cpp)
+ target_link_libraries(velune-resume-tests PRIVATE velune_core Qt6::Test)
+ add_test(NAME playback-resume COMMAND velune-resume-tests)
+ qt_add_executable(velune-storage-tests tests/StorageFeatureTests.cpp)
+ target_link_libraries(velune-storage-tests PRIVATE velune_core Qt6::Test)
+ add_test(NAME storage COMMAND velune-storage-tests)
+ qt_add_executable(velune-crossfade-tests tests/CrossfadeTests.cpp)
+ target_link_libraries(velune-crossfade-tests PRIVATE velune_core Qt6::Test)
+ add_test(NAME crossfade COMMAND velune-crossfade-tests)
+ qt_add_executable(velune-settings-ui-tests tests/SettingsUiTests.cpp)
+ target_link_libraries(velune-settings-ui-tests PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Test)
+ target_compile_definitions(velune-settings-ui-tests PRIVATE VELUNE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+ add_test(NAME settings-ui COMMAND velune-settings-ui-tests)
+ set_tests_properties(settings-ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic")
 endif()
-if(VELUNE_ENABLE_MPV AND MPV_INCLUDE_DIR AND VELUNE_MPV_API_COMPATIBLE)
- target_include_directories(velune_core PUBLIC ${MPV_INCLUDE_DIR})
- target_compile_definitions(velune_core PUBLIC VELUNE_MPV)
- target_compile_definitions(velune_core PRIVATE MPV_ENABLE_DEPRECATED=0)
- message(STATUS "libmpv: runtime-loaded C API (headers: ${MPV_INCLUDE_DIR})")
-else()
- message(STATUS "libmpv: disabled or development headers absent; Qt backend retained")
-endif()
-if(VELUNE_ENABLE_QT_MULTIMEDIA AND TARGET Qt6::Multimedia)
- target_link_libraries(velune_core PUBLIC Qt6::Multimedia)
- target_compile_definitions(velune_core PUBLIC VELUNE_MULTIMEDIA)
-endif()
-if(TARGET qt6keychain)
- target_link_libraries(velune_core PUBLIC qt6keychain)
- target_compile_definitions(velune_core PUBLIC VELUNE_KEYCHAIN)
-endif()
-add_executable(velune WIN32 src/main.cpp src/ui/Components.cpp src/ui/MainWindow.cpp)
-target_link_libraries(velune PRIVATE velune_core)
-include(CTest)
-option(VELUNE_BUILD_BENCHMARKS "Build opt-in native playback benchmark" OFF)
-if(VELUNE_BUILD_BENCHMARKS)
- add_executable(velune_playback_benchmark benchmarks/PlaybackBenchmark.cpp)
- target_include_directories(velune_playback_benchmark PRIVATE tests)
- target_link_libraries(velune_playback_benchmark PRIVATE velune_core)
- if(WIN32)
-  target_link_libraries(velune_playback_benchmark PRIVATE psapi)
- endif()
-endif()
-if(BUILD_TESTING)
- add_executable(velune_mpv_tests tests/MpvPlaybackTests.cpp)
- target_link_libraries(velune_mpv_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME mpv-playback COMMAND velune_mpv_tests -platform offscreen)
- add_executable(velune_library_tests tests/LibraryCatalogTests.cpp)
- target_link_libraries(velune_library_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME library COMMAND velune_library_tests)
- add_executable(velune_search_tests tests/SearchTests.cpp)
- target_link_libraries(velune_search_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME search COMMAND velune_search_tests)
- add_executable(velune_playback_tests tests/PlaybackTests.cpp)
- target_link_libraries(velune_playback_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME playback COMMAND velune_playback_tests -platform offscreen)
- add_executable(velune_tests tests/CoreTests.cpp src/ui/Components.cpp src/ui/MainWindow.cpp)
- target_link_libraries(velune_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME desktop COMMAND velune_tests -platform offscreen)
- add_executable(velune_auth_tests tests/EmbeddedSessionTests.cpp)
- target_link_libraries(velune_auth_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME google-auth COMMAND velune_auth_tests -platform offscreen)
- add_executable(velune_resolver_fixture tests/ResolverFixture.cpp)
- target_link_libraries(velune_resolver_fixture PRIVATE Qt6::Core)
- add_executable(velune_audio_tests tests/AudioResolverTests.cpp)
- target_link_libraries(velune_audio_tests PRIVATE velune_core Qt6::Test)
- add_dependencies(velune_audio_tests velune_resolver_fixture)
- add_test(NAME audio-resolver COMMAND velune_audio_tests -platform offscreen)
- add_executable(velune_stream_tests tests/AudioStreamTests.cpp)
- target_link_libraries(velune_stream_tests PRIVATE velune_core Qt6::Test)
- add_test(NAME audio-stream COMMAND velune_stream_tests -platform offscreen)
-endif()
-install(TARGETS velune RUNTIME DESTINATION bin)
-install(FILES ../LICENSE THIRD_PARTY.md DESTINATION share/licenses/velune)
-message(STATUS "Qt Multimedia enabled: ${VELUNE_ENABLE_QT_MULTIMEDIA}; Google sign-in: embedded YouTube Music; keyring: ${Qt6Keychain_FOUND}")

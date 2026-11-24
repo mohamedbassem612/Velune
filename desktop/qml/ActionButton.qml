@@ -1,0 +1,39 @@
+import QtQuick
+import QtQuick.Controls
+
+Button {
+    id: button
+    property bool primary: false
+    property bool selected: false
+    property string hint: ""
+    property int radius: 10
+    property color normalColor: "transparent"
+    hoverEnabled: true
+    implicitWidth: Math.max(38, contentItem ? contentItem.implicitWidth + 26 : 38)
+    implicitHeight: 40
+    padding: 10
+    font.pixelSize: 14
+    background: Rectangle {
+        radius: button.radius
+        color: button.primary ? (button.down ? "#bcbcbc" : button.hovered ? "#dedede" : "white") : button.down ? "#333333" : button.hovered ? "#242424" : button.selected ? "#1c1c1c" : button.normalColor
+        border.width: button.activeFocus ? 1 : 0
+        border.color: "#aaaaaa"
+        Behavior on color  {
+            ColorAnimation {
+                duration: 130
+            }
+        }
+    }
+    contentItem: Text {
+        text: button.text
+        color: !button.enabled ? "#555555" : button.primary ? "#050505" : button.selected || button.hovered ? "white" : "#b7b7b7"
+        font: button.font
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideRight
+    }
+    ToolTip.visible: hovered && hint.length > 0
+    ToolTip.text: hint
+    ToolTip.delay: 700
+    Accessible.name: hint.length ? hint : text
+}

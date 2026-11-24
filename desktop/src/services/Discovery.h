@@ -12,9 +12,11 @@ class Discovery : public QObject {
     Q_OBJECT
   public:
     explicit Discovery(QObject *parent = nullptr);
+    ~Discovery() override;
     QList<Device> devices() const;
     void refresh();
     void ingest(const QByteArray &packet);
+    void advertise(QString identity, quint16 port, QString name);
   signals:
     void changed();
 
@@ -29,6 +31,9 @@ class Discovery : public QObject {
     };
     QMap<QString, Record> records;
     QMap<QString, QString> addresses;
+    QString localId, localName, localInstance;
+    quint16 localPort = 0;
+    void announce(quint32 ttl = 120);
     void query(const QString &name, quint16 type);
 };
 } // namespace velune

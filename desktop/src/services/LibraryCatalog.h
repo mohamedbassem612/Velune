@@ -28,6 +28,8 @@ class LibraryCatalog : public QObject {
     }
     static QJsonObject parsePage(QJsonObject response);
     void observePlayback(QJsonObject state, bool localOutput);
+    void clearListeningHistory();
+    void checkpoint() { flushListen(); }
   signals:
     void changed();
     void busyChanged(bool busy);
@@ -46,7 +48,7 @@ class LibraryCatalog : public QObject {
     Track listening;
     qint64 pendingTime = 0;
     bool wasPlaying = false;
-    void save();
+    bool save();
     QJsonArray entities() const;
     QJsonArray songs() const;
     QJsonArray history() const;

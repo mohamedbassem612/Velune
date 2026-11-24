@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' velune-art: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Velune</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="shell">
+      <aside>
+        <div class="brand">
+          <span class="brand-mark">⋎</span><span>velune</span>
+        </div>
+        <nav id="navigation"></nav>
+        <div class="side-bottom">
+          <span class="connection-dot"></span
+          ><span id="connection-label">This computer</span
+          ><button id="account-button" class="account">Sign in</button>
+        </div>
+      </aside>
+      <div class="workspace">
+        <header class="titlebar">
+          <button id="back-button" title="Back">‹</button>
+          <div id="breadcrumbs">Home</div>
+          <div class="drag-space"></div>
+          <span class="version">0.2.0</span
+          ><button id="minimize" title="Minimize">−</button
+          ><button id="maximize" title="Maximize">□</button
+          ><button id="close-window" title="Close">×</button>
+        </header>
+        <main id="content" tabindex="-1"></main>
+      </div>
+      <footer id="player">
+        <div class="track-info">
+          <img id="player-art" alt="Album cover" />
+          <div class="track-names">
+            <strong id="player-title">No song playing</strong
+            ><span id="player-artist">Choose something to listen to</span>
+          </div>
+          <button id="player-like" title="Like song">♡</button>
+        </div>
+        <div class="playback">
+          <div class="controls">
+            <button id="shuffle" title="Shuffle">⤨</button
+            ><button id="previous" title="Previous">◀│</button
+            ><button id="play" class="play" title="Play or pause">▶</button
+            ><button id="next" title="Next">│▶</button
+            ><button id="repeat" title="Repeat">↻</button>
+          </div>
+          <div class="seek-row">
+            <span id="elapsed">0:00</span
+            ><input
+              id="seek"
+              type="range"
+              min="0"
+              max="0"
+              value="0"
+              aria-label="Playback position"
+            /><span id="duration">0:00</span>
+          </div>
+        </div>
+        <div class="extras">
+          <button id="lyrics-button" title="Lyrics">≋</button
+          ><button id="queue-button" title="Queue">☷</button
+          ><button id="devices-button" title="Available devices">▣</button
+          ><button id="mute" title="Mute">◖</button
+          ><input
+            id="volume"
+            type="range"
+            min="0"
+            max="100"
+            value="75"
+            aria-label="Volume"
+          />
+        </div>
+      </footer>
+    </div>
+    <div id="toast" role="status" hidden></div>
+    <dialog id="modal">
+      <div id="modal-header">
+        <h2 id="modal-title"></h2>
+        <button id="modal-close" title="Close">×</button>
+      </div>
+      <div id="modal-content"></div>
+    </dialog>
+    <script src="renderer.js"></script>
+  </body>
+</html>

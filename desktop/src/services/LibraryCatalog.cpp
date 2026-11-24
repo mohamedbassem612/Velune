@@ -1,5 +1,6 @@
 #include "LibraryCatalog.h"
 #include <QCollator>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -57,6 +58,13 @@ LibraryCatalog::LibraryCatalog(Library *source, SearchEngine::Transport send, QO
              {"selectedTags", QJsonArray{}},
              {"playlistOrder", QJsonArray{}},
              {"sectionOptions", QJsonObject{}}};
+    prefs["pauseListeningHistory"] = false;
+    prefs["defaultPage"] = "Home";
+    prefs["systemFont"] = false;
+    prefs["hidePlayerArtwork"] = false;
+    prefs["lyricsFontSize"] = 18;
+    prefs["lyricsLineHeight"] = 1.4;
+    prefs["crossfadeSeconds"] = 0;
     QFile file(library->directory() + "/catalog.json");
     if (file.open(QIODevice::ReadOnly)) {
         auto data = QJsonDocument::fromJson(file.readAll()).object();
@@ -73,7 +81,7 @@ LibraryCatalog::LibraryCatalog(Library *source, SearchEngine::Transport send, QO
 LibraryCatalog::~LibraryCatalog() {
     flushListen();
 }
-void LibraryCatalog::save() {
+bool LibraryCatalog::save() {
     QSaveFile file(library->directory() + "/catalog.json");
     auto bytes = QJsonDocument(QJsonObject{{"preferences", prefs},
                                            {"remoteEntries", remoteEntries},
@@ -82,9 +90,10 @@ void LibraryCatalog::save() {
                      .toJson();
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
         emit message("Could not save library preferences.");
-        return;
+        return false;
     }
     QFile::setPermissions(library->directory() + "/catalog.json", QFile::ReadOwner | QFile::WriteOwner);
+    return true;
 }
 void LibraryCatalog::setPreferences(QJsonObject patch) {
     auto next = prefs;
@@ -92,10 +101,32 @@ void LibraryCatalog::setPreferences(QJsonObject patch) {
         if (patch.contains(key))
             next[key] = patch[key];
     next["topSize"] = qBound(1, next["topSize"].toInt(50), 500);
+    for (auto key : {"pauseListeningHistory",
+                     "systemFont", "hidePlayerArtwork", "showLiked", "showOffline", "showTop", "showCached"})
+        if (!next[key].isBool())
+            next[key] = prefs[key];
+    const QStringList pages{"Home", "Search", "Explore", "Library", "Downloads"};
+    if (!pages.contains(next["defaultPage"].toString()))
+        next["defaultPage"] = prefs["defaultPage"];
+    if (next["view"] != "list" && next["view"] != "grid")
+        next["view"] = prefs["view"];
+    next["lyricsFontSize"] = qBound(12, next["lyricsFontSize"].toInt(18), 40);
+    next["lyricsLineHeight"] = qBound(1.0, next["lyricsLineHeight"].toDouble(1.4), 2.0);
+    next["crossfadeSeconds"] = qBound(0,next["crossfadeSeconds"].toInt(),12);
     if (next == prefs)
         return;
+    if (next["pauseListeningHistory"] != prefs["pauseListeningHistory"]) {
+        flushListen();
+        pendingTime = 0;
+        wasPlaying = false;
+        clock.restart();
+    }
+    const auto previous = prefs;
     prefs = next;
-    save();
+    if (!save()) {
+        prefs = previous;
+        return;
+    }
     emit changed();
 }
 bool LibraryCatalog::bookmarked(QString id) const {
@@ -179,6 +210,16 @@ QJsonArray LibraryCatalog::songs() const {
         entry["kind"] = "song";
         entry["liked"] = library->liked(track.id);
         const auto path = library->mediaPath(track.id);
+        auto stem = library->directory() + "/connect/media/" +
+                    QString::fromLatin1(
+                        QCryptographicHash::hash(track.id.toUtf8(), QCryptographicHash::Sha256).toHex());
+        QFile meta(stem + ".json");
+        QJsonObject info;
+        if (meta.open(QIODevice::ReadOnly))
+            info = QJsonDocument::fromJson(meta.read(8192)).object();
+        entry["cached"] = info["id"] == track.id && info["length"].toDouble() > 0 &&
+                          info["length"].toDouble() == QFileInfo(stem + ".audio").size() &&
+                          QFileInfo(stem + ".audio").isReadable();
         entry["offline"] = !path.isEmpty() && QFileInfo(path).isFile() && QFileInfo(path).isReadable();
         const auto counter = records.value(track.id)["version"].toObject()["counter"].toDouble();
         entry["added"] = counter;
@@ -325,13 +366,18 @@ QJsonArray LibraryCatalog::entries(QString section, QString scope, QString sort,
             sortable.append(entry);
         sort = "playTime";
         descending = true;
-    } else if (section == "songs" || section == "liked" || section == "offline") {
+    } else if (section == "songs" || section == "liked" || section == "offline" || section == "cached") {
         for (auto value : allSongs) {
             auto entry = value.toObject();
-            const auto effective = section == "liked" ? "liked" : section == "offline" ? "offline" : scope;
+            const auto effective = section == "cached"    ? "cached"
+                                   : section == "liked"   ? "liked"
+                                   : section == "offline" ? "offline"
+                                                          : scope;
             if (effective == "liked" && !entry["liked"].toBool())
                 continue;
             if (effective == "offline" && !entry["offline"].toBool())
+                continue;
+            if (effective == "cached" && !entry["cached"].toBool())
                 continue;
             sortable.append(entry);
         }
@@ -413,21 +459,19 @@ QJsonArray LibraryCatalog::entries(QString section, QString scope, QString sort,
             if (!prefs[pair.first].toBool())
                 continue;
             const QString id = pair.second;
-            const auto tracks = id == "cached" ? QJsonArray{}
-                                               : entries(id, "library", id == "top" ? "playTime" : "added",
-                                                         true, contentSettings);
+            const auto tracks =
+                entries(id, "library", id == "top" ? "playTime" : "added", true, contentSettings);
             const QString title = id == "liked"     ? "Liked Songs"
                                   : id == "offline" ? "Offline"
                                   : id == "top"     ? QString("My Top %1").arg(prefs["topSize"].toInt())
                                                     : "Cached";
-            pinned.append(QJsonObject{
-                {"id", "auto:" + id},
-                {"title", title},
-                {"kind", "auto"},
-                {"section", id},
-                {"localTracks", tracks},
-                {"songCount", tracks.size()},
-                {"note", id == "cached" ? "Desktop has no persistent streaming cache yet." : ""}});
+            pinned.append(QJsonObject{{"id", "auto:" + id},
+                                      {"title", title},
+                                      {"kind", "auto"},
+                                      {"section", id},
+                                      {"localTracks", tracks},
+                                      {"songCount", tracks.size()},
+                                      {"note", ""}});
         }
         for (auto value : result)
             pinned.append(value);
@@ -451,6 +495,12 @@ void LibraryCatalog::flushListen() {
     pendingTime = 0;
 }
 void LibraryCatalog::observePlayback(QJsonObject state, bool localOutput) {
+    if (prefs["pauseListeningHistory"].toBool()) {
+        pendingTime = 0;
+        wasPlaying = false;
+        clock.restart();
+        return;
+    }
     const auto track = Track::fromWire(state["song"].toObject());
     if (clock.isValid() && wasPlaying)
         pendingTime += qBound<qint64>(0LL, clock.elapsed(), 10000LL);
@@ -459,6 +509,12 @@ void LibraryCatalog::observePlayback(QJsonObject state, bool localOutput) {
         flushListen();
     listening = track;
     wasPlaying = localOutput && state["playing"].toBool() && !track.id.isEmpty();
+}
+void LibraryCatalog::clearListeningHistory() {
+    pendingTime = 0;
+    wasPlaying = false;
+    clock.restart();
+    library->clearListeningHistory();
 }
 QJsonObject LibraryCatalog::parsePage(QJsonObject response) {
     QJsonObject container;

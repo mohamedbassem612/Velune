@@ -1,4 +1,7 @@
 #include "ConnectClient.h"
+#include "ConnectHost.h"
+#include "ConnectMediaProvider.h"
+#include "ConnectSession.h"
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -13,6 +16,7 @@
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 namespace velune {
+bool ConnectClient::mediaBusy() const { return !mediaCalls.isEmpty() || (provider && provider->busy()); }
 static constexpr int MaxFrame = 12 * 1024 * 1024;
 static QString uuid() {
     return QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -98,6 +102,7 @@ bool ConnectClient::createIdentity() {
     return !certificate.isNull() && !key.isNull() && !localId.isEmpty();
 }
 ConnectClient::ConnectClient(Library *l, QObject *parent) : QObject(parent), library(l) {
+    provider = new ConnectMediaProvider(l, this);
     createIdentity();
     heartbeat.setInterval(5000);
     watchdog.setInterval(16000);
@@ -110,6 +115,53 @@ ConnectClient::ConnectClient(Library *l, QObject *parent) : QObject(parent), lib
     connect(&watchdog, &QTimer::timeout, this, [this] { fail("Velune Connect timed out."); });
     connect(&retry, &QTimer::timeout, this, &ConnectClient::open);
     connect(l, &Library::changed, this, [this] { publishLibrary(); });
+    auto tls = QSslConfiguration::defaultConfiguration();
+    tls.setProtocol(QSsl::TlsV1_2OrLater);
+    tls.setLocalCertificate(certificate);
+    tls.setPrivateKey(key);
+    hostServer = new ConnectHost(l, localId, tls, this);
+    connect(hostServer, &ConnectHost::changed, this, [this](QJsonObject s) {
+        if (!hosting())
+            return;
+        state = s;
+        emit stateChanged(state);
+        emit statusChanged(rendersLocally() ? "This computer" : "Connected device");
+    });
+    connect(hostServer, &ConnectHost::availabilityChanged, this, [this] {
+        emit serverChanged();
+        if (explicitDisconnect) {
+            if (hosting())
+                state = hostServer->playback();
+            emit statusChanged("This computer");
+            emit stateChanged(hosting() ? state : QJsonObject{});
+        }
+    });
+    connect(hostServer, &ConnectHost::error, this, &ConnectClient::error);
+    connect(hostServer, &ConnectHost::prepareRequested, this, &ConnectClient::prepareRequested);
+    connect(hostServer, &ConnectHost::releaseRequested, this, &ConnectClient::releaseRequested);
+    connect(hostServer, &ConnectHost::abortRequested, this, &ConnectClient::abortRequested);
+    connect(hostServer, &ConnectHost::commandRequested, this, &ConnectClient::commandRequested);
+    connect(hostServer, &ConnectHost::mediaReply, this, &ConnectClient::mediaResponse);
+    connect(hostServer, &ConnectHost::peerLost, this, &ConnectClient::cancelPeerMedia);
+    connect(hostServer, &ConnectHost::peerLost, provider, &ConnectMediaProvider::disconnectPeer);
+    connect(hostServer, &ConnectHost::mediaRequest, this, [this](QString peer, QJsonObject m) {
+        provider->serve(peer, m, [this, peer](QJsonObject r) { hostServer->sendMedia(peer, r); });
+    });
+}
+bool ConnectClient::hosting() const {
+    return explicitDisconnect && hostServer && hostServer->active();
+}
+bool ConnectClient::connected() const {
+    return hosting() || (authorized && sessionReady);
+}
+bool ConnectClient::hasTarget() const {
+    return hosting() || !explicitDisconnect;
+}
+bool ConnectClient::rendersLocally() const {
+    return connected() && state["rendererId"].toString() == localId;
+}
+quint16 ConnectClient::listeningPort() const {
+    return explicitDisconnect && hostServer ? hostServer->port() : 0;
 }
 bool ConnectClient::localAddress(const QHostAddress &a) {
     if (a.isLoopback() || a.isLinkLocal())
@@ -122,9 +174,33 @@ bool ConnectClient::localAddress(const QHostAddress &a) {
     return a.protocol() == QAbstractSocket::IPv6Protocol && (v[0] & 0xfe) == 0xfc;
 }
 ConnectClient::~ConnectClient() {
-    detach();
+    // Closing the app preserves the coordinator checkpoint; an explicit detach clears it.
+    explicitDisconnect = true;
+    retry.stop();
+    heartbeat.stop();
+    watchdog.stop();
+    if (socket) {
+        socket->disconnect(this);
+        socket->abort();
+    }
+    provider->disconnectPeer("upstream");
+    hostServer->disconnect(this);
+    hostServer->setEnabled(false);
 }
 void ConnectClient::attach(QString h, quint16 p, QString id) {
+    if (!explicitDisconnect && expected == id && host == h && port == p) {
+        if (connected())
+            send({{"type", "transfer"},
+                  {"sessionId", state["sessionId"]},
+                  {"epoch", state["epoch"]},
+                  {"target", expected}});
+        else {
+            initialSelection = false;
+            retry.stop();
+            open();
+        }
+        return;
+    }
     detach();
     if (id.size() != 64 || !localAddress(QHostAddress(h)) || p == 0) {
         emit error("Select a valid local Velune device.");
@@ -134,10 +210,20 @@ void ConnectClient::attach(QString h, quint16 p, QString id) {
     port = p;
     expected = id;
     explicitDisconnect = false;
+    initialSelection = true;
+    hostServer->setEnabled(false);
+    emit serverChanged();
     attempts = 0;
     open();
 }
 void ConnectClient::detach() {
+    if (!preparation.isEmpty()) {
+        emit abortRequested(preparation);
+        preparation.clear();
+    }
+    cancelPeerMedia(expected);
+    if (hostServer)
+        hostServer->disengage();
     explicitDisconnect = true;
     retry.stop();
     heartbeat.stop();
@@ -151,12 +237,15 @@ void ConnectClient::detach() {
         socket->deleteLater();
         socket = nullptr;
     }
-    qDeleteAll(readers);
-    readers.clear();
-    openedByRequest.clear();
+    provider->disconnectPeer("upstream");
     for (auto t : pendingCommands)
         t->deleteLater();
     pendingCommands.clear();
+    rendererCommands.clear();
+    rendererCommandOrder.clear();
+    if (hostServer)
+        hostServer->setEnabled(true);
+    emit serverChanged();
     emit statusChanged("This computer");
     emit stateChanged({});
 }
@@ -177,9 +266,11 @@ void ConnectClient::open() {
     buffer.clear();
     authorized = false;
     sessionReady = false;
+    rendererSequence = 0;
     publishedLibrary = {};
     libraryExchange.clear();
     socket->setProtocol(QSsl::TlsV1_2OrLater);
+    socket->setReadBufferSize(MaxFrame + 65536);
     socket->setLocalCertificate(certificate);
     socket->setPrivateKey(key);
     socket->setPeerVerifyMode(QSslSocket::VerifyPeer);
@@ -205,6 +296,8 @@ void ConnectClient::open() {
         send({{"type", "identity"},
               {"id", localId},
               {"name", QSysInfo::machineHostName().left(100)},
+              {"mediaVersion", 1},
+              {"assetVersion", 1},
               {"protocol", 4}});
     });
     connect(socket, &QSslSocket::readyRead, this, &ConnectClient::read);
@@ -222,11 +315,14 @@ void ConnectClient::fail(const QString &message) {
     watchdog.stop();
     authorized = false;
     sessionReady = false;
+    if (!preparation.isEmpty()) {
+        emit abortRequested(preparation);
+        preparation.clear();
+    }
+    cancelPeerMedia(expected);
     retry.start(1000);
     socket->abort();
-    qDeleteAll(readers);
-    readers.clear();
-    openedByRequest.clear();
+    provider->disconnectPeer("upstream");
     for (auto t : pendingCommands)
         t->deleteLater();
     pendingCommands.clear();
@@ -237,16 +333,21 @@ void ConnectClient::fail(const QString &message) {
 void ConnectClient::send(QJsonObject m) {
     if (!socket || !socket->isEncrypted())
         return;
-    m["seq"] = double(++outgoing);
+    m["seq"] = double(outgoing + 1);
     auto bytes = QJsonDocument(m).toJson(QJsonDocument::Compact);
     if (bytes.size() > MaxFrame) {
         emit error("Connect message is too large.");
         return;
     }
+    if (socket->bytesToWrite() > 2 * MaxFrame) {
+        fail("Connect output exceeded its buffer limit.");
+        return;
+    }
+    ++outgoing;
     socket->write(bytes + '\n');
 }
 void ConnectClient::publishLibrary(bool retryPending) {
-    if (!connected())
+    if (!authorized || !sessionReady)
         return;
     const auto snapshot = library->snapshot();
     if (snapshot == publishedLibrary && (!retryPending || libraryExchange.isEmpty()))
@@ -304,17 +405,20 @@ void ConnectClient::receive(QJsonObject m) {
             fail("Incompatible Connect handshake.");
             return;
         }
+        peerMediaVersion = m["mediaVersion"].toInt();
+        peerAssetVersion = m["assetVersion"].toInt();
         authorized = true;
         name = m["name"].toString().left(100);
         attempts = 0;
+        auto initial = lastLocalState;
+        if (!normalizeSession(initial))
+            initial = {{"queue", QJsonArray{}}, {"order", QJsonArray{}}, {"index", -1}};
         send({{"type", "connect"},
-              {"startPlayback", false},
-              // Keep TV's independent audio route until desktop can fill complete catalog caches.
-              {"state", QJsonObject{{"queue", QJsonArray{}},
-                                    {"order", QJsonArray{}},
-                                    {"index", -1},
-                                    {"position", 0},
-                                    {"playing", false}}}});
+              {"startPlayback", initialSelection && !initial["queue"].toArray().isEmpty()},
+              {"mediaVersion", 1},
+              {"assetVersion", 1},
+              {"state", initial}});
+        initialSelection = false;
         heartbeat.start();
         return;
     }
@@ -327,7 +431,8 @@ void ConnectClient::receive(QJsonObject m) {
         if (s["sessionId"].toString().isEmpty())
             return;
         if (state["sessionId"] == s["sessionId"] && !state.isEmpty() && sessionReady &&
-            s["revision"].toDouble() <= state["revision"].toDouble())
+            (s["revision"].toDouble() <= state["revision"].toDouble() ||
+             s["epoch"].toDouble() < state["epoch"].toDouble()))
             return;
         if (s.contains("queue") && s["queue"].toArray().size() > 20000) {
             fail("Queue exceeds limit.");
@@ -341,6 +446,13 @@ void ConnectClient::receive(QJsonObject m) {
             s["queue"] = state["queue"];
         if (!s.contains("order"))
             s["order"] = state["order"];
+        if (!normalizeSession(s, state)) {
+            fail("Invalid Connect session.");
+            return;
+        }
+        if (!preparation.isEmpty() && s["rendererId"].toString() == localId &&
+            (s["sessionId"] != state["sessionId"] || s["epoch"].toDouble() > state["epoch"].toDouble()))
+            preparation.clear();
         state = s;
         sessionReady = true;
         emit stateChanged(state);
@@ -363,22 +475,49 @@ void ConnectClient::receive(QJsonObject m) {
     } else if (type == "libraryAck") {
         if (m["exchangeId"].toString() == libraryExchange)
             libraryExchange.clear();
-    } else if (type == "mediaRequest")
+    } else if (type == "mediaReply")
+        mediaResponse(expected, m);
+    else if (type == "mediaRequest")
         media(m);
-    else if (type == "mediaCancel") {
-        auto id = m["requestId"].toString();
-        delete readers.take(openedByRequest.take(id));
-    } else if (type == "prepare")
-        send({{"type", "failed"},
-              {"sessionId", state["sessionId"]},
-              {"epoch", state["epoch"]},
-              {"transferId", m["transferId"]}});
-    else if (type == "transferFailed")
-        emit error("Playback transfer failed. The current output is retained.");
+    else if (type == "mediaCancel")
+        provider->serve("upstream", m, [this](QJsonObject r) { send(r); });
+    else if (type == "prepare" && sessionEnvelope(m, state)) {
+        auto snapshot = m["state"].toObject();
+        const auto id = m["transferId"].toString();
+        if (preparation.isEmpty() && !id.isEmpty() && id.size() <= 128 && normalizeSession(snapshot)) {
+            preparation = id;
+            emit prepareRequested(id, snapshot);
+        }
+    } else if (type == "release" && sessionEnvelope(m, state) && rendersLocally())
+        emit releaseRequested(m["transferId"].toString());
+    else if (type == "abort" && sessionEnvelope(m, state) && m["transferId"].toString() == preparation) {
+        emit abortRequested(preparation);
+        preparation.clear();
+    } else if (type == "command") {
+        const auto id = m["commandId"].toString();
+        const bool valid = sessionEnvelope(m, state) && rendersLocally() && preparation.isEmpty() &&
+                           !id.isEmpty() && id.size() <= 128;
+        if (valid && !rendererCommands.contains(id)) {
+            rendererCommands.insert(id);
+            rendererCommandOrder.append(id);
+            if (rendererCommandOrder.size() > 512)
+                rendererCommands.remove(rendererCommandOrder.takeFirst());
+            emit commandRequested(m["command"].toObject());
+        }
+        send({{"type", "ack"}, {"commandId", id}, {"ok", valid}});
+    } else if (type == "transferFailed" && sessionEnvelope(m, state)) {
+        if (m["pauseSource"].toBool() && rendersLocally())
+            emit commandRequested({{"name", "pause"}});
+        emit error("Playback transfer failed. Reconnect and resume if playback is paused.");
+    }
 }
 void ConnectClient::command(QJsonObject c) {
     if (!connected()) {
         emit error("Connect a device first.");
+        return;
+    }
+    if (hosting()) {
+        hostServer->command(c);
         return;
     }
     auto id = uuid();
@@ -409,54 +548,141 @@ void ConnectClient::play(const QList<Track> &tracks, int index) {
              {"playing", true},
              {"queueTitle", "Velune Desktop"}});
 }
+void ConnectClient::chooseThisComputer() {
+    if (!connected()) {
+        detach();
+        hostServer->setEnabled(true);
+        emit serverChanged();
+        return;
+    }
+    if (rendersLocally())
+        return;
+    if (hosting())
+        hostServer->transfer(localId);
+    else
+        send({{"type", "transfer"},
+              {"sessionId", state["sessionId"]},
+              {"epoch", state["epoch"]},
+              {"target", localId}});
+}
+void ConnectClient::rememberLocalPlayback(QJsonObject snapshot) {
+    lastLocalState = snapshot;
+    if (explicitDisconnect && !hosting())
+        hostServer->localState(snapshot);
+}
+void ConnectClient::publishRendererState(QJsonObject snapshot) {
+    if (hosting())
+        hostServer->localState(snapshot);
+    else if (rendersLocally() && preparation.isEmpty()) {
+        snapshot["sessionId"] = state["sessionId"];
+        snapshot["epoch"] = state["epoch"];
+        snapshot["rendererId"] = localId;
+        send({{"type", "rendererState"},
+              {"rendererSequence", double(++rendererSequence)},
+              {"state", snapshot}});
+    }
+}
+void ConnectClient::prepared(QString transaction, bool ok) {
+    if (hosting()) {
+        hostServer->prepared(transaction, ok);
+        return;
+    }
+    if (transaction != preparation)
+        return;
+    send({{"type", ok ? "ready" : "failed"},
+          {"sessionId", state["sessionId"]},
+          {"epoch", state["epoch"]},
+          {"transferId", transaction}});
+    if (!ok)
+        preparation.clear();
+}
+void ConnectClient::released(QString transaction, QJsonObject snapshot) {
+    if (hosting()) {
+        hostServer->released(transaction, snapshot);
+        return;
+    }
+    send({{"type", "released"},
+          {"sessionId", state["sessionId"]},
+          {"epoch", state["epoch"]},
+          {"transferId", transaction},
+          {"state", snapshot}});
+}
+QJsonArray ConnectClient::peerInfo() const {
+    if (hosting())
+        return hostServer->peerInfo();
+    if (connected())
+        return {QJsonObject{{"id", expected}, {"name", name}, {"renderer", state["rendererId"] == expected}}};
+    return {};
+}
+QStringList ConnectClient::mediaProviders(bool assets) const {
+    if (hosting())
+        return hostServer->providers(assets);
+    return connected() && (assets ? peerAssetVersion : peerMediaVersion) == 1 ? QStringList{expected}
+                                                                              : QStringList{};
+}
+QString ConnectClient::requestMedia(QString provider, QJsonObject request,
+                                    std::function<void(QJsonObject)> done) {
+    const auto id = uuid();
+    auto timer = new QTimer(this);
+    timer->setSingleShot(true);
+    mediaCalls[id] = {provider, timer, std::move(done)};
+    connect(timer, &QTimer::timeout, this, [this, id] {
+        if (!mediaCalls.contains(id))
+            return;
+        const auto call = mediaCalls.take(id);
+        call.timer->deleteLater();
+        if (hosting())
+            hostServer->sendMedia(call.provider, {{"type", "mediaCancel"}, {"requestId", id}});
+        else if (connected() && call.provider == expected)
+            send({{"type", "mediaCancel"}, {"requestId", id}});
+        call.done({{"ok", false}, {"error", "Media request timed out."}});
+    });
+    timer->start(request["operation"].toString() == "open" || request["operation"].toString() == "read"
+                     ? 120000
+                     : 30000);
+    request["type"] = "mediaRequest";
+    request["requestId"] = id;
+    if (hosting() &&
+        (hostServer->providers().contains(provider) || hostServer->providers(true).contains(provider)))
+        hostServer->sendMedia(provider, request);
+    else if (connected() && provider == expected)
+        send(request);
+    else
+        QTimer::singleShot(
+            0, this, [this, id, provider] { mediaResponse(provider, {{"requestId", id}, {"ok", false}}); });
+    return id;
+}
+void ConnectClient::cancelMedia(QString id) {
+    if (!mediaCalls.contains(id))
+        return;
+    const auto call = mediaCalls.take(id);
+    call.timer->stop();
+    call.timer->deleteLater();
+    if (hosting())
+        hostServer->sendMedia(call.provider, {{"type", "mediaCancel"}, {"requestId", id}});
+    else if (connected() && call.provider == expected)
+        send({{"type", "mediaCancel"}, {"requestId", id}});
+}
+void ConnectClient::mediaResponse(QString provider, QJsonObject reply) {
+    const auto id = reply["requestId"].toString();
+    if (!mediaCalls.contains(id) || mediaCalls[id].provider != provider)
+        return;
+    const auto call = mediaCalls.take(id);
+    call.timer->stop();
+    call.timer->deleteLater();
+    call.done(reply);
+}
+void ConnectClient::cancelPeerMedia(QString provider) {
+    const auto ids = mediaCalls.keys();
+    for (const auto &id : ids)
+        if (mediaCalls.contains(id) && mediaCalls[id].provider == provider)
+            mediaResponse(provider,
+                          {{"requestId", id}, {"ok", false}, {"error", "Media device disconnected."}});
+}
+void ConnectClient::setProviderCookies(std::function<QByteArray()> fn) {
+    provider->setCookies(std::move(fn));
+}
 void ConnectClient::media(const QJsonObject &m) {
-    auto id = m["requestId"].toString();
-    QJsonObject r{{"type", "mediaReply"}, {"requestId", id}, {"ok", false}};
-    auto op = m["operation"].toString();
-    if (op == "open" && readers.size() < 4) {
-        auto song = m["song"].toString();
-        auto pos = m["position"].toDouble(-1);
-        auto length = m["length"].toDouble(-1);
-        auto path = library->mediaPath(song);
-        if (!path.isEmpty() && !song.isEmpty() && song.size() <= 256 && pos >= 0 &&
-            (length == -1 || length > 0)) {
-            auto f = new QFile(path);
-            if (f->open(QIODevice::ReadOnly) && pos <= f->size() && f->seek(qint64(pos))) {
-                auto handle = uuid();
-                f->setProperty("remaining", length < 0 ? f->size() - qint64(pos)
-                                                       : qMin(qint64(length), f->size() - qint64(pos)));
-                readers[handle] = f;
-                openedByRequest[id] = handle;
-                r["ok"] = true;
-                r["handle"] = handle;
-                r["length"] = double(f->property("remaining").toLongLong());
-            } else
-                delete f;
-        }
-    } else if (op == "read") {
-        auto f = readers.value(m["handle"].toString());
-        if (f) {
-            auto remaining = f->property("remaining").toLongLong();
-            auto bytes = f->read(qMin<qint64>(65536, remaining));
-            if (f->error() == QFile::NoError) {
-                r["ok"] = true;
-                r["data"] = QString::fromLatin1(bytes.toBase64());
-                r["eof"] = bytes.isEmpty();
-                f->setProperty("remaining", remaining - bytes.size());
-            }
-        }
-    } else if (op == "close") {
-        auto handle = m["handle"].toString();
-        delete readers.take(handle);
-        for (auto it = openedByRequest.begin(); it != openedByRequest.end();) {
-            if (it.value() == handle)
-                it = openedByRequest.erase(it);
-            else
-                ++it;
-        }
-        r["ok"] = true;
-    } else
-        r["error"] = "No complete local audio is available for this request.";
-    send(r);
+    provider->serve("upstream", m, [this](QJsonObject reply) { send(reply); });
 }
 } // namespace velune

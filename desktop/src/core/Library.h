@@ -1,6 +1,7 @@
 #pragma once
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
 #include <QObject>
 #include <QStringList>
 namespace velune {
@@ -23,6 +24,7 @@ class Library : public QObject {
     QJsonObject snapshot() const {
         return data;
     }
+    bool checkpoint() { return save(); }
     QList<Track> tracks(bool likedOnly = false) const;
     bool liked(const QString &id) const;
     void setLiked(const Track &track, bool liked);
@@ -33,8 +35,11 @@ class Library : public QObject {
                         QString thumbnail = {});
     bool removePlaylist(QString id);
     void recordListening(const Track &track, qint64 milliseconds, QString timestamp);
+    void clearListeningHistory();
     QString mediaPath(const QString &id) const;
-    void registerMedia(const Track &track, const QString &path);
+    void registerMedia(const Track &track, const QString &path, bool like = true);
+    void updateDownloadFiles(const QMap<QString, QString> &previous,
+                             const QList<QPair<Track, QString>> &current);
     QString directory() const {
         return root;
     }

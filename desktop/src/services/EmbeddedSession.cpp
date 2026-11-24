@@ -1,21 +1,13 @@
 #include "EmbeddedSession.h"
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
-#include <QDialog>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
 #include <QNetworkReply>
-#include <QPushButton>
-#include <QScreen>
-#include <QUrlQuery>
-#include <QVBoxLayout>
-#include <QWebEngineCookieStore>
-#include <QWebEnginePage>
-#include <QWebEngineProfile>
-#include <QWebEngineSettings>
-#include <QWebEngineView>
 #ifdef VELUNE_KEYCHAIN
 #include <qt6keychain/keychain.h>
 #endif
@@ -98,7 +90,6 @@ EmbeddedSession::EmbeddedSession(QString dir, QObject *parent, QNetworkAccessMan
 }
 EmbeddedSession::~EmbeddedSession() {
     closeDialog();
-    delete profile;
 }
 void EmbeddedSession::setBusy(bool value) {
     if (pending != value) {
@@ -106,118 +97,83 @@ void EmbeddedSession::setBusy(bool value) {
         emit busyChanged(value);
     }
 }
-void EmbeddedSession::ensureProfile() {
-    if (profile)
-        return;
-    // Off-the-record Chromium profile: no unencrypted browser session on disk.
-    profile = new QWebEngineProfile(this);
-    profile->setHttpCacheType(QWebEngineProfile::MemoryHttpCache);
-    profile->setPersistentCookiesPolicy(QWebEngineProfile::NoPersistentCookies);
-    profile->settings()->setAttribute(QWebEngineSettings::PluginsEnabled, false);
-    profile->settings()->setAttribute(QWebEngineSettings::JavascriptCanOpenWindows, false);
-    auto store = profile->cookieStore();
-    connect(store, &QWebEngineCookieStore::cookieAdded, this, [this](const QNetworkCookie &cookie) {
-        if (!musicCookie(cookie, QDateTime::currentDateTimeUtc()))
-            return;
-        for (auto it = cookies.begin(); it != cookies.end();) {
-            if (it->hasSameIdentifier(cookie))
-                it = cookies.erase(it);
-            else
-                ++it;
-        }
-        cookies.append(cookie);
-        ++cookieRevision;
-        if (verified)
-            saveTimer.start();
-    });
-    connect(store, &QWebEngineCookieStore::cookieRemoved, this, [this](const QNetworkCookie &cookie) {
-        bool removed = false;
-        for (auto it = cookies.begin(); it != cookies.end();) {
-            if (it->hasSameIdentifier(cookie)) {
-                it = cookies.erase(it);
-                removed = true;
-            } else
-                ++it;
-        }
-        if (removed) {
-            ++cookieRevision;
-            if (verified)
-                saveTimer.start();
-            if (cookie.name() == "SAPISID" && verified) {
-                verified = false;
-                name.clear();
-                email.clear();
-                emit authenticatedChanged(false);
-            }
-        }
-    });
-    for (const auto &cookie : cookies)
-        store->setCookie(cookie, musicOrigin);
-}
 void EmbeddedSession::closeDialog() {
-    if (!dialog)
+    auto child = helper.data();
+    helper.clear();
+    if (!child)
         return;
-    auto window = dialog.data();
-    dialog.clear();
-    window->disconnect(this);
-    // Destroy pages before their profile.
-    delete window;
-}
-void EmbeddedSession::start(QWidget *parent) {
-    if (pending) {
-        if (dialog) {
-            dialog->show();
-            dialog->raise();
-            dialog->activateWindow();
+    child->disconnect(this);
+    if (child->state() != QProcess::NotRunning) {
+        child->write("quit\n");
+        child->closeWriteChannel();
+        if (!child->waitForFinished(2500)) {
+            child->kill();
+            child->waitForFinished(1000);
         }
+    }
+    child->deleteLater();
+    helperOutput.clear();
+}
+void EmbeddedSession::start() {
+    if (pending)
+        return;
+    ++generation;
+    cookies.clear();
+    ++cookieRevision;
+    auto path = QCoreApplication::applicationDirPath() + "/velune-login";
+#ifdef Q_OS_WIN
+    path += ".exe";
+#endif
+    if (!QFileInfo(path).isExecutable()) {
+        emit error("The sign-in helper is missing.");
         return;
     }
-    ++generation;
-    ensureProfile();
-    dialog = new QDialog(parent);
-    dialog->setObjectName("embeddedSignIn");
-    dialog->setWindowTitle("Velune — Sign in to YouTube Music");
-    const auto available = dialog->screen()->availableGeometry().size();
-    dialog->resize(qMin(1000, available.width() - 40), qMin(760, available.height() - 40));
-    auto layout = new QVBoxLayout(dialog);
-    auto address = new QLabel(dialog);
-    address->setTextFormat(Qt::PlainText);
-    address->setWordWrap(true);
-    auto view = new QWebEngineView(dialog);
-    auto page = new QWebEnginePage(profile, view);
-    page->setBackgroundColor(Qt::black);
-    view->setPage(page);
-    auto hint = new QLabel("Complete Google sign-in here. Velune verifies your YouTube Music account "
-                           "before opening your library.",
-                           dialog);
-    hint->setWordWrap(true);
-    auto cancelButton = new QPushButton("Cancel sign-in", dialog);
-    layout->addWidget(address);
-    layout->addWidget(view, 1);
-    layout->addWidget(hint);
-    layout->addWidget(cancelButton);
-    connect(view, &QWebEngineView::urlChanged, dialog, [address, hint](const QUrl &url) {
-        address->setText(url.scheme() + "://" + url.host());
-        if (url.host() == "accounts.google.com" &&
-            (url.path().contains("denied") || url.path().contains("rejected") ||
-             url.path().endsWith("/error") || QUrlQuery(url).hasQueryItem("authError") ||
-             QUrlQuery(url).hasQueryItem("error")))
-            hint->setText("If Google refuses this embedded browser, sign-in cannot finish here. "
-                          "Velune will keep your account disconnected until YouTube Music confirms it.");
-    });
-    connect(view, &QWebEngineView::loadFinished, this, [this](bool ok) {
-        if (ok)
+    helper = new QProcess(this);
+    auto child = helper.data();
+    helperOutput.clear();
+    connect(child, &QProcess::readyReadStandardOutput, this, [this, child] {
+        if (helper != child)
+            return;
+        helperOutput += child->readAllStandardOutput();
+        if (helperOutput.size() > 1024 * 1024) {
+            cancel();
+            emit error("Invalid sign-in response.");
+            return;
+        }
+        int end;
+        while ((end = helperOutput.indexOf('\n')) >= 0) {
+            auto line = helperOutput.left(end);
+            helperOutput.remove(0, end + 1);
+            const auto object = QJsonDocument::fromJson(line).object();
+            if (object["type"] != "cookies")
+                continue;
+            QList<QNetworkCookie> next;
+            for (auto value : object["cookies"].toArray())
+                for (auto cookie :
+                     QNetworkCookie::parseCookies(QByteArray::fromBase64(value.toString().toLatin1())))
+                    if (musicCookie(cookie, QDateTime::currentDateTimeUtc()))
+                        next.append(cookie);
+            cookies = next;
+            ++cookieRevision;
             verify();
-        else
-            emit status("The sign-in page could not load. Check your connection or retry sign-in.");
+        }
     });
-    connect(cancelButton, &QPushButton::clicked, this, &EmbeddedSession::cancel);
-    connect(dialog, &QDialog::rejected, this, [this] { cancel(); });
+    connect(child, &QProcess::readyReadStandardError, child, [child] { child->readAllStandardError(); });
+    connect(child, &QProcess::errorOccurred, this, [this, child](QProcess::ProcessError) {
+        if (helper == child) {
+            cancel();
+            emit error("The sign-in window could not start.");
+        }
+    });
+    connect(child, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this, child](int, QProcess::ExitStatus) {
+                if (helper == child)
+                    cancel();
+            });
     setBusy(true);
     retry.start();
-    view->load(QUrl("https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"));
-    dialog->show();
-    emit status("Complete Google sign-in inside Velune.");
+    child->start(path, {});
+    emit status("Complete Google sign-in in the Velune sign-in window.");
 }
 void EmbeddedSession::cancel() {
     ++generation;
@@ -288,7 +244,7 @@ void EmbeddedSession::verify() {
         if (reply->error() != QNetworkReply::NoError ||
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200 ||
             text(header["accountName"]).isEmpty()) {
-            if (!dialog) {
+            if (!helper) {
                 retry.stop();
                 setBusy(false);
                 emit error("Your saved YouTube Music session could not be verified. Please sign in again.");
@@ -358,8 +314,6 @@ void EmbeddedSession::logout() {
     cancel();
     saveTimer.stop();
     closeDialog();
-    delete profile;
-    profile = nullptr;
     cookies.clear();
     ++cookieRevision;
     name.clear();

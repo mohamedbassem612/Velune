@@ -1,18 +1,9 @@
-# تسجيل الدخول داخل Velune
+# Google sign-in
 
-1. اضغط **Continue with Google**؛ تفتح نافذة داخل Velune تحتوي صفحة Google الرسمية، ويظهر اسم نطاق الصفحة أعلى النافذة.
-2. سجّل الدخول إلى حسابك من هذه النافذة، ثم انتظر الرجوع إلى YouTube Music. لا يحتاج هذا المسار ملف OAuth أو إعداد Google Cloud. ملف OAuth المثبت سابقًا لا يُستخدم في هذا الإصدار.
-3. يتحقق Velune من حساب YouTube Music عبر `account/account_menu`، ثم يغلق نافذة الدخول تلقائيًا ويفتح الواجهة ويستورد الأغاني المعجب بها. فتح النافذة أو وجود كوكي وحده لا يفتح الحساب.
-4. زر **Cancel sign-in** أو إغلاق النافذة يلغي العملية. Sign out في Settings يمسح جلسة Velune المحلية.
+Only `velune-login` links Qt WebEngine Quick/Chromium. The main application contains no browser view and launches no browser during normal playback, search, Connect discovery or library work. Restoring an existing keyring session uses a direct YouTube Music account verification request without opening Chromium.
 
-يستخدم المسار جلسة موقع YouTube Music مثل تطبيق Android في هذا المشروع، وليس Google OAuth. يرسل توقيع SAPISIDHASH وكوكيز نطاق YouTube الصالحة إلى YouTube Music API عبر HTTPS فقط، مع منع إعادة التوجيه إلى نطاق آخر. لا تصل بيانات الجلسة إلى Velune Connect أو صور الألبومات أو خوادم الصوت.
+An explicit sign-in opens a separate QML WebEngine window with an off-the-record memory profile, memory HTTP cache and no persistent cookies. The helper publishes only YouTube-origin cookies over its private stdout pipe; no cookies, credentials or media URLs are passed in process arguments. The main process validates the fixed HTTPS YouTube Music account-menu endpoint before reporting authentication. Successful verification closes the helper and stores filtered cookies in QtKeychain with insecure fallback disabled. Cancellation/window close is never treated as success. The process and memory profile are destroyed when the window closes; no Chromium profile directory is reused.
 
-ملف المتصفح مؤقت في الذاكرة. تُحفظ كوكيز YouTube اللازمة لاستعادة الحساب في مخزن كلمات مرور النظام عبر Qt6Keychain، مع تعطيل الحفظ النصي. إذا لم يتوفر المخزن، تبقى الجلسة أثناء التشغيل فقط. عند التشغيل التالي يتحقق التطبيق من الجلسة المحفوظة قبل فتح الواجهة. لا يقرأ التطبيق ملفات المتصفح الشخصي أو حساباته.
+Account cookies only authorize HTTPS `music.youtube.com/youtubei/v1/` requests. Cookies are not attached to artwork, media CDN requests or Connect messages. The optional extraction helper receives a private temporary Netscape cookie file and removes it on completion/cancellation. Saved sessions are revalidated before use. Google may reject an embedded browser; in that case sign-in remains disconnected and the error must be handled by the user. No successful sign-in has been asserted or tested for this build.
 
-## الحدود الحالية
-
-Google قد ترفض تسجيل الدخول من المتصفحات المضمّنة برسالة «هذا المتصفح غير آمن» أو ما شابه. إعادة النافذة إلى داخل التطبيق لا تضمن قبول Google؛ لا يزوّر Velune هوية المتصفح ولا يتجاوز الرفض. إذا حدث ذلك يبقى الحساب غير متصل. هذا مسار جلسة موقع، ولا يرسل طلب OAuth الذي كان يظهر خطأ Test users السابق.
-
-الاستيراد الحالي يجلب الأغاني المعجب بها من YouTube Music مع متابعة الصفحات حتى اكتمالها، بحد وقائي 20,000 عنصر. يعرض خطأ عند تعثر الصفحات بدل الادعاء باكتمال الاستيراد. صفحة Library تحدّث أيضًا الأغاني والألبومات والفنانين والبلايليستات المحفوظة من مصادر Android نفسها مع متابعة الصفحات. إعدادات العرض والتاجات والحفظ المحلي لا تعدّل حساب YouTube Music. تشغيل YouTube يستخدم الآن مساعد `yt-dlp` مع Deno؛ تظل قيود توفر الأغنية والحساب والمنطقة سارية. يبدأ التشغيل بالبث المباشر بعد استخراج المصدر، دون انتظار تنزيل الملف كاملًا. بعض الأغاني العامة تستخدم مسارًا سريعًا دون جلسة، ويتوفر مسار بديل بجلسة الحساب عند الحاجة.
-
-المراجع: [Qt WebEngine profile](https://doc.qt.io/qt-6.5/qwebengineprofile.html)، [Google embedded user-agent restrictions](https://developers.google.com/identity/protocols/oauth2/policies).
+Electron's `google-session.enc` is preserved but not decrypted/imported. Existing QtKeychain entries retain their directory-derived key and can be restored after server verification. If the keyring cannot persist a session, the app reports that the account is available for the current session only.

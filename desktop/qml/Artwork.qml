@@ -1,0 +1,24 @@
+import QtQuick
+
+Rectangle {
+    id: art
+    property string source: ""
+    property string symbol: "♫"
+    color: "#191919"
+    radius: 12
+    clip: true
+    Text {
+        anchors.centerIn: parent
+        text: art.symbol
+        color: "#666666"
+        font.pixelSize: Math.max(18, art.width * .3)
+    }
+    Image {
+        anchors.fill: parent
+        source: art.source
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        sourceSize.width: Math.max(100, art.width * 2)
+        sourceSize.height: Math.max(100, art.height * 2)
+    }
+}

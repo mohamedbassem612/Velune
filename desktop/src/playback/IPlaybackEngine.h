@@ -9,23 +9,34 @@ class IPlaybackEngine : public QObject {
   public:
     using QObject::QObject;
     virtual bool available() const = 0;
-    virtual QString backendName() const { return QStringLiteral("unknown"); }
+    virtual QString backendName() const {
+        return QStringLiteral("unknown");
+    }
     virtual void load(const QUrl &source, PlaybackRequest request) = 0;
     virtual void play() = 0;
     virtual void pause() = 0;
+    virtual void release() = 0;
     virtual void resume() = 0;
     virtual void stop() = 0;                  // Retains media; resume explicitly restarts it.
     virtual void cancel() = 0;                // Invalidates notifications and releases media.
     virtual void seek(qint64 position) = 0;   // Last request wins until seekable.
     virtual void setVolume(float volume) = 0; // Normalized [0, 1].
+    virtual void setSpeed(float speed) {
+        Q_UNUSED(speed);
+    }
     virtual float volume() const = 0;
     virtual qint64 position() const = 0;
     virtual qint64 duration() const = 0;
     virtual bool seekable() const = 0;
     virtual QUrl source() const = 0;
     virtual PlaybackState state() const = 0;
+    virtual bool supportsCrossfade() const { return false; }
+    virtual void prepareNext(const QUrl &, quint64) {}
+    virtual void discardNext() {}
+    virtual bool activateNext(PlaybackRequest, int) { return false; }
   signals:
     // Media parsed/loaded; neither this nor Playing confirms audible output.
+    void pauseConfirmed(velune::PlaybackRequest request);
     void mediaReady(velune::PlaybackRequest request);
     void stateChanged(velune::PlaybackRequest request, velune::PlaybackState state);
     void positionChanged(velune::PlaybackRequest request, qint64 position);
@@ -34,5 +45,7 @@ class IPlaybackEngine : public QObject {
     void bufferingChanged(velune::PlaybackRequest request, float progress);
     void errorOccurred(velune::PlaybackRequest request, QString message);
     void endOfMedia(velune::PlaybackRequest request);
+    void nextPrepared(quint64 token, bool ok);
+    void crossfadeFinished();
 };
 } // namespace velune

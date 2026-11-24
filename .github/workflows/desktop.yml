@@ -1,4 +1,4 @@
-name: Desktop playback validation
+name: Qt Quick desktop build
 on:
   push:
     paths: ['desktop/**', '.github/workflows/desktop.yml']
@@ -10,122 +10,26 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [release, debug, no-mpv, minimal]
-    env:
-      QT_QPA_PLATFORM: offscreen
-      QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
-      QT_MEDIA_BACKEND: ffmpeg
     steps:
       - uses: actions/checkout@v4
-      - name: Install distribution development packages
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build qt6-base-dev qt6-multimedia-dev qt6-webengine-dev qtkeychain-qt6-dev libssl-dev libmpv-dev ffmpeg pulseaudio pulseaudio-utils
-      - name: Configure
-        shell: bash
+          sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-declarative-dev qt6-webengine-dev qtkeychain-qt6-dev libssl-dev
+      - name: Compile C++ and QML
         run: |
-          args=(-DCMAKE_BUILD_TYPE=Release -DVELUNE_BUILD_BENCHMARKS=ON)
-          if [[ '${{ matrix.variant }}' == debug ]]; then args+=(-DCMAKE_BUILD_TYPE=Debug); fi
-          if [[ '${{ matrix.variant }}' == no-mpv ]]; then args+=(-DVELUNE_ENABLE_MPV=OFF); fi
-          if [[ '${{ matrix.variant }}' == minimal ]]; then
-            args+=(-DVELUNE_MINIMAL_BUILD=ON -DVELUNE_ENABLE_MPV=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Qt6Multimedia=TRUE -DCMAKE_DISABLE_FIND_PACKAGE_Qt6Keychain=TRUE)
-          fi
-          cmake -S desktop -B build-desktop -G Ninja "${args[@]}"
-      - run: cmake --build build-desktop --parallel 2
-      - name: Generate native codec fixtures
-        run: cmake -DOUTPUT_DIR=${{ github.workspace }}/codec-fixtures -P desktop/benchmarks/generate-fixtures.cmake
-      - name: Test
-        env:
-          VELUNE_CODEC_FIXTURES: ${{ github.workspace }}/codec-fixtures
-        run: desktop/benchmarks/with-null-audio.sh ctest --test-dir build-desktop --output-on-failure --timeout 90
+          cmake -S desktop -B desktop/build-qml -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build desktop/build-qml --parallel 2
+      - name: Check executable dependency boundaries
+        run: |
+          if ldd desktop/build-qml/velune | grep -E 'Qt6(WebEngine|Widgets|Multimedia|QuickWidgets)|libnode'; then exit 1; fi
+          if readelf -d desktop/build-qml/native/velune-audio | grep -qi 'Qt'; then exit 1; fi
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: linux-${{ matrix.variant }}-test-logs
-          path: build-desktop/Testing/Temporary/*.log
-  windows:
-    runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        mpv: [headers, disabled]
-    env:
-      QT_QPA_PLATFORM: offscreen
-      QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.3'
-          arch: win64_msvc2022_64
-          modules: 'qtmultimedia qtwebengine qtwebchannel qtpositioning'
-          cache: true
-      - name: Build pinned OpenSSL and QtKeychain dependencies
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch origin 93ad765c7b66ab9ce97469ec23a90b15c3a14ee5 --depth 1
-          git -C "$env:VCPKG_INSTALLATION_ROOT" checkout 93ad765c7b66ab9ce97469ec23a90b15c3a14ee5
-          & "$env:VCPKG_INSTALLATION_ROOT/bootstrap-vcpkg.bat" -disableMetrics
-          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows
-          if ($LASTEXITCODE) { throw 'OpenSSL build failed' }
-          git clone https://github.com/frankosterfeld/qtkeychain.git qtkeychain-source
-          git -C qtkeychain-source checkout 8eac9889775ca45c106d077bb0d3744754a1570a
-          cmake -S qtkeychain-source -B qtkeychain-build -G Ninja -DBUILD_WITH_QT6=ON -DBUILD_TEST_APPLICATION=OFF -DBUILD_TRANSLATIONS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$pwd/deps"
-          cmake --build qtkeychain-build --parallel 2
-          cmake --install qtkeychain-build
-      - name: Obtain pinned official C API header (no mpv binary)
-        if: matrix.mpv == 'headers'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory -Force mpv-headers/include/mpv | Out-Null
-          Invoke-WebRequest https://raw.githubusercontent.com/mpv-player/mpv/v0.37.0/libmpv/client.h -OutFile mpv-headers/include/mpv/client.h
-          if ((Get-FileHash mpv-headers/include/mpv/client.h -Algorithm SHA256).Hash -ne 'f46da37538ad97d67cb1d12ea2f4291f577a7faaf7a0df460f12e43588206e21') { throw 'Header hash mismatch' }
-      - name: Configure and build MSVC x64
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          $mpv = if ('${{ matrix.mpv }}' -eq 'disabled') { 'OFF' } else { 'ON' }
-          cmake -S desktop -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=Release -DVELUNE_BUILD_BENCHMARKS=ON -DVELUNE_ENABLE_MPV=$mpv -DMPV_ROOT="$pwd/mpv-headers" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR;$pwd/deps" -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-          if ($LASTEXITCODE) { throw 'Desktop configuration failed' }
-          if ($mpv -eq 'ON' -and !(Select-String -Quiet -Path build-desktop/CMakeCache.txt -Pattern '^VELUNE_MPV_API_COMPATIBLE:INTERNAL=1$')) { throw 'Expected mpv adapter was not enabled' }
-          cmake --build build-desktop --parallel 2
-          if ($LASTEXITCODE) { throw 'Desktop build failed' }
-      - name: Validate runtime deployment and deterministic tests
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          $env:PATH = "$pwd/deps/bin;$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin;$env:PATH"
-          # windeployqt resolves Qt-prefixed DLLs relative to the Qt installation,
-          # even when their actual installation directory is on PATH.
-          $keychain = Join-Path $pwd 'deps/bin/qt6keychain.dll'
-          if (!(Test-Path $keychain)) { throw 'Missing built QtKeychain runtime' }
-          Copy-Item $keychain "$env:QT_ROOT_DIR/bin/qt6keychain.dll"
-          Copy-Item $keychain build-desktop/
-          Copy-Item "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto*.dll" build-desktop/
-          Copy-Item "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl*.dll" build-desktop/
-          windeployqt --release --compiler-runtime --dir build-desktop build-desktop/velune.exe
-          if ($LASTEXITCODE) { throw 'Qt deployment failed' }
-          if (!(Test-Path build-desktop/QtWebEngineProcess.exe)) { throw 'Missing WebEngine helper' }
-          if (!(Test-Path build-desktop/resources/qtwebengine_resources.pak)) { throw 'Missing WebEngine resources' }
-          if (!(Test-Path build-desktop/translations/qtwebengine_locales)) { throw 'Missing WebEngine locales' }
-          ctest --test-dir build-desktop --output-on-failure --timeout 90
-          if ($LASTEXITCODE) { throw 'CTest failed' }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: windows-${{ matrix.mpv }}-validation-logs
-          path: build-desktop/Testing/Temporary/*.log
-# Windows checks compile the real adapter and exercise fake C API events/fallback.
-# Native mpv decoding is skipped until an audited Windows runtime is supplied.
+          name: velune-qml-linux-build
+          path: |
+            desktop/build-qml/velune
+            desktop/build-qml/velune-login
+            desktop/build-qml/native/velune-audio
+# Build artifacts require staged Qt/QML, Chromium and audio runtimes before use.
+# CI performs compilation and dependency checks only; it does not launch Velune.

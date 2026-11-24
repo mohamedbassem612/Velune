@@ -2,6 +2,9 @@
 #include "AudioResolver.h"
 #include "AudioStream.h"
 #include "ConnectClient.h"
+#include "ConnectMediaCache.h"
+#include "DownloadService.h"
+#include "CacheStorage.h"
 #include "EmbeddedSession.h"
 #include "LibraryCatalog.h"
 #include "SearchEngine.h"
@@ -14,7 +17,7 @@
 #include <memory>
 
 #include <functional>
-class QWidget;
+
 namespace velune {
 class MusicService : public QObject {
     Q_OBJECT
@@ -35,7 +38,7 @@ class MusicService : public QObject {
     bool loginPending() const {
         return auth.busy();
     }
-    void login(QWidget *parent);
+    void login();
     void logout();
     LibraryCatalog *libraryCatalog() {
         return &catalog;
@@ -54,13 +57,28 @@ class MusicService : public QObject {
     void browseCollection(QString token, const Track &seed, bool radio);
     void play(QList<Track> tracks, int index = 0);
     void action(QString name);
+    void command(QJsonObject command);
     void seek(qint64 position);
     void volume(int volume);
     void shuffle(bool enabled);
     void repeat(int mode);
-    void importAudio(QWidget *parent);
+    void importAudio(const QStringList &paths);
     QJsonObject playback() const {
         return current;
+    }
+    QString connectedCover(QString song) const {
+        return peerCache->cover(song);
+    }
+    QString connectedLyrics(QString song) const {
+        return peerCache->lyrics(song);
+    }
+    DownloadService *downloads() const { return downloadService; }
+    CacheStorage *cacheStorage() const { return cacheService; }
+    void clearCache(QString kind);
+    void checkpoint() { catalog.checkpoint(); savePlayback(); }
+    bool canRestoreBackup() const {
+        return !remote->hasTarget() && !remote->mediaBusy() && !peerCache->busy() &&
+            !downloadService->busy();
     }
   signals:
     void authenticationChanged(bool loggedIn);
@@ -82,9 +100,24 @@ class MusicService : public QObject {
     EmbeddedSession auth;
     SearchEngine searchEngine;
     LibraryCatalog catalog;
-    AudioResolver *resolver, *prefetch;
+    AudioResolver *resolver, *prefetch, *fadeResolver;
+    ConnectMediaCache *peerCache = nullptr;
+    DownloadService *downloadService = nullptr;
+    CacheStorage *cacheService = nullptr;
+    QTimer connectTicker, prepareDeadline;
+    QString preparedTransfer, renderedSession;
+    QJsonObject preparedBackup, preparedSnapshot;
+    qint64 renderedEpoch = -1;
+    bool connectRenderer = false, connectLoaded = false, releasingConnect = false;
+    qint64 sleepUpdatedAt = 0;
     QTimer prepareNext;
-    AudioStream stream;
+    QTimer playbackSaveTimer;
+    QByteArray savedPlayback;
+    std::unique_ptr<AudioStream> stream, preparedStream, retiringStream;
+    quint64 fadeToken = 0;
+    int fadeIndex = -1;
+    bool fadeReady = false;
+    PlaybackRequest fadeGeneration = 0;
     bool wantsPlayback = false, retriedStream = false;
     qint64 pendingSeek = -1;
     QJsonObject current, localCheckpoint;
@@ -103,8 +136,22 @@ class MusicService : public QObject {
                         bool useSession = true);
     void loadLibrary(QString continuation = {}, QList<Track> accumulated = {});
     void bindSourceCallbacks(PlaybackRequest generation);
-    void resolveAndPlay(const Track &track, PlaybackRequest generation);
+    void resolveAndPlay(const Track &track, PlaybackRequest generation, qint64 position = 0);
+    void savePlayback();
+    void restorePlayback();
+    void prepareCrossfade();
+    void discardCrossfade();
+    void tryCrossfade();
     bool remoteUnavailable();
+    void setupConnect();
+    QJsonObject connectSnapshot() const;
+    void applyConnectState(QJsonObject);
+    void prepareConnect(QString, QJsonObject);
+    void abortConnect(QString);
+    void startConnectTrack(QJsonObject);
+    void executeConnectCommand(QJsonObject);
+    void connectFailed(QString);
+    void connectMediaReady();
     static QList<Track> parseTracks(const QJsonValue &value);
 };
 } // namespace velune

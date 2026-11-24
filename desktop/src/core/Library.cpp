@@ -2,6 +2,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QMap>
 #include <QSaveFile>
@@ -342,10 +343,28 @@ bool Library::merge(const QJsonObject &remote) {
     }
     return true;
 }
-QString Library::mediaPath(const QString &id) const {
-    return files[id].toString();
+void Library::clearListeningHistory() {
+    const auto before = data;
+    auto history = data["history"].toArray();
+    double counter = data["counter"].toDouble();
+    for (int i = 0; i < history.size(); ++i) {
+        auto event = history[i].toObject();
+        if (event["removed"].toBool()) continue;
+        event["removed"] = true;
+        event["version"] = QJsonObject{{"counter", ++counter}, {"device", deviceId()}};
+        history[i] = event;
+    }
+    data["history"] = history;
+    data["counter"] = counter;
+    if (!save()) { data = before; return; }
+    emit changed();
 }
-void Library::registerMedia(const Track &t, const QString &path) {
+QString Library::mediaPath(const QString &id) const {
+    const auto path = files[id].toString();
+    const QFileInfo file(path);
+    return file.isFile() && file.isReadable() && file.size() > 0 ? path : QString();
+}
+void Library::registerMedia(const Track &t, const QString &path, bool like) {
     const auto before = files;
     files[t.id] = path;
     QSaveFile f(root + "/media.json");
@@ -355,6 +374,36 @@ void Library::registerMedia(const Track &t, const QString &path) {
         emit error("Could not save your local audio index.");
         return;
     }
-    setLiked(t, true);
+    if (like)
+        setLiked(t, true);
+    else {
+        rememberTracks({t});
+        emit changed();
+    }
+}
+void Library::updateDownloadFiles(const QMap<QString, QString> &previous,
+                                  const QList<QPair<Track, QString>> &current) {
+    auto next = files;
+    for (auto i = previous.begin(); i != previous.end(); ++i)
+        if (next[i.key()].toString() == i.value())
+            next.remove(i.key());
+    QList<Track> tracks;
+    for (const auto &entry : current) {
+        next[entry.first.id] = entry.second;
+        tracks.append(entry.first);
+    }
+    const bool changedFiles = next != files;
+    if (changedFiles) {
+        QSaveFile f(root + "/media.json");
+        auto bytes = QJsonDocument(next).toJson();
+        if (!f.open(QIODevice::WriteOnly) || f.write(bytes) != bytes.size() || !f.commit()) {
+            emit error("Could not update your local audio index.");
+            return;
+        }
+        files = next;
+    }
+    rememberTracks(tracks);
+    if (changedFiles)
+        emit changed();
 }
 } // namespace velune
