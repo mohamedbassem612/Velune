@@ -40,6 +40,45 @@ bash scripts/build-linux.sh
 
 The build compiles C++ and QML without starting the application or running functional tests. libmpv headers are vendored; the native helper dynamically loads the supplied libmpv 0.37+ runtime. It never falls back to Qt Multimedia.
 
+## Install Velune Desktop on Linux
+
+GitHub currently contains the Linux source and build workflow, but does not publish a ready-to-run binary release. To install the current Qt Quick desktop version on Ubuntu 24.04 (x86_64), clone the repository and run the following from its root:
+
+```sh
+git clone https://github.com/mohamedbassem612/Velune.git
+cd Velune/desktop
+
+sudo apt-get update
+sudo apt-get install -y build-essential cmake ffmpeg qt6-base-dev qt6-declarative-dev \
+  qt6-webengine-dev qtkeychain-qt6-dev libssl-dev \
+  qml6-module-qtqml qml6-module-qtqml-models qml6-module-qtqml-workerscript \
+  qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtquick-controls \
+  qml6-module-qtquick-templates qml6-module-qtquick-layouts \
+  qml6-module-qtquick-dialogs qml6-module-qtquick-nativestyle \
+  qml6-module-qtquick-shapes qml6-module-qtwebengine qml6-module-qtwebchannel \
+  qml6-module-qt-labs-folderlistmodel
+
+bash scripts/build-linux.sh
+```
+
+The build must then be packaged with the audited libmpv runtime and verified `yt-dlp`/Deno tools. Pass their directories explicitly:
+
+```sh
+python3 scripts/package-linux.py \
+  --audio-runtime /path/to/audited/native/lib \
+  --tools /path/to/verified/tools \
+  --ffmpeg "$(command -v ffmpeg)"
+bash scripts/install-linux.sh
+```
+
+The installer places the application in `~/.local/lib/velune`, creates the launcher `~/.local/bin/velune`, and adds a desktop-menu entry. Start it with:
+
+```sh
+~/.local/bin/velune
+```
+
+The package is currently targeted at Ubuntu 24.04/Linux x86_64. The installer does not launch the application or modify the music library. `--audio-runtime` must contain `libmpv.so.2`, and `--tools` must contain `yt-dlp`, `deno`, and `versions.json`; without these verified runtime files packaging stops with an error.
+
 ## Package and install
 
 Supply a matching audited libmpv runtime and the verified yt-dlp/Deno tools. Deno is a playback extraction helper; there is no Node service. The existing `install-playback-tools.py` can prepare pinned tools. Packaging does not download dependencies or execute a Velune process.
