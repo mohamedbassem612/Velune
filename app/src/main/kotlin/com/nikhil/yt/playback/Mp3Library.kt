@@ -11,12 +11,14 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import com.nikhil.yt.models.MediaMetadata
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.jaudiotagger.kt.AudioFormat
 import org.jaudiotagger.kt.AudioTagger
@@ -94,7 +96,7 @@ constructor(
     /**
      * Looks in Music/Velune for mp3 files made by this app and adds the ones the app
      * does not know yet (for example after uninstalling and reinstalling).
-     * The video id is stored inside each mp3 (in its tags), so the file name can be anything.
+     * Uses the embedded video id, or the original Velune filename if the tag cannot be read.
      * After a reinstall this needs the audio permission, otherwise Android hides the files.
      */
     fun restoreFromFolder(): Set<String> {
@@ -103,15 +105,15 @@ constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) findInMediaStore(knownUris) else findInAppMusicDir(knownUris)
         }.onFailure { Timber.tag(TAG).w(it, "Scanning the music folder failed") }.getOrDefault(emptyMap())
 
-        val added = mutableSetOf<String>()
-        val editor = prefs.edit()
-        found.forEach { (id, uri) ->
-            if (!prefs.contains(id)) {
-                editor.putString(id, uri.toString())
-                added += id
+        val added = synchronized(this) {
+            val newFiles = found.filterKeys { !prefs.contains(it) }
+            if (newFiles.isNotEmpty()) {
+                val editor = prefs.edit()
+                newFiles.forEach { (id, uri) -> editor.putString(id, uri.toString()) }
+                if (!editor.commit()) Timber.tag(TAG).w("Could not persist the restored mp3 index")
             }
+            newFiles.keys
         }
-        editor.commit()
         if (added.isNotEmpty()) Timber.tag(TAG).i("Restored ${added.size} mp3 songs from the music folder")
         return added
     }
@@ -128,15 +130,16 @@ constructor(
     private fun findInMediaStore(knownUris: Set<String>): Map<String, Uri> {
         val result = mutableMapOf<String, Uri>()
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val projection = arrayOf(MediaStore.Audio.Media._ID)
+        val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DISPLAY_NAME)
         val selection = "${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?"
         val args = arrayOf("${Environment.DIRECTORY_MUSIC}/$FOLDER_NAME/%")
         context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             while (cursor.moveToNext()) {
                 val uri = ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
                 if (uri.toString() in knownUris) continue // already known, no need to read it again
-                val videoId = readVideoId(uri) ?: continue
+                val videoId = readVideoId(uri) ?: videoIdFromFileName(cursor.getString(nameColumn)) ?: continue
                 result[videoId] = uri
             }
         }
@@ -149,10 +152,36 @@ constructor(
         dir.listFiles { file -> file.extension.equals("mp3", ignoreCase = true) }?.forEach { file ->
             val uri = Uri.fromFile(file)
             if (uri.toString() in knownUris) return@forEach
-            val videoId = readVideoId(uri) ?: return@forEach
+            val videoId = readVideoId(uri) ?: videoIdFromFileName(file.name) ?: return@forEach
             result[videoId] = uri
         }
         return result
+    }
+
+    private fun videoIdFromFileName(name: String?): String? =
+        name?.let { SAVED_FILE_NAME_REGEX.matchEntire(it)?.groupValues?.get(1) }
+
+    /** Rebuilds a missing song row from the MP3 without a network request. */
+    fun readSongMetadata(id: String): MediaMetadata? {
+        val uri = playableUri(id) ?: return null
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            MediaMetadata(
+                id = id,
+                title = title?.takeIf { it.isNotBlank() } ?: id,
+                artists = listOfNotNull(artist?.takeIf { it.isNotBlank() }?.let { MediaMetadata.Artist(null, it) }),
+                duration = durationMs?.let { (it / 1_000).toInt() } ?: -1,
+            )
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Could not read mp3 metadata for $id")
+            MediaMetadata(id = id, title = id, artists = emptyList(), duration = -1)
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     /** Reads the video id that was written inside the mp3 by [writeVideoId]. */
@@ -273,5 +302,6 @@ constructor(
         const val FOLDER_NAME = "Velune"
         private const val ID_PREFIX = "velune:"
         private val VIDEO_ID_REGEX = Regex("[A-Za-z0-9_-]{11}")
+        private val SAVED_FILE_NAME_REGEX = Regex(""".{1,80}-([A-Za-z0-9_-]{11})(?: \([0-9]+\))?\.(?i:mp3)""")
     }
 }

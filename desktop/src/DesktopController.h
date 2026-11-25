@@ -1,7 +1,7 @@
 #pragma once
+#include "services/BackupService.h"
 #include "services/Discovery.h"
 #include "services/MusicService.h"
-#include "services/BackupService.h"
 #include <QVariantMap>
 namespace velune {
 class DesktopController : public QObject {

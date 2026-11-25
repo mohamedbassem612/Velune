@@ -8,7 +8,7 @@
 namespace velune {
 DesktopController::DesktopController(Library *l, MusicService *m, ConnectClient *c, Discovery *d, QObject *p)
     : QObject(p), library(l), music(m), connectClient(c), discovery(d) {
-    backup = new BackupService(l->directory(),this);
+    backup = new BackupService(l->directory(), this);
     auto update = [this] { refresh(); };
     connect(l, &Library::changed, this, update);
     connect(l, &Library::error, this, &DesktopController::notification);
@@ -27,13 +27,15 @@ DesktopController::DesktopController(Library *l, MusicService *m, ConnectClient 
     });
     connect(m, &MusicService::message, this, &DesktopController::notification);
     connect(m->downloads(), &DownloadService::changed, this, update);
-    connect(m->cacheStorage(), &CacheStorage::changed,this,update);
-    connect(backup,&BackupService::message,this,&DesktopController::notification);
-    connect(backup,&BackupService::previewReady,this,[this] {
-        view["restorePreview"]=backup->preview();
-        emit changed(); emit restorePreviewReady();
+    connect(m->cacheStorage(), &CacheStorage::changed, this, update);
+    connect(backup, &BackupService::message, this, &DesktopController::notification);
+    connect(backup, &BackupService::previewReady, this, [this] {
+        view["restorePreview"] = backup->preview();
+        emit changed();
+        emit restorePreviewReady();
     });
-    connect(m->downloads(), &DownloadService::folderRequired, this, &DesktopController::downloadFolderRequired);
+    connect(m->downloads(), &DownloadService::folderRequired, this,
+            &DesktopController::downloadFolderRequired);
     connect(c, &ConnectClient::error, this, &DesktopController::notification);
     connect(c, &ConnectClient::statusChanged, this, [this](QString text) {
         view["connection"] = text;
@@ -89,7 +91,8 @@ DesktopController::DesktopController(Library *l, MusicService *m, ConnectClient 
 QString DesktopController::artwork(QVariantMap map) const {
     auto id = map["id"].toString();
     const auto downloadedCover = music->downloads()->cover(id);
-    if (!downloadedCover.isEmpty()) return QUrl::fromLocalFile(downloadedCover).toString();
+    if (!downloadedCover.isEmpty())
+        return QUrl::fromLocalFile(downloadedCover).toString();
     auto local = music->connectedCover(id);
     if (!local.isEmpty())
         return QUrl::fromLocalFile(local).toString();
@@ -223,23 +226,30 @@ void DesktopController::action(QString name, QVariantMap args) {
         music->downloads()->scan();
     else if (name == "download") {
         auto items = a["items"].toArray();
-        if (items.isEmpty() && !item.isEmpty()) items.append(item);
+        if (items.isEmpty() && !item.isEmpty())
+            items.append(item);
         music->downloads()->enqueue(tracks(items));
-    } else if (name == "cacheRefresh") music->cacheStorage()->refresh();
+    } else if (name == "cacheRefresh")
+        music->cacheStorage()->refresh();
     else if (name == "cacheLimits")
-        music->cacheStorage()->setLimits(a["audioMiB"].toInt(),a["imageMiB"].toInt());
-    else if (name == "cacheClear") music->clearCache(a["kind"].toString());
+        music->cacheStorage()->setLimits(a["audioMiB"].toInt(), a["imageMiB"].toInt());
+    else if (name == "cacheClear")
+        music->clearCache(a["kind"].toString());
     else if (name == "backupExport") {
         const QUrl url(a["url"].toString());
         music->checkpoint();
-        if(url.isLocalFile() && library->checkpoint()) backup->exportTo(url.toLocalFile());
+        if (url.isLocalFile() && library->checkpoint())
+            backup->exportTo(url.toLocalFile());
     } else if (name == "backupInspect") {
         const QUrl url(a["url"].toString());
-        if(url.isLocalFile()) backup->inspect(url.toLocalFile());
+        if (url.isLocalFile())
+            backup->inspect(url.toLocalFile());
     } else if (name == "backupRestore") {
-        if(!music->canRestoreBackup()) {
-            emit notification("Finish or cancel downloads and disconnect active device transfers before restoring.");
-        } else if(backup->stageRestore()) QCoreApplication::exit(42);
+        if (!music->canRestoreBackup()) {
+            emit notification(
+                "Finish or cancel downloads and disconnect active device transfers before restoring.");
+        } else if (backup->stageRestore())
+            QCoreApplication::exit(42);
     } else if (name == "downloadCancel")
         music->downloads()->cancel(a["id"].toString());
     else if (name == "refresh")

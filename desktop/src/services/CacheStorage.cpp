@@ -1,4 +1,5 @@
 #include "CacheStorage.h"
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -6,6 +7,7 @@
 #include <QMap>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <algorithm>
 namespace velune {
 namespace {
 QMultiMap<QString, CacheStorage *> managers;
@@ -26,7 +28,7 @@ QFileInfoList cacheFiles(const QString &root, const QString &kind) {
     if (path.isEmpty())
         return {};
     QStringList filters = kind == "audio"    ? QStringList{"*.audio"}
-                          : kind == "images" ? QStringList{"*.cover"}
+                          : kind == "images" ? QStringList{"*.cover", "*.lyrics"}
                                              : QStringList{"*.source"};
     auto files = QDir(path).entryInfoList(filters, QDir::Files | QDir::NoSymLinks, QDir::Time);
     QFileInfoList result;
@@ -34,6 +36,15 @@ QFileInfoList cacheFiles(const QString &root, const QString &kind) {
     for (const auto &file : files)
         if ((kind == "temporary" ? id : hash).match(file.completeBaseName()).hasMatch())
             result.append(file);
+    if (kind == "images") {
+        const auto covers = safeDir(root, "downloads");
+        if (!covers.isEmpty())
+            for (const auto &file : QDir(covers).entryInfoList({"*.jpg"}, QDir::Files | QDir::NoSymLinks))
+                if (id.match(file.completeBaseName()).hasMatch())
+                    result.append(file);
+        std::sort(result.begin(), result.end(),
+                  [](const QFileInfo &a, const QFileInfo &b) { return a.lastModified() > b.lastModified(); });
+    }
     return result;
 }
 QJsonObject limits(const QString &root) {

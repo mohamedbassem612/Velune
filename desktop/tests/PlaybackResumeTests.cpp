@@ -142,7 +142,8 @@ class PlaybackResumeTests : public QObject {
         Library library(data.path());
         {
             LibraryCatalog catalog(&library, {});
-            catalog.setPreferences({{"crossfadeSeconds", 4}, {"defaultPage", "Downloads"}, {"systemFont", true}});
+            catalog.setPreferences(
+                {{"crossfadeSeconds", 4}, {"defaultPage", "Downloads"}, {"systemFont", true}});
         }
         {
             LibraryCatalog catalog(&library, {});

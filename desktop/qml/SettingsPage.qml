@@ -261,7 +261,7 @@ ScrollView {
                 onSelected: value => backend.action("cacheLimits", {"audioMiB": value, "imageMiB": settings.cache.imageMiB || 256})
             }
             SettingsChoice {
-                text: "Artwork cache limit"
+                text: "Artwork & lyrics cache limit"
                 choices: ["16 MB", "64 MB", "128 MB", "256 MB", "512 MB", "1 GB"]
                 values: [16, 64, 128, 256, 512, 1024]
                 value: settings.cache.imageMiB || 256
@@ -272,7 +272,7 @@ ScrollView {
                 spacing: 8
                 ActionButton { text: "Refresh usage"; onClicked: backend.action("cacheRefresh") }
                 ActionButton { text: "Clear audio cache…"; onClicked: { cacheConfirm.kind = "audio"; cacheConfirm.open(); } }
-                ActionButton { text: "Clear artwork cache…"; onClicked: { cacheConfirm.kind = "images"; cacheConfirm.open(); } }
+                ActionButton { text: "Clear artwork & lyrics…"; onClicked: { cacheConfirm.kind = "images"; cacheConfirm.open(); } }
                 ActionButton { text: "Clear conversion cache…"; onClicked: { cacheConfirm.kind = "temporary"; cacheConfirm.open(); } }
             }
         }
@@ -347,7 +347,7 @@ ScrollView {
         implicitWidth: 470
         width: Math.min(implicitWidth, parent.width - 60)
         modal: true
-        title: "Clear " + (kind === "temporary" ? "conversion" : kind === "images" ? "artwork" : "audio") + " cache?"
+        title: "Clear " + (kind === "temporary" ? "conversion" : kind === "images" ? "artwork & lyrics" : "audio") + " cache?"
         standardButtons: Dialog.Cancel | Dialog.Ok
         Label {
             width: parent.width

@@ -68,9 +68,11 @@ class SettingsUiTests : public QObject {
         QCOMPARE(root->property("page").toString(), "Settings");
         QCOMPARE(root->property("settingsCategory").toString(), "Storage");
         auto *settings = root->findChild<QObject *>("desktopSettings");
-        const QStringList removed{"Remember last playback","Pause when volume reaches zero",
-            "Download liked songs automatically","Default playback speed","Sleep timer"};
-        for(auto *child:settings->findChildren<QObject *>()) QVERIFY(!removed.contains(child->property("text").toString()));
+        const QStringList removed{"Remember last playback", "Pause when volume reaches zero",
+                                  "Download liked songs automatically", "Default playback speed",
+                                  "Sleep timer"};
+        for (auto *child : settings->findChildren<QObject *>())
+            QVERIFY(!removed.contains(child->property("text").toString()));
         QVERIFY(settings->findChild<QObject *>("cacheSettings"));
         QVERIFY(settings->findChild<QObject *>("backupSettings"));
         auto *scroll = settings->property("contentItem").value<QObject *>();
@@ -106,7 +108,8 @@ class SettingsUiTests : public QObject {
                                           Q_ARG(QVariant, QVariant(true))));
         QVERIFY(backend.state()["preferences"].toMap()["hidePlayerArtwork"].toBool());
         QTemporaryDir selected;
-        QVERIFY(QMetaObject::invokeMethod(root, "saveDownloadFolder",
+        QVERIFY(QMetaObject::invokeMethod(
+            root, "saveDownloadFolder",
             Q_ARG(QVariant, QVariant(QUrl::fromLocalFile(selected.path()).toString()))));
         QCOMPARE(backend.lastAction, "downloadFolder");
         QCOMPARE(backend.lastArgs["items"].toList().size(), 1);

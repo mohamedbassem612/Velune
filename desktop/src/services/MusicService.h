@@ -1,10 +1,10 @@
 #pragma once
 #include "AudioResolver.h"
 #include "AudioStream.h"
+#include "CacheStorage.h"
 #include "ConnectClient.h"
 #include "ConnectMediaCache.h"
 #include "DownloadService.h"
-#include "CacheStorage.h"
 #include "EmbeddedSession.h"
 #include "LibraryCatalog.h"
 #include "SearchEngine.h"
@@ -72,13 +72,19 @@ class MusicService : public QObject {
     QString connectedLyrics(QString song) const {
         return peerCache->lyrics(song);
     }
-    DownloadService *downloads() const { return downloadService; }
-    CacheStorage *cacheStorage() const { return cacheService; }
+    DownloadService *downloads() const {
+        return downloadService;
+    }
+    CacheStorage *cacheStorage() const {
+        return cacheService;
+    }
     void clearCache(QString kind);
-    void checkpoint() { catalog.checkpoint(); savePlayback(); }
+    void checkpoint() {
+        catalog.checkpoint();
+        savePlayback();
+    }
     bool canRestoreBackup() const {
-        return !remote->hasTarget() && !remote->mediaBusy() && !peerCache->busy() &&
-            !downloadService->busy();
+        return !remote->hasTarget() && !remote->mediaBusy() && !peerCache->busy() && !downloadService->busy();
     }
   signals:
     void authenticationChanged(bool loggedIn);

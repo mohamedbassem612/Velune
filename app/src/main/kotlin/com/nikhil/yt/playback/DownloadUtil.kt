@@ -46,6 +46,8 @@ import com.nikhil.yt.utils.get
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import java.util.concurrent.Executors
@@ -112,6 +114,7 @@ constructor(
     }
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+    private val mp3RestoreMutex = Mutex()
 
     // Resolve a fresh URL only when both caches miss the requested bytes.
     private val resolvingNetworkFactory =
@@ -292,8 +295,7 @@ constructor(
             downloads.update { current -> result + current }
 
             // Songs already saved as mp3 (also after a reinstall) count as downloaded
-            mp3Library.restoreFromFolder()
-            markMp3Downloaded(mp3Library.ids())
+            restoreMp3Library()
 
             // Convert old downloads (and any conversion that was interrupted) to mp3
             result.values
@@ -310,9 +312,29 @@ constructor(
     /** Scans the music folder again, used right after the audio permission is granted. */
     fun restoreMp3Downloads() {
         CoroutineScope(Dispatchers.IO).launch {
-            mp3Library.restoreFromFolder()
-            markMp3Downloaded(mp3Library.ids())
+            restoreMp3Library()
         }
+    }
+
+    private suspend fun restoreMp3Library() = mp3RestoreMutex.withLock {
+        mp3Library.restoreFromFolder()
+        val ids = mp3Library.ids()
+        try {
+            for (chunk in ids.toList().chunked(500)) {
+                val existing = database.getSongsByIds(chunk).mapTo(hashSetOf()) { it.id }
+                val missing = chunk.filterNot { it in existing }.mapNotNull(mp3Library::readSongMetadata)
+                if (missing.isNotEmpty()) {
+                    database.withTransaction {
+                        missing.forEach { insert(it) }
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            timber.log.Timber.w(e, "Could not restore song rows from downloaded MP3s")
+        }
+        markMp3Downloaded(mp3Library.ids())
     }
 
     /** Makes the app show these songs as downloaded (only for songs the download manager does not know). */

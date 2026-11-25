@@ -43,6 +43,9 @@ class StorageFeatureTests : public QObject {
         QVERIFY(QDir().mkpath(data.filePath("downloads")));
         QVERIFY(write(data.filePath("downloads/abcdefghijk.source"), "complete conversion source"));
         QVERIFY(write(data.filePath("downloads/user.mp3"), "also user music"));
+        QVERIFY(write(a + ".cover", "cached artwork"));
+        QVERIFY(write(a + ".lyrics", "cached lyrics"));
+        QVERIFY(write(data.filePath("downloads/abcdefghijk.jpg"), "derived cover"));
         bool busy = true;
         CacheStorage cache(data.path());
         cache.setBusyCheck([&] { return busy; });
@@ -57,6 +60,10 @@ class StorageFeatureTests : public QObject {
         QVERIFY(cache.clear("audio"));
         QVERIFY(!QFileInfo::exists(b + ".audio"));
         QVERIFY(cache.clear("temporary"));
+        QVERIFY(cache.clear("images"));
+        QVERIFY(!QFileInfo::exists(a + ".cover"));
+        QVERIFY(!QFileInfo::exists(a + ".lyrics"));
+        QVERIFY(!QFileInfo::exists(data.filePath("downloads/abcdefghijk.jpg")));
         QVERIFY(!QFileInfo::exists(data.filePath("downloads/abcdefghijk.source")));
         QCOMPARE(read(song), QByteArray("user music"));
         QCOMPARE(read(data.filePath("downloads/user.mp3")), QByteArray("also user music"));

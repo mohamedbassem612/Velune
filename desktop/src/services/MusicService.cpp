@@ -1,7 +1,7 @@
 #include "MusicService.h"
 #include "playback/PlaybackEngineFactory.h"
-#include <QCryptographicHash>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -60,30 +60,31 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
           this),
       resolver(new AudioResolver(this, {}, {}, playbackNetwork)),
       prefetch(new AudioResolver(this, {}, {}, playbackNetwork)),
-      fadeResolver(new AudioResolver(this, {}, {}, playbackNetwork)),
-      stream(std::make_unique<AudioStream>()), engine(std::move(playback)) {
+      fadeResolver(new AudioResolver(this, {}, {}, playbackNetwork)), stream(std::make_unique<AudioStream>()),
+      engine(std::move(playback)) {
     Q_ASSERT(engine);
     remote->setProviderCookies([this] { return authenticated ? auth.playbackCookies() : QByteArray(); });
     peerCache = new ConnectMediaCache(l, c, this);
     downloadService = new DownloadService(l, this);
-    cacheService = new CacheStorage(l->directory(),this);
+    cacheService = new CacheStorage(l->directory(), this);
     cacheService->setBusyCheck([this] {
         return !engine->source().isEmpty() || bool(preparedStream) || bool(retiringStream) ||
-            remote->hasTarget() || remote->mediaBusy() || peerCache->busy() ||
-            downloadService->busy();
+               remote->hasTarget() || remote->mediaBusy() || peerCache->busy() || downloadService->busy();
     });
-    connect(cacheService,&CacheStorage::message,this,&MusicService::message);
+    connect(cacheService, &CacheStorage::message, this, &MusicService::message);
     downloadService->setCookies([this] { return authenticated ? auth.playbackCookies() : QByteArray(); });
     connect(downloadService, &DownloadService::message, this, &MusicService::message);
     connect(&catalog, &LibraryCatalog::message, this, &MusicService::message);
     connect(this, &MusicService::playbackChanged, &catalog, [this](QJsonObject state) {
-        const bool localOutput = !remote->hasTarget() ||
-            (connectRenderer && remote->rendersLocally() && preparedTransfer.isEmpty() && !releasingConnect);
+        const bool localOutput = !remote->hasTarget() || (connectRenderer && remote->rendersLocally() &&
+                                                          preparedTransfer.isEmpty() && !releasingConnect);
         catalog.observePlayback(state, localOutput);
     });
     connect(&catalog, &LibraryCatalog::changed, this, [this] {
-        if (catalog.preferences()["crossfadeSeconds"].toInt() <= 0) discardCrossfade();
-        else if(wantsPlayback) prepareNext.start();
+        if (catalog.preferences()["crossfadeSeconds"].toInt() <= 0)
+            discardCrossfade();
+        else if (wantsPlayback)
+            prepareNext.start();
     });
     connect(this, &MusicService::authenticationChanged, &catalog, [this] { catalog.cancel(); });
     const auto backendDiagnostic = engine->property("backendDiagnostic").toString();
@@ -203,8 +204,11 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
                 engine->load(source, next);
                 if (active(next))
                     engine->play();
-            } else
+            } else {
                 action("next");
+                if (active(id))
+                    cancelPlayback(); // Queue ended: release the last file and its cache lease.
+            }
         });
     });
     connect(&auth, &EmbeddedSession::busyChanged, this, &MusicService::loginPendingChanged);
@@ -242,15 +246,22 @@ MusicService::MusicService(Library *l, ConnectClient *c, std::unique_ptr<IPlayba
         }
     });
     setupConnect();
-    connect(engine.get(), &IPlaybackEngine::nextPrepared, this, [this](quint64 token,bool ok) {
-        if (token != fadeToken || fadeGeneration != playbackGeneration) return;
+    connect(engine.get(), &IPlaybackEngine::nextPrepared, this, [this](quint64 token, bool ok) {
+        if (token != fadeToken || fadeGeneration != playbackGeneration)
+            return;
         fadeReady = ok;
-        if (ok) tryCrossfade();
-        else QTimer::singleShot(0,this,[this,token] { if(token==fadeToken) discardCrossfade(); });
+        if (ok)
+            tryCrossfade();
+        else
+            QTimer::singleShot(0, this, [this, token] {
+                if (token == fadeToken)
+                    discardCrossfade();
+            });
     });
     connect(engine.get(), &IPlaybackEngine::crossfadeFinished, this, [this] {
         retiringStream.reset();
-        if(wantsPlayback) prepareNext.start();
+        if (wantsPlayback)
+            prepareNext.start();
     });
     updateRoute();
     restorePlayback();
@@ -269,35 +280,48 @@ void MusicService::discardCrossfade() {
     preparedStream.reset();
 }
 void MusicService::prepareCrossfade() {
-    if (retiringStream || remote->hasTarget() || !wantsPlayback || repeatMode == 1 || !engine->supportsCrossfade() ||
-        catalog.preferences()["crossfadeSeconds"].toInt() <= 0 ||
+    if (retiringStream || remote->hasTarget() || !wantsPlayback || repeatMode == 1 ||
+        !engine->supportsCrossfade() || catalog.preferences()["crossfadeSeconds"].toInt() <= 0 ||
         current["sleepTimer"].toObject()["endOfSong"].toBool() || fadeIndex >= 0)
         return;
     int next = current["index"].toInt(-1) + 1;
     if (shuffled && queue.size() > 1) {
-        do { next = QRandomGenerator::global()->bounded(queue.size()); }
-        while (next == current["index"].toInt());
-    } else if (next >= queue.size() && repeatMode == 2) next = 0;
-    if (next < 0 || next >= queue.size() || next == current["index"].toInt()) return;
+        do {
+            next = QRandomGenerator::global()->bounded(queue.size());
+        } while (next == current["index"].toInt());
+    } else if (next >= queue.size() && repeatMode == 2)
+        next = 0;
+    if (next < 0 || next >= queue.size() || next == current["index"].toInt())
+        return;
     discardCrossfade();
     fadeIndex = next;
     fadeGeneration = playbackGeneration;
     const auto token = fadeToken;
     auto local = library->mediaPath(queue[next].id);
-    if (local.isEmpty()) local = peerCache->path(queue[next].id);
-    if (!local.isEmpty()) { engine->prepareNext(QUrl::fromLocalFile(local), token); return; }
+    if (local.isEmpty())
+        local = peerCache->path(queue[next].id);
+    if (!local.isEmpty()) {
+        engine->prepareNext(QUrl::fromLocalFile(local), token);
+        return;
+    }
     preparedStream = std::make_unique<AudioStream>();
-    connect(fadeResolver,&AudioResolver::ready,this,[this,token](QUrl url,QJsonObject headers,qint64) {
-        if (token != fadeToken || playbackGeneration != fadeGeneration || !preparedStream) return;
-        auto source = preparedStream->start(url,headers,token);
-        if (!source.isEmpty()) engine->prepareNext(source,token);
+    connect(fadeResolver, &AudioResolver::ready, this, [this, token](QUrl url, QJsonObject headers, qint64) {
+        if (token != fadeToken || playbackGeneration != fadeGeneration || !preparedStream)
+            return;
+        auto source = preparedStream->start(url, headers, token);
+        if (!source.isEmpty())
+            engine->prepareNext(source, token);
     });
-    connect(fadeResolver,&AudioResolver::error,this,[this,token](QString) {
-        if (token==fadeToken) discardCrossfade();
+    connect(fadeResolver, &AudioResolver::error, this, [this, token](QString) {
+        if (token == fadeToken)
+            discardCrossfade();
     });
-    connect(preparedStream.get(),&AudioStream::requestError,this,[this,token](quint64,QString) {
+    connect(preparedStream.get(), &AudioStream::requestError, this, [this, token](quint64, QString) {
         // Defer destruction until after the relay's callback has returned.
-        QTimer::singleShot(0,this,[this,token] { if(token==fadeToken) discardCrossfade(); });
+        QTimer::singleShot(0, this, [this, token] {
+            if (token == fadeToken)
+                discardCrossfade();
+        });
     });
     fadeResolver->resolve(queue[next].id, authenticated ? auth.playbackCookies() : QByteArray());
 }
@@ -305,19 +329,24 @@ void MusicService::tryCrossfade() {
     const int milliseconds = catalog.preferences()["crossfadeSeconds"].toInt() * 1000;
     if (!fadeReady || fadeGeneration != playbackGeneration || fadeIndex < 0 || fadeIndex >= queue.size() ||
         !wantsPlayback || remote->hasTarget() || milliseconds <= 0 || repeatMode == 1 ||
-        current["sleepTimer"].toObject()["endOfSong"].toBool()) return;
+        current["sleepTimer"].toObject()["endOfSong"].toBool())
+        return;
     const auto remaining = current["duration"].toDouble() - current["position"].toDouble();
     const auto speed = current["speed"].toDouble(1);
-    if (remaining <= 0 || remaining > milliseconds * speed) return;
+    if (remaining <= 0 || remaining > milliseconds * speed)
+        return;
     const int next = fadeIndex;
-    disconnect(resolver,nullptr,this,nullptr);
-    disconnect(stream.get(),nullptr,this,nullptr);
+    disconnect(resolver, nullptr, this, nullptr);
+    disconnect(stream.get(), nullptr, this, nullptr);
     // Keep the old relay alive until its fading audio helper has stopped.
     retiringStream = std::move(stream);
     stream = preparedStream ? std::move(preparedStream) : std::make_unique<AudioStream>();
     stream->disconnect(this);
-    fadeResolver->disconnect(this); fadeResolver->cancel();
-    fadeReady=false; fadeIndex=-1; ++fadeToken;
+    fadeResolver->disconnect(this);
+    fadeResolver->cancel();
+    fadeReady = false;
+    fadeIndex = -1;
+    ++fadeToken;
     const auto generation = ++playbackGeneration;
     ++streamGeneration;
     current["index"] = next;
@@ -325,23 +354,27 @@ void MusicService::tryCrossfade() {
     current["position"] = 0;
     current["duration"] = queue[next].duration * 1000.0;
     current["playing"] = false;
-    pendingSeek = -1; retriedStream=false;
-    trace.finish("crossfade"); trace.begin(generation,engine->backendName(),"crossfade");
+    pendingSeek = -1;
+    retriedStream = false;
+    trace.finish("crossfade");
+    trace.begin(generation, engine->backendName(), "crossfade");
     bindSourceCallbacks(generation);
     emit playbackChanged(current);
-    if (!engine->activateNext(generation,qMax(100,int(remaining/speed)))) {
+    if (!engine->activateNext(generation, qMax(100, int(remaining / speed)))) {
+        engine->cancel();
         retiringStream.reset();
-        resolveAndPlay(queue[next],generation);
+        resolveAndPlay(queue[next], generation);
     }
 }
 void MusicService::clearCache(QString kind) {
-    if (kind!="audio" && kind!="images" && kind!="temporary") return;
-    if (remote->hasTarget() || remote->mediaBusy() || peerCache->busy() ||
-        downloadService->busy()) {
-        emit message("Wait for downloads and device transfers to finish before clearing cache."); return;
+    if (kind != "audio" && kind != "images" && kind != "temporary")
+        return;
+    if (remote->hasTarget() || remote->mediaBusy() || peerCache->busy() || downloadService->busy()) {
+        emit message("Wait for downloads and device transfers to finish before clearing cache.");
+        return;
     }
     cancelPlayback();
-    current["playing"]=false;
+    current["playing"] = false;
     emit playbackChanged(current);
     cacheService->clear(kind);
 }
@@ -352,10 +385,13 @@ void MusicService::savePlayback() {
     QJsonArray items;
     for (auto value : current["queue"].toArray())
         items.append(Track::fromWire(value.toObject()).wire());
-    QJsonObject snapshot{{"schema", 1}, {"queue", items},
+    QJsonObject snapshot{{"schema", 1},
+                         {"queue", items},
                          {"index", current["index"].toInt(-1)},
-                         {"position", current["position"]}, {"duration", current["duration"]},
-                         {"shuffle", shuffled}, {"repeat", repeatMode},
+                         {"position", current["position"]},
+                         {"duration", current["duration"]},
+                         {"shuffle", shuffled},
+                         {"repeat", repeatMode},
                          {"speed", current["speed"].toDouble(1)},
                          {"volume", double(engine->volume())}};
     const auto bytes = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
@@ -372,8 +408,8 @@ void MusicService::restorePlayback() {
     const auto saved = QJsonDocument::fromJson(file.readAll()).object();
     const auto items = saved["queue"].toArray();
     const auto index = saved["index"].toInt(-1);
-    if (saved["schema"].toInt() != 1 || items.isEmpty() || items.size() > 20000 ||
-        index < 0 || index >= items.size())
+    if (saved["schema"].toInt() != 1 || items.isEmpty() || items.size() > 20000 || index < 0 ||
+        index >= items.size())
         return;
     QList<Track> restored;
     QJsonArray sanitized;
@@ -395,11 +431,17 @@ void MusicService::restorePlayback() {
     repeatMode = qBound(0, saved["repeat"].toInt(), 2);
     const auto speed = qBound(.25, bounded(saved["speed"], 1, 4), 4.0);
     engine->setVolume(float(bounded(saved["volume"], .75, 1)));
-    current = {{"queue", sanitized}, {"index", index}, {"song", queue[index].wire()},
-               {"position", position}, {"duration", duration}, {"playing", false},
-               {"shuffle", shuffled}, {"repeat", repeatMode}, {"speed", speed},
-               {"deviceVolume", QJsonObject{{"level", qRound(engine->volume() * 100)},
-                                            {"min", 0}, {"max", 100}}}};
+    current = {
+        {"queue", sanitized},
+        {"index", index},
+        {"song", queue[index].wire()},
+        {"position", position},
+        {"duration", duration},
+        {"playing", false},
+        {"shuffle", shuffled},
+        {"repeat", repeatMode},
+        {"speed", speed},
+        {"deviceVolume", QJsonObject{{"level", qRound(engine->volume() * 100)}, {"min", 0}, {"max", 100}}}};
     localCheckpoint = current;
     // Do not resolve a stream or start audio until the user presses Play.
     remote->rememberLocalPlayback(current);
@@ -408,12 +450,12 @@ void MusicService::restorePlayback() {
 MusicService::~MusicService() {
     // Catalog flushing can emit changed(); finish it before playback members are destroyed.
     catalog.checkpoint();
-    disconnect(&catalog,nullptr,this,nullptr);
+    disconnect(&catalog, nullptr, this, nullptr);
     savePlayback();
     remote->setProviderCookies({});
     cancelPlayback();
     delete cacheService;
-    cacheService=nullptr;
+    cacheService = nullptr;
 }
 bool MusicService::active(PlaybackRequest id) const {
     return id != 0 && id == playbackGeneration && (connectRenderer || (!remote->hasTarget() && !remoteRoute));
@@ -1105,7 +1147,8 @@ void MusicService::action(QString name) {
 }
 void MusicService::seek(qint64 position) {
     discardCrossfade();
-    if(wantsPlayback) prepareNext.start();
+    if (wantsPlayback)
+        prepareNext.start();
     if (remoteUnavailable())
         return;
     if (remote->connected())
@@ -1138,6 +1181,8 @@ void MusicService::shuffle(bool v) {
     if (remoteUnavailable())
         return;
     shuffled = v;
+    if (wantsPlayback)
+        prepareNext.start();
     if (remote->connected())
         remote->command({{"name", "shuffle"}, {"enabled", v}});
 }
@@ -1146,6 +1191,8 @@ void MusicService::repeat(int v) {
     if (remoteUnavailable())
         return;
     repeatMode = v;
+    if (wantsPlayback)
+        prepareNext.start();
     if (remote->connected())
         remote->command({{"name", "repeat"}, {"mode", v}});
 }

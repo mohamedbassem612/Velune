@@ -247,15 +247,16 @@ void MusicService::startConnectTrack(QJsonObject s) {
                                     self->authenticated ? self->auth.playbackCookies() : QByteArray());
         }
     };
-    if (!remote->mediaProviders().isEmpty()) {
-        emit message("Receiving audio from the connected phone…");
-        peerCache->fetch(track, load);
-    } else {
-        auto path = library->mediaPath(track.id);
-        if (!QFileInfo(path).isReadable())
-            path = peerCache->path(track.id);
+    auto path = library->mediaPath(track.id);
+    if (!QFileInfo(path).isReadable())
+        path = peerCache->path(track.id);
+    if (!path.isEmpty())
         load(path, {});
-    }
+    else if (!remote->mediaProviders().isEmpty()) {
+        emit message("Receiving audio from the connected device…");
+        peerCache->fetch(track, load);
+    } else
+        load({}, {});
 }
 void MusicService::executeConnectCommand(QJsonObject c) {
     if (!connectRenderer || !remote->rendersLocally() || !preparedTransfer.isEmpty() || releasingConnect)
@@ -385,7 +386,7 @@ void MusicService::executeConnectCommand(QJsonObject c) {
         for (auto i : permutation)
             order.append(i);
         current["order"] = order;
-    } else if (name == "shuffleOrder") {
+    } else if (name == "order" || name == "shuffleOrder") {
         auto candidate = current;
         candidate["order"] = c["order"];
         if (normalizeSession(candidate))

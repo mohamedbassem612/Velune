@@ -101,8 +101,8 @@ void LibraryCatalog::setPreferences(QJsonObject patch) {
         if (patch.contains(key))
             next[key] = patch[key];
     next["topSize"] = qBound(1, next["topSize"].toInt(50), 500);
-    for (auto key : {"pauseListeningHistory",
-                     "systemFont", "hidePlayerArtwork", "showLiked", "showOffline", "showTop", "showCached"})
+    for (auto key : {"pauseListeningHistory", "systemFont", "hidePlayerArtwork", "showLiked", "showOffline",
+                     "showTop", "showCached"})
         if (!next[key].isBool())
             next[key] = prefs[key];
     const QStringList pages{"Home", "Search", "Explore", "Library", "Downloads"};
@@ -112,7 +112,7 @@ void LibraryCatalog::setPreferences(QJsonObject patch) {
         next["view"] = prefs["view"];
     next["lyricsFontSize"] = qBound(12, next["lyricsFontSize"].toInt(18), 40);
     next["lyricsLineHeight"] = qBound(1.0, next["lyricsLineHeight"].toDouble(1.4), 2.0);
-    next["crossfadeSeconds"] = qBound(0,next["crossfadeSeconds"].toInt(),12);
+    next["crossfadeSeconds"] = qBound(0, next["crossfadeSeconds"].toInt(), 12);
     if (next == prefs)
         return;
     if (next["pauseListeningHistory"] != prefs["pauseListeningHistory"]) {

@@ -8,10 +8,25 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QUuid>
+#include <cmath>
 namespace velune {
 namespace {
 constexpr qint64 MaxBackup = 32ll * 1024 * 1024;
 const QStringList Names{"library.json", "catalog.json", "search.json", "last-playback.json", "storage.json"};
+QJsonObject defaultFile(const QString &name) {
+    if (name == "catalog.json")
+        return {{"preferences", QJsonObject{}},
+                {"remoteEntries", QJsonArray{}},
+                {"bookmarks", QJsonObject{}},
+                {"playlistTags", QJsonObject{}}};
+    if (name == "search.json")
+        return {{"settings", QJsonObject{}}, {"history", QJsonArray{}}};
+    if (name == "storage.json")
+        return {{"audioMiB", 1024}, {"imageMiB", 256}};
+    if (name == "last-playback.json")
+        return {{"schema", 1}, {"queue", QJsonArray{}}, {"index", -1}};
+    return {};
+}
 bool write(QString path, QByteArray bytes) {
     QSaveFile f(path);
     return f.open(QIODevice::WriteOnly) && f.setPermissions(QFile::ReadOwner | QFile::WriteOwner) &&
@@ -96,11 +111,62 @@ bool BackupService::validate(const QJsonObject &backup, QString *error) {
         if (!catalog["preferences"].isObject() || !catalog["remoteEntries"].isArray() ||
             !catalog["bookmarks"].isObject() || !catalog["playlistTags"].isObject())
             return fail(error, "Invalid catalog settings in backup.");
+        const auto prefs = catalog["preferences"].toObject();
+        for (auto key : {"pauseListeningHistory", "systemFont", "hidePlayerArtwork", "showLiked",
+                         "showOffline", "showTop", "showCached"})
+            if (prefs.contains(key) && !prefs[key].isBool())
+                return fail(error, "Invalid preference value in backup.");
+        if (prefs.contains("defaultPage") &&
+            !QStringList{"Home", "Search", "Explore", "Library", "Downloads"}.contains(
+                prefs["defaultPage"].toString()))
+            return fail(error, "Invalid startup page in backup.");
+        if (prefs.contains("crossfadeSeconds") &&
+            (!prefs["crossfadeSeconds"].isDouble() || prefs["crossfadeSeconds"].toDouble() < 0 ||
+             prefs["crossfadeSeconds"].toDouble() > 12))
+            return fail(error, "Invalid crossfade duration in backup.");
     }
     if (files.contains("search.json")) {
         auto search = files["search.json"].toObject();
         if (!search["settings"].isObject() || !search["history"].isArray())
             return fail(error, "Invalid search settings in backup.");
+        const auto prefs = search["settings"].toObject();
+        for (auto key : {"hideExplicit", "hideVideos", "pauseHistory", "useLogin"})
+            if (prefs.contains(key) && !prefs[key].isBool())
+                return fail(error, "Invalid content setting in backup.");
+        if (prefs.contains("language") && !QRegularExpression("^[a-z]{2,3}(-[A-Za-z]{2,4})?$")
+                                               .match(prefs["language"].toString())
+                                               .hasMatch())
+            return fail(error, "Invalid content language in backup.");
+        if (prefs.contains("country") &&
+            !QRegularExpression("^[A-Z]{2}$").match(prefs["country"].toString()).hasMatch())
+            return fail(error, "Invalid content country in backup.");
+        for (auto query : search["history"].toArray())
+            if (!query.isString())
+                return fail(error, "Invalid search history in backup.");
+    }
+    if (files.contains("last-playback.json")) {
+        const auto state = files["last-playback.json"].toObject();
+        if (state["schema"].toInt() != 1 || !state["queue"].isArray() ||
+            state["queue"].toArray().size() > 20000)
+            return fail(error, "Invalid playback checkpoint in backup.");
+        for (auto track : state["queue"].toArray())
+            if (!validTrack(track))
+                return fail(error, "Invalid playback queue in backup.");
+        const auto index = state["index"].toInt(-1);
+        const auto count = state["queue"].toArray().size();
+        if (index < -1 || (count > 0 && (index < 0 || index >= count)))
+            return fail(error, "Invalid playback selection in backup.");
+        for (auto key : {"position", "duration"})
+            if (state.contains(key) &&
+                (!state[key].isDouble() || state[key].toDouble() < 0 || state[key].toDouble() > 9e12))
+                return fail(error, "Invalid playback time in backup.");
+    }
+    if (files.contains("storage.json")) {
+        const auto storage = files["storage.json"].toObject();
+        if (!storage["audioMiB"].isDouble() || storage["audioMiB"].toInt() < 128 ||
+            storage["audioMiB"].toInt() > 16384 || !storage["imageMiB"].isDouble() ||
+            storage["imageMiB"].toInt() < 16 || storage["imageMiB"].toInt() > 2048)
+            return fail(error, "Invalid cache limits in backup.");
     }
     // Archives have a fixed set of JSON sections, never executable content or file paths to extract.
     return true;
@@ -119,8 +185,11 @@ bool BackupService::exportTo(QString path) {
             emit message("Cannot back up a linked app data file.");
             return false;
         }
-        if (!QFileInfo::exists(root + '/' + name))
+        if (!QFileInfo::exists(root + '/' + name)) {
+            if (name != "library.json")
+                files[name] = defaultFile(name);
             continue;
+        }
         const auto object = read(root + '/' + name);
         if (object.isEmpty()) {
             emit message("Could not read an app data file. No backup was written.");
@@ -198,6 +267,9 @@ bool BackupService::applyPending(const QString &directory, QString *error) {
     if (!validate(archive, error))
         return false;
     auto files = archive["files"].toObject();
+    for (auto name : Names)
+        if (!files.contains(name))
+            files[name] = defaultFile(name);
     auto library = files["library.json"].toObject();
     // Connect identity and the local version counter belong to this installation.
     const auto local = read(root + "/library.json");
