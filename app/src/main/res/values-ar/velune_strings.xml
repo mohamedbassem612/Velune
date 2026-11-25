@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="automix_dislike">مش مهتم</string>
+    <string name="automix_undo_dislike">إلغاء «مش مهتم»</string>
     <string name="explore">تصفح</string>
     <string name="local_history">على الجهاز</string>
     <string name="remote_history">عن بعد</string>

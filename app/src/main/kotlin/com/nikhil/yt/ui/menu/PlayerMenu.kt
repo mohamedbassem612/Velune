@@ -108,6 +108,7 @@ import com.nikhil.yt.LocalDownloadUtil
 import com.nikhil.yt.LocalPlayerConnection
 import com.nikhil.yt.R
 import com.nikhil.yt.constants.ArtistSeparatorsKey
+import com.nikhil.yt.constants.AutomixDislikesKey
 import com.nikhil.yt.constants.EqualizerBandLevelsMbKey
 import com.nikhil.yt.constants.EqualizerBassBoostEnabledKey
 import com.nikhil.yt.constants.EqualizerBassBoostStrengthKey
@@ -157,10 +158,12 @@ fun PlayerMenu(
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
+    val (dislikedIds) = rememberPreference(AutomixDislikesKey, defaultValue = emptySet())
     val playerVolume = playerConnection.service.playerVolume.collectAsState()
     val activityResultLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+    val isDisliked = mediaMetadata.id in dislikedIds && librarySong?.song?.liked != true
     val coroutineScope = rememberCoroutineScope()
 
     val download by LocalDownloadUtil.current.getDownload(mediaMetadata.id)
@@ -355,6 +358,21 @@ fun PlayerMenu(
         item {
             MusicMenuActionList(
                 actions = listOf(
+                    NewAction(
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.heart_broken),
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        text = stringResource(if (isDisliked) R.string.automix_undo_dislike else R.string.automix_dislike),
+                        onClick = {
+                            playerConnection.service.setAutomixDislike(mediaMetadata.id, !isDisliked)
+                            onDismiss()
+                        },
+                    ),
                     NewAction(
                         icon = {
                             Icon(

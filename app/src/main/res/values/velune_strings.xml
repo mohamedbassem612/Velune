@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="automix_dislike">Not interested</string>
+    <string name="automix_undo_dislike">Undo not interested</string>
     <string name="explore">Explore</string>
     <string name="local_history">Local</string>
     <string name="remote_history">Remote</string>

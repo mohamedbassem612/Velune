@@ -75,4 +75,69 @@ class AutomixFilterTest {
             )
         assertEquals(listOf("1", "2"), result)
     }
+
+    @Test fun dislikeOnlyExcludesTheSelectedRecording() {
+        val seed = c("seed", "Intro Acoustic", "A")
+        val disliked = c("disliked", "Session Acoustic", "A")
+        val anotherRecording = c("live", "Session Acoustic (Live)", "A")
+        val sameArtist = c("artist", "Morning Acoustic", "A")
+        val sameStyle = c("style", "Night Unplugged", "B")
+        val pool = listOf(disliked, anotherRecording, sameArtist, sameStyle)
+        val blocks = AutomixBlocklist(historyIds = setOf(disliked.id), dislikedIds = setOf(disliked.id))
+        val expected = AutomixFilter.refine(pool.drop(1), blocks, seed = seed)
+
+        assertEquals(setOf("live", "artist", "style"), expected.toSet())
+        assertEquals(expected, AutomixFilter.refine(pool, blocks, seed = seed))
+        assertTrue("disliked" in AutomixFilter.refine(pool, AutomixBlocklist(), seed = seed))
+    }
+
+    @Test fun renewedLikeOverridesDislikeAndRaisesTheRecordingScore() {
+        val seed = c("seed", "Intro", "A")
+        val neutral = c("neutral", "Morning", "B")
+        val likedAgain = c("returned", "Night", "C")
+        val pool = listOf(neutral, likedAgain)
+        val disliked = AutomixBlocklist(dislikedIds = setOf(likedAgain.id))
+
+        assertEquals(listOf(neutral.id), AutomixFilter.refine(pool, disliked, seed = seed))
+        assertEquals(
+            listOf(likedAgain.id, neutral.id),
+            AutomixFilter.refine(pool, disliked.copy(likedIds = setOf(likedAgain.id)), seed = seed),
+        )
+    }
+
+    @Test fun recitationSeedRanksReciterAndRejectsSongsAndLectures() {
+        val seed = c("seed", "سُـورَةُ الْكَهْفِ", "الحصري")
+        val pool = listOf(
+            c("song", "ليلة", "الحصري"),
+            c("lecture", "تفسير سورة الكهف", "واعظ"),
+            c("other", "Surah Maryam", "Another reciter"),
+            c("same", "البقرة", "الحصري"),
+            seed.copy(id = "copy"),
+        )
+        assertEquals(listOf("same", "other"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = seed))
+    }
+
+    @Test fun ambiguousChapterNeedsReciterEvidence() {
+        val pool = listOf(c("song", "حبيبي", "مطرب"), c("recitation", "سورة الفجر", "قارئ"))
+        val title = c("seed", "مريم", "محمد صديق المنشاوي")
+        assertEquals(listOf("recitation"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = title))
+        assertEquals(listOf("song", "recitation"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = title.copy(artist = "مطرب")))
+    }
+
+    @Test fun albumCanIdentifyRecitationAndIncompatiblePoolStaysEmpty() {
+        val seed = c("seed", "001", null).copy(album = "The Holy Qur’an")
+        val song = c("song", "تملي معاك", "عمرو دياب")
+        assertEquals(emptyList<String>(), AutomixFilter.refine(listOf(song), AutomixBlocklist(), seed = seed))
+        val chapter = c("next", "002", null).copy(album = "القرآن الكريم")
+        assertEquals(listOf("next"), AutomixFilter.refine(listOf(song, chapter), AutomixBlocklist(), seed = seed))
+    }
+
+    @Test fun musicUsesAlbumArtistAndStyleWithProviderOrderForTies() {
+        val seed = c("s", "Morning (Acoustic)", "A").copy(album = "Sessions")
+        val pool = listOf(
+            c("x", "First", null), c("y", "Second", null), c("style", "Night (Unplugged)", "B"),
+            c("artist", "Another", "A"), c("album", "Last", "A").copy(album = "Sessions"),
+        )
+        assertEquals(listOf("album", "artist", "style", "x", "y"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = seed))
+    }
 }

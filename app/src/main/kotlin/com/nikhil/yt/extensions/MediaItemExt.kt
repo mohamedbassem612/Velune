@@ -18,11 +18,27 @@ import com.nikhil.yt.innertube.models.WatchEndpoint.WatchEndpointMusicSupportedC
 import com.nikhil.yt.db.entities.Song
 import com.nikhil.yt.models.MediaMetadata
 import com.nikhil.yt.models.toMediaMetadata
+import com.nikhil.yt.utils.AutomixBlocklist
+import com.nikhil.yt.utils.AutomixCandidate
+import com.nikhil.yt.utils.AutomixFilter
 
 const val ExtraIsMusicVideo = "com.nikhil.yt.extra.IS_MUSIC_VIDEO"
 
 val MediaItem.metadata: MediaMetadata?
     get() = localConfiguration?.tag as? MediaMetadata
+
+internal fun MediaItem.toAutomixCandidate() = AutomixCandidate(
+    id = mediaId,
+    title = metadata?.title ?: mediaMetadata.title?.toString().orEmpty(),
+    artist = metadata?.artists?.firstOrNull()?.name ?: mediaMetadata.artist?.toString(),
+    album = metadata?.album?.title ?: mediaMetadata.albumTitle?.toString(),
+)
+
+internal fun List<MediaItem>.rankAutomix(seed: MediaItem?, blocklist: AutomixBlocklist): List<MediaItem> {
+    val byId = distinctBy { it.mediaId }.associateBy { it.mediaId }
+    val ids = AutomixFilter.refine(byId.values.map { it.toAutomixCandidate() }, blocklist, seed = seed?.toAutomixCandidate())
+    return ids.map(byId::getValue)
+}
 
 fun Song.toMediaItem() =
     MediaItem

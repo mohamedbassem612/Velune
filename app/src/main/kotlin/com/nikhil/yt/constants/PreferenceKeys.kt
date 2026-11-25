@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
@@ -115,6 +116,7 @@ val AudioNormalizationKey = booleanPreferencesKey("audioNormalization")
 val AudioOffload = booleanPreferencesKey("audioOffload")
 val AudioCrossfadeDurationKey = intPreferencesKey("audioCrossfadeDuration")
 val AutoLoadMoreKey = booleanPreferencesKey("autoLoadMore")
+val AutomixDislikesKey = stringSetPreferencesKey("automixDislikes")
 val AutoDownloadOnLikeKey = booleanPreferencesKey("autoDownloadOnLike")
 val AutoSkipNextOnErrorKey = booleanPreferencesKey("autoSkipNextOnError")
 val PauseOnDeviceMuteKey = booleanPreferencesKey("pauseOnDeviceMute")
