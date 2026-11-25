@@ -117,6 +117,13 @@ class AutomixFilterTest {
         assertEquals(listOf("same", "other"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = seed))
     }
 
+    @Test fun recitationSeedFallsBackWhenProviderHasNoRecognizableRecitations() {
+        val seed = c("seed", "سورة الكهف", "الحصري")
+        val pool = listOf(c("one", "Morning", "Artist A"), c("two", "Night", "Artist B"))
+
+        assertEquals(listOf("one", "two"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = seed))
+    }
+
     @Test fun ambiguousChapterNeedsReciterEvidence() {
         val pool = listOf(c("song", "حبيبي", "مطرب"), c("recitation", "سورة الفجر", "قارئ"))
         val title = c("seed", "مريم", "محمد صديق المنشاوي")
@@ -124,10 +131,10 @@ class AutomixFilterTest {
         assertEquals(listOf("song", "recitation"), AutomixFilter.refine(pool, AutomixBlocklist(), seed = title.copy(artist = "مطرب")))
     }
 
-    @Test fun albumCanIdentifyRecitationAndIncompatiblePoolStaysEmpty() {
+    @Test fun albumCanIdentifyRecitationAndFallsBackWhenPoolHasNoRecitationMarker() {
         val seed = c("seed", "001", null).copy(album = "The Holy Qur’an")
         val song = c("song", "تملي معاك", "عمرو دياب")
-        assertEquals(emptyList<String>(), AutomixFilter.refine(listOf(song), AutomixBlocklist(), seed = seed))
+        assertEquals(listOf("song"), AutomixFilter.refine(listOf(song), AutomixBlocklist(), seed = seed))
         val chapter = c("next", "002", null).copy(album = "القرآن الكريم")
         assertEquals(listOf("next"), AutomixFilter.refine(listOf(song, chapter), AutomixBlocklist(), seed = seed))
     }

@@ -139,12 +139,15 @@ object AutomixFilter {
         val seedKey = seed?.let { songKey(it.title, it.artist) }
         val scores = HashMap<String, Int>()
         val excludedIds = blocklist.dislikedIds - blocklist.likedIds
-        for ((index, candidate) in candidates.filterNot { it.id in excludedIds }.withIndex()) {
+        val availableCandidates = candidates.filterNot { it.id in excludedIds }
+        val hasRecognizedRecitation =
+            reference?.recitation == true && availableCandidates.any { Profile(it).recitation }
+        for ((index, candidate) in availableCandidates.withIndex()) {
             if (candidate.id == seed?.id || candidate.id in blocklist.queueIds || !seenIds.add(candidate.id)) continue
             val key = songKey(candidate.title, candidate.artist)
             if (key == seedKey || key in blocklist.queueKeys || key in seenKeys) continue
             val profile = reference?.let { Profile(candidate) }
-            if (reference?.recitation == true && profile?.recitation != true) continue
+            if (hasRecognizedRecitation && profile?.recitation != true) continue
             val similarity = if (reference != null && profile != null) reference.similarity(profile) else 0
             val likeBonus = if (candidate.id in blocklist.likedIds) 32 else 0
             scores[candidate.id] = similarity + likeBonus + (12 - index).coerceAtLeast(0)

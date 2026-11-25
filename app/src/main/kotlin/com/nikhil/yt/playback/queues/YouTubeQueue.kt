@@ -26,7 +26,7 @@ class YouTubeQueue(
     val isTrackRadio get() = seedId != null
     private var continuation: String? = null
 
-    override suspend fun getInitialStatus(): Queue.Status = getInitialStatus { AutomixBlocklist() }
+    override suspend fun getInitialStatus(): Queue.Status = getInitialStatus { _ -> AutomixBlocklist() }
 
     internal suspend fun getInitialStatus(blocklist: suspend (List<MediaItem>) -> AutomixBlocklist): Queue.Status {
         val nextResult =
