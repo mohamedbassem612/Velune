@@ -72,6 +72,7 @@ data class SearchSummaryPage(
             return when {
                 renderer.onTap.watchEndpoint != null -> {
                     SongItem(
+                        endpoint = renderer.onTap.watchEndpoint,
                         id = renderer.onTap.watchEndpoint.videoId ?: return null,
                         title =
                             renderer.title.runs
@@ -217,6 +218,7 @@ data class SearchSummaryPage(
             return when {
                 renderer.isSong -> {
                     SongItem(
+                        endpoint = renderer.searchWatchEndpoint,
                         id = renderer.playlistItemData?.videoId ?: return null,
                         title =
                             renderer.flexColumns

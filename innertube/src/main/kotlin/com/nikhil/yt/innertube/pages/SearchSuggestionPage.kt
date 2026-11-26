@@ -23,6 +23,7 @@ object SearchSuggestionPage {
         return when {
             renderer.isSong -> {
                 SongItem(
+                    endpoint = renderer.searchWatchEndpoint,
                     id = renderer.playlistItemData?.videoId ?: return null,
                     title =
                         renderer.flexColumns

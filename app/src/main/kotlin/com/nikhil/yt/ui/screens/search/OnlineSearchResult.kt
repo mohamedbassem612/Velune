@@ -62,7 +62,6 @@ import com.nikhil.yt.innertube.YouTube.SearchFilter.Companion.FILTER_ARTIST
 import com.nikhil.yt.innertube.YouTube.SearchFilter.Companion.FILTER_COMMUNITY_PLAYLIST
 import com.nikhil.yt.innertube.YouTube.SearchFilter.Companion.FILTER_FEATURED_PLAYLIST
 import com.nikhil.yt.innertube.YouTube.SearchFilter.Companion.FILTER_SONG
-import com.nikhil.yt.innertube.YouTube.SearchFilter.Companion.FILTER_VIDEO
 import com.nikhil.yt.innertube.models.AlbumItem
 import com.nikhil.yt.innertube.models.ArtistItem
 import com.nikhil.yt.innertube.models.PlaylistItem
@@ -116,11 +115,13 @@ fun OnlineSearchResult(
         }
     }
 
-    LaunchedEffect(lazyListState) {
+    LaunchedEffect(lazyListState, searchFilter) {
         snapshotFlow {
-            lazyListState.layoutInfo.visibleItemsInfo.any { it.key == "loading" }
-        }.collect { shouldLoadMore ->
-            if (!shouldLoadMore) return@collect
+            itemsPage?.continuation?.takeIf {
+                lazyListState.layoutInfo.visibleItemsInfo.any { it.key == "loading" }
+            }
+        }.collect { continuation ->
+            if (continuation == null) return@collect
             viewModel.loadMore()
         }
     }
@@ -284,7 +285,7 @@ fun OnlineSearchResult(
                 }
             }
 
-            if (itemsPage?.items?.isEmpty() == true) {
+            if (itemsPage?.items?.isEmpty() == true && itemsPage?.continuation == null) {
                 item {
                     EmptyPlaceholder(
                         icon = R.drawable.search,
@@ -318,7 +319,6 @@ fun OnlineSearchResult(
             listOf(
                 null to stringResource(R.string.filter_all),
                 FILTER_SONG to stringResource(R.string.filter_songs),
-                FILTER_VIDEO to stringResource(R.string.filter_videos),
                 FILTER_ALBUM to stringResource(R.string.filter_albums),
                 FILTER_ARTIST to stringResource(R.string.filter_artists),
                 FILTER_COMMUNITY_PLAYLIST to stringResource(R.string.filter_community_playlists),
@@ -336,7 +336,6 @@ fun OnlineSearchResult(
             icons = mapOf(
                 null to R.drawable.search,
                 FILTER_SONG to R.drawable.music_note,
-                FILTER_VIDEO to R.drawable.slow_motion_video,
                 FILTER_ALBUM to R.drawable.album,
                 FILTER_ARTIST to R.drawable.person,
                 FILTER_COMMUNITY_PLAYLIST to R.drawable.queue_music,

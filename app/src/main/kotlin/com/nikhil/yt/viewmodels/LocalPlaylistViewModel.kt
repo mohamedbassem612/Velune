@@ -473,7 +473,7 @@ constructor(
     
     private suspend fun loadMoreFromContinuation(continuation: String) {
         try {
-            val result = YouTube.searchContinuation(continuation).getOrNull()
+            val result = YouTube.searchContinuation(continuation, YouTube.SearchFilter.FILTER_SONG).getOrNull()
                 ?: return
             
             val filteredItems = filterSuggestionItems(result.items).shuffled().take(10)

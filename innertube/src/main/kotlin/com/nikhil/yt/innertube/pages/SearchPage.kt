@@ -25,6 +25,15 @@ data class SearchResult(
     val continuation: String? = null,
 )
 
+internal val MusicResponsiveListItemRenderer.searchWatchEndpoint
+    get() = sequenceOf(
+        navigationEndpoint?.anyWatchEndpoint,
+        overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
+            ?.playNavigationEndpoint?.anyWatchEndpoint,
+        flexColumns.firstOrNull()?.musicResponsiveListItemFlexColumnRenderer
+            ?.text?.runs?.firstOrNull()?.navigationEndpoint?.anyWatchEndpoint,
+    ).filterNotNull().firstOrNull { it.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType != null }
+
 object SearchPage {
     fun toYTItem(renderer: MusicResponsiveListItemRenderer): YTItem? {
         val secondaryLine =
@@ -38,6 +47,7 @@ object SearchPage {
         return when {
             renderer.isSong -> {
                 SongItem(
+                    endpoint = renderer.searchWatchEndpoint,
                     id = renderer.playlistItemData?.videoId ?: return null,
                     title =
                         renderer.flexColumns

@@ -84,14 +84,14 @@ constructor(
     }
 
     fun loadMore() {
-        val filter = filter.value?.value
+        val selectedFilter = filter.value ?: return
+        val filter = selectedFilter.value
         viewModelScope.launch {
-            if (filter == null) return@launch
             val viewState = viewStateMap[filter] ?: return@launch
             val continuation = viewState.continuation
             if (continuation != null) {
                 val searchResult =
-                    YouTube.searchContinuation(continuation).getOrNull() ?: return@launch
+                    YouTube.searchContinuation(continuation, selectedFilter).getOrNull() ?: return@launch
                 viewStateMap[filter] = ItemsPage(
                     (viewState.items + searchResult.items).distinctBy { it.id },
                     searchResult.continuation

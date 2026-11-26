@@ -138,8 +138,11 @@ object AutomixFilter {
         val reference = seed?.let(::Profile)
         val seedKey = seed?.let { songKey(it.title, it.artist) }
         val scores = HashMap<String, Int>()
+        // Feedback applies to this recording only. A renewed like overrides its saved dislike.
         val excludedIds = blocklist.dislikedIds - blocklist.likedIds
         val availableCandidates = candidates.filterNot { it.id in excludedIds }
+        // Restrict a recitation seed when the provider supplies recognizable recitations.
+        // Otherwise retain provider candidates, whose metadata may lack recitation markers.
         val hasRecognizedRecitation =
             reference?.recitation == true && availableCandidates.any { Profile(it).recitation }
         for ((index, candidate) in availableCandidates.withIndex()) {
@@ -149,6 +152,7 @@ object AutomixFilter {
             val profile = reference?.let { Profile(candidate) }
             if (hasRecognizedRecitation && profile?.recitation != true) continue
             val similarity = if (reference != null && profile != null) reference.similarity(profile) else 0
+            // Reward this recording without transferring feedback to its artist or genre.
             val likeBonus = if (candidate.id in blocklist.likedIds) 32 else 0
             scores[candidate.id] = similarity + likeBonus + (12 - index).coerceAtLeast(0)
             seenKeys.add(key)
@@ -163,6 +167,7 @@ object AutomixFilter {
             fresh.sortByDescending { scores[it.id] }
             replayed.sortByDescending { scores[it.id] }
         }
+        // Prefer fresh results, then restore recent plays only when the pool is small.
         val result = spreadArtists(fresh, maxPerArtist, maxConsecutive)
         if (result.size < MIN_FRESH_BEFORE_REPLAY) {
             result += spreadArtists(replayed, maxPerArtist, maxConsecutive, result)

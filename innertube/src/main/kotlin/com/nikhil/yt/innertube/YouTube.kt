@@ -156,7 +156,7 @@ object YouTube {
                 it.musicResponsiveListItemRenderer?.let { renderer ->
                     SearchSuggestionPage.fromMusicResponsiveListItemRenderer(renderer)
                 }
-            }.orEmpty()
+            }.orEmpty().filter { it.isAudioSearchResult() }
         )
     }
 
@@ -219,7 +219,10 @@ object YouTube {
                 } catch (e: Exception) {
                     null
                 }
-            }?.filter { it.items.isNotEmpty() }.orEmpty()
+            }.orEmpty().mapNotNull { summary ->
+                val items = summary.items.filter { it.isAudioSearchResult() }
+                summary.copy(items = items).takeIf { items.isNotEmpty() }
+            }
 
         if (parsedSummaries.size <= 1) {
 
@@ -246,6 +249,12 @@ object YouTube {
 
 
 
+    private fun YTItem.isAudioSearchResult(allowUnclassifiedSong: Boolean = false): Boolean {
+        if (this !is SongItem) return true
+        val type = endpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType
+        return type == MUSIC_VIDEO_TYPE_ATV || (type == null && allowUnclassifiedSong)
+    }
+
     suspend fun search(query: String, filter: SearchFilter): Result<SearchResult> = runCatching {
         val response = innerTube.search(WEB_REMIX, query, filter.value).body<SearchResponse>()
         SearchResult(
@@ -253,22 +262,23 @@ object YouTube {
                 ?.tabRenderer?.content?.sectionListRenderer?.contents?.lastOrNull()
                 ?.musicShelfRenderer?.contents?.getItems()?.mapNotNull {
                     SearchPage.toYTItem(it)
-                }.orEmpty(),
+                }.orEmpty().filter { it.isAudioSearchResult(allowUnclassifiedSong = filter == SearchFilter.FILTER_SONG) },
             continuation = response.contents?.tabbedSearchResultsRenderer?.tabs?.firstOrNull()
                 ?.tabRenderer?.content?.sectionListRenderer?.contents?.lastOrNull()
                 ?.musicShelfRenderer?.continuations?.getContinuation()
         )
     }
 
-    suspend fun searchContinuation(continuation: String): Result<SearchResult> = runCatching {
+    suspend fun searchContinuation(continuation: String, filter: SearchFilter): Result<SearchResult> = runCatching {
         val response = innerTube.search(WEB_REMIX, continuation = continuation).body<SearchResponse>()
         val items = response.continuationContents?.musicShelfContinuation?.contents
             ?.mapNotNull {
                 SearchPage.toYTItem(it.musicResponsiveListItemRenderer)
             } ?: emptyList()
         SearchResult(
-            items = items,
-            continuation = if (items.isEmpty()) null else response.continuationContents?.musicShelfContinuation?.continuations?.getContinuation()
+            items = items.filter { it.isAudioSearchResult(allowUnclassifiedSong = filter == SearchFilter.FILTER_SONG) },
+            continuation = response.continuationContents?.musicShelfContinuation?.continuations?.getContinuation()
+                ?.takeUnless { it == continuation }
         )
     }
 
@@ -1182,6 +1192,7 @@ object YouTube {
                     val subtitle = renderer.subtitle?.runs ?: return null
                     SongItem(
                         id = renderer.navigationEndpoint.watchEndpoint?.videoId ?: return null,
+                        endpoint = renderer.navigationEndpoint.watchEndpoint,
                         title = renderer.title.runs?.firstOrNull()?.text ?: return null,
                         artists = subtitle.mapNotNull {
                             it.navigationEndpoint?.browseEndpoint?.browseId?.let { id ->
