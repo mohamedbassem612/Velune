@@ -1487,7 +1487,7 @@ fun LocalPlaylistScreen(
 
                     IconButton(
                         onClick = {
-                            menuState.show {
+                            menuState.show(expandOnSwipe = true) {
                                 SelectionSongMenu(
                                     songSelection = wrappedSongs.filter { it.isSelected }
                                         .map { it.item.song },
